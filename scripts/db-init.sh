@@ -20,9 +20,16 @@ db_path = os.environ.get("SCIRES_RUNTIME_ROOT", "") + "/db/scires.db"
 os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
 db = sqlite3.connect(db_path)
-db.enable_load_extension(True)
-sqlite_vec.load(db)
-db.enable_load_extension(False)
+
+# Load sqlite-vec if available (requires Python built with --enable-loadable-sqlite-extensions)
+HAS_VEC = False
+try:
+    db.enable_load_extension(True)
+    sqlite_vec.load(db)
+    db.enable_load_extension(False)
+    HAS_VEC = True
+except AttributeError:
+    print("[db-init] Warning: Python lacks loadable extension support, skipping sqlite-vec", file=sys.stderr)
 
 db.executescript("""
 PRAGMA journal_mode = WAL;
@@ -285,24 +292,25 @@ CREATE TABLE IF NOT EXISTS graph_communities (
 );
 """)
 
-# Create sqlite-vec virtual tables
-db.execute("""
-CREATE VIRTUAL TABLE IF NOT EXISTS paper_embeddings USING vec0(
-    paper_id TEXT PRIMARY KEY,
-    embedding FLOAT[768]
-)""")
+# Create sqlite-vec virtual tables (only if extension loaded)
+if HAS_VEC:
+    db.execute("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS paper_embeddings USING vec0(
+        paper_id TEXT PRIMARY KEY,
+        embedding FLOAT[768]
+    )""")
 
-db.execute("""
-CREATE VIRTUAL TABLE IF NOT EXISTS finding_embeddings USING vec0(
-    finding_id TEXT PRIMARY KEY,
-    embedding FLOAT[768]
-)""")
+    db.execute("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS finding_embeddings USING vec0(
+        finding_id TEXT PRIMARY KEY,
+        embedding FLOAT[768]
+    )""")
 
-db.execute("""
-CREATE VIRTUAL TABLE IF NOT EXISTS entity_embeddings USING vec0(
-    entity_id TEXT PRIMARY KEY,
-    embedding FLOAT[768]
-)""")
+    db.execute("""
+    CREATE VIRTUAL TABLE IF NOT EXISTS entity_embeddings USING vec0(
+        entity_id TEXT PRIMARY KEY,
+        embedding FLOAT[768]
+    )""")
 
 db.commit()
 
@@ -312,8 +320,11 @@ print(f"[db-init] Created {len(tables)} tables:")
 for t in tables:
     print(f"  - {t[0]}")
 
-vec_ver = db.execute("SELECT vec_version()").fetchone()[0]
-print(f"[db-init] sqlite-vec version: {vec_ver}")
+if HAS_VEC:
+    vec_ver = db.execute("SELECT vec_version()").fetchone()[0]
+    print(f"[db-init] sqlite-vec version: {vec_ver}")
+else:
+    print("[db-init] sqlite-vec: skipped (vector search unavailable)")
 
 db.close()
 print("[db-init] Database initialized successfully")

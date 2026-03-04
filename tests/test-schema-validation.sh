@@ -38,12 +38,19 @@ for table in papers findings entities relations hypotheses confidence_scores ver
     check "Table '$table' exists" "$([ "$EXISTS" = "1" ] && echo ok || echo "missing")"
 done
 
-# Check sqlite-vec virtual tables
+# Check sqlite-vec virtual tables (skip if extension not available)
 "$PYTHON" -c "
-import sqlite3, sqlite_vec, os
+import sqlite3, os, sys
 db = sqlite3.connect('$DB_PATH')
-db.enable_load_extension(True)
-sqlite_vec.load(db)
+try:
+    import sqlite_vec
+    db.enable_load_extension(True)
+    sqlite_vec.load(db)
+    db.enable_load_extension(False)
+except (AttributeError, ImportError):
+    print('  SKIP: sqlite-vec not available (loadable extensions unsupported)')
+    db.close()
+    sys.exit(0)
 for table in ['paper_embeddings', 'finding_embeddings', 'entity_embeddings']:
     try:
         db.execute(f'SELECT COUNT(*) FROM {table}')
