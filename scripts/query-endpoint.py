@@ -14,7 +14,7 @@ from functools import wraps
 app = Flask(__name__)
 
 RUNTIME_ROOT = os.environ.get("SCIRES_RUNTIME_ROOT",
-    os.path.expanduser("~/Documents/Scientific Researcher/runtime"))
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runtime"))
 DB_PATH = os.path.join(RUNTIME_ROOT, "db", "scires.db")
 API_KEY = os.environ.get("SCIRES_API_KEY")
 PORT = int(os.environ.get("SCIRES_QUERY_PORT", 8099))

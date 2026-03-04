@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.openclaw.ollama</string>
+    <string>com.scires.ollama</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/ollama</string>
