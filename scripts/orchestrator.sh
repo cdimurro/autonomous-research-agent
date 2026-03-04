@@ -38,6 +38,32 @@ check_kill() {
     fi
 }
 
+PHASE_TIMEOUT="${SCIRES_PHASE_TIMEOUT:-1800}"  # 30 min default per phase
+
+# Portable timeout: prefer coreutils timeout/gtimeout, fallback to bash bg+wait
+run_with_timeout() {
+    local secs="$1"; shift
+    if command -v timeout &>/dev/null; then
+        timeout "$secs" "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "$secs" "$@"
+    else
+        "$@" &
+        local pid=$!
+        ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
+        local watcher=$!
+        if wait "$pid" 2>/dev/null; then
+            kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+            return 0
+        else
+            local rc=$?
+            kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+            [ "$rc" -eq 143 ] && return 124  # killed by watcher = timeout
+            return $rc
+        fi
+    fi
+}
+
 run_phase() {
     local phase_name="$1"
     local script="$2"
@@ -49,13 +75,18 @@ run_phase() {
     local start_ts
     start_ts=$(date +%s)
 
-    if bash "$SCRIPT_DIR/scripts/$script" "${args[@]}" 2>&1; then
+    if run_with_timeout "$PHASE_TIMEOUT" bash "$SCRIPT_DIR/scripts/$script" "${args[@]}" 2>&1; then
         local end_ts
         end_ts=$(date +%s)
         local duration=$((end_ts - start_ts))
         log "Phase $phase_name completed in ${duration}s"
     else
-        log "Phase $phase_name FAILED (exit $?)"
+        local exit_code=$?
+        if [ "$exit_code" -eq 124 ]; then
+            log "Phase $phase_name TIMED OUT after ${PHASE_TIMEOUT}s"
+        else
+            log "Phase $phase_name FAILED (exit $exit_code)"
+        fi
     fi
 }
 

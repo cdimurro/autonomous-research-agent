@@ -4,6 +4,9 @@ runtime/
 # Environment (contains local paths)
 .env
 
+# Generated launchd plists (user-specific paths)
+launchd/generated/
+
 # Python
 __pycache__/
 *.pyc

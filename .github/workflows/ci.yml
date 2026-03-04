@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m venv ~/research-venv
+          ~/research-venv/bin/pip install --upgrade pip
+          ~/research-venv/bin/pip install -r requirements.txt
+
+      - name: Set environment
+        run: |
+          sed "s|/path/to/this/repo|$(pwd)|g; s|/path/to/your/python-venv|$HOME/research-venv|g" \
+              .env.example > .env
+          source .env
+          mkdir -p "$SCIRES_RUNTIME_ROOT"/{db,pdfs,parsed,extractions,backups,logs,state,workspace,cache}
+
+      - name: Initialize database
+        run: |
+          source .env
+          bash scripts/db-init.sh
+
+      - name: Run schema validation tests
+        run: |
+          source .env
+          bash tests/test-schema-validation.sh
+
+      - name: Run numeric validator tests
+        run: |
+          source .env
+          bash tests/test-validators.sh

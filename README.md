@@ -1,5 +1,8 @@
 # 24/7 Autonomous Research Agent
 
+[![CI](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A fully autonomous, local-first research agent that runs 24/7. It continuously ingests scientific papers, parses PDFs, extracts structured findings with provenance, builds a knowledge graph, and generates novel cross-domain hypotheses — all running on your own hardware with no cloud dependency.
 
 **Configure it for any field or research domain** — energy, biology, medicine, materials science, computer science, or anything else. Just add your own RSS feeds and APIs.

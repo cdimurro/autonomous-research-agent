@@ -58,8 +58,8 @@ def get_db():
     db.row_factory = sqlite3.Row
     return db
 
-EMAIL = "user@localhost"  # Set your email for Unpaywall API
-UA = "AutonomousResearchAgent/1.0 (mailto:user@localhost)"
+EMAIL = os.environ.get("SCIRES_CONTACT_EMAIL", "user@localhost")
+UA = f"AutonomousResearchAgent/1.0 (mailto:{EMAIL})"
 
 def resolve_arxiv(paper):
     """Resolve arXiv PDF URL from ID or source URL"""
