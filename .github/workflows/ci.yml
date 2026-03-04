@@ -17,11 +17,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install CI dependencies
         run: |
           python -m venv ~/research-venv
           ~/research-venv/bin/pip install --upgrade pip
-          ~/research-venv/bin/pip install -r requirements.txt
+          ~/research-venv/bin/pip install sqlite-vec pyyaml flask
 
       - name: Set environment
         run: |
