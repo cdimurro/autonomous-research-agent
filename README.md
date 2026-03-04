@@ -1,12 +1,12 @@
-# Autonomous Research Agent
+# 24/7 Autonomous Research Agent
 
-A fully autonomous, local-first research agent that runs 24/7. It continuously discovers and ingests scientific papers from RSS feeds and APIs, parses PDFs, extracts structured findings with provenance, builds a knowledge graph, and generates novel cross-domain hypotheses — all running on your own hardware with no cloud dependency.
+A fully autonomous, local-first research agent that runs 24/7. It continuously ingests scientific papers, parses PDFs, extracts structured findings with provenance, builds a knowledge graph, and generates novel cross-domain hypotheses — all running on your own hardware with no cloud dependency.
 
-**Configure it for any research domain** — energy, biology, medicine, materials science, ecology, computer science, or anything else. Just add your feeds and ontologies.
+**Configure it for any field or research domain** — energy, biology, medicine, materials science, computer science, or anything else. Just add your own RSS feeds and APIs.
 
 ## Features
 
-- **Domain-agnostic**: Configure feeds, ontologies, and validators for any research field
+- **Domain-agnostic**: Configure feeds, APIs, and validators for any field or research domain
 - **Fully local**: Runs on a single machine with Ollama (local LLM), no API keys needed
 - **9-phase pipeline**: Ingest → Fetch → Parse → Extract → Judge → Feedback → Align → Index → Hypothesize
 - **Provenance-first**: Every extracted finding includes a verbatim quote from the source text
@@ -69,8 +69,10 @@ python3.11 -m venv ~/research-venv
 source ~/research-venv/bin/activate
 pip install -r requirements.txt
 
-# Pull an Ollama model (adjust for your hardware)
+# Pull an Ollama model
 ollama pull qwen3.5:9b-q4_K_M
+# QWEN 3.5 9B-q4_K_M is recommended for running 24/7 a Mac Mini with 16GB
+# Adjust the AI model for your hardware
 
 # Start GROBID
 docker pull lfoppiano/grobid:0.8.2
