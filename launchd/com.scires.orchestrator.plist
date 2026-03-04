@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.scires.orchestrator</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>set -- --cycle; . '/PATH/TO/REPO/scripts/orchestrator.sh'</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>14400</integer>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SCIRES_RUNTIME_ROOT</key>
+        <string>/PATH/TO/REPO/runtime</string>
+        <key>SCIRES_REPO_ROOT</key>
+        <string>/PATH/TO/REPO</string>
+        <key>SCIRES_VENV</key>
+        <string>/PATH/TO/VENV</string>
+        <key>OLLAMA_HOST</key>
+        <string>127.0.0.1:11434</string>
+        <key>OLLAMA_MODEL</key>
+        <string>qwen3.5:9b-q4_K_M</string>
+        <key>GROBID_URL</key>
+        <string>http://localhost:8070</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/PATH/TO/REPO/runtime/logs/orchestrator-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/PATH/TO/REPO/runtime/logs/orchestrator-stderr.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

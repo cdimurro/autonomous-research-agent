@@ -1,0 +1,23 @@
+# Core dependencies — install in a Python 3.11+ virtual environment
+# pip install -r requirements.txt
+
+# PDF parsing
+docling>=2.76.0
+
+# Scientific embeddings
+transformers>=4.36
+adapters>=0.2
+torch>=2.1
+
+# Vector search
+sqlite-vec>=0.1.6
+
+# Web API
+flask>=3.0
+
+# Feed parsing
+feedparser>=6.0
+requests>=2.31
+
+# Config
+pyyaml>=6.0

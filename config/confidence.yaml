@@ -1,0 +1,50 @@
+# Confidence scoring weights
+factors:
+  source_quality:
+    weight: 0.20
+    description: "Journal impact, peer review status"
+    tiers:
+      nature_science: 0.95
+      peer_reviewed: 0.80
+      preprint: 0.60
+      industry_report: 0.50
+
+  extraction_quality:
+    weight: 0.25
+    description: "Parser tier, quality score, text coverage"
+    tier_scores:
+      tier0_only: 0.50
+      tier1: 0.85
+      tier1_ocr: 0.70
+      tier2: 0.60
+
+  cross_reference:
+    weight: 0.15
+    description: "Corroboration by other papers/findings"
+    scoring:
+      no_corroboration: 0.30
+      single_corroboration: 0.60
+      multiple_corroboration: 0.90
+
+  numeric_validation:
+    weight: 0.25
+    description: "Deterministic validator pass rate"
+    scoring:
+      all_passed: 1.00
+      some_failed: 0.40
+      not_applicable: 0.70
+
+  hallucination_check:
+    weight: 0.15
+    description: "Quote found in source text"
+    scoring:
+      exact_match: 1.00
+      fuzzy_match: 0.70
+      no_match: 0.10
+
+# Thresholds
+thresholds:
+  accept_finding: 0.60
+  flag_for_review: 0.40
+  reject_finding: 0.25
+  trigger_feedback_cycle: 0.60

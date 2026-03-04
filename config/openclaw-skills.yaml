@@ -1,0 +1,178 @@
+skills:
+  feed-ingest:
+    name: feed-ingest
+    description: "Poll configured RSS/API feeds for new papers"
+    command: "scripts/feed-ingest.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - poll
+      - poll-source
+      - status
+    output_format: json
+    network:
+      required: true
+      allowed_hosts:
+        - "export.arxiv.org"
+        - "rss.arxiv.org"
+        - "www.nature.com"
+        - "api.openalex.org"
+        - "www.renewableenergyworld.com"
+      allowed_ports: [443]
+
+  pdf-fetch:
+    name: pdf-fetch
+    description: "Download paper PDFs from source URLs"
+    command: "scripts/pdf-fetch.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - fetch
+      - fetch-batch
+    output_format: json
+    network:
+      required: true
+      allowed_hosts:
+        - "arxiv.org"
+        - "export.arxiv.org"
+        - "www.nature.com"
+        - "api.openalex.org"
+      allowed_ports: [443]
+
+  parser-route:
+    name: parser-route
+    description: "AdaParse-lite tiered parser routing for PDF extraction"
+    command: "scripts/parser-route.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - route
+      - route-batch
+      - classify
+    output_format: json
+
+  grobid-extract:
+    name: grobid-extract
+    description: "Tier 0: GROBID bibliographic spine extraction"
+    command: "scripts/grobid-extract.sh"
+    env_required:
+      - GROBID_URL
+    path_restricted: true
+    output_format: json
+    network:
+      required: true
+      allowed_hosts:
+        - "localhost"
+      allowed_ports: [8070]
+
+  docling-extract:
+    name: docling-extract
+    description: "Tier 1: Docling PDF-to-structured-text conversion"
+    command: "scripts/docling-extract.sh"
+    env_required: []
+    path_restricted: true
+    output_format: json
+
+  structsense-extract:
+    name: structsense-extract
+    description: "LLM-driven structured extraction of findings, entities, relations"
+    command: "scripts/structsense-extract.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - extract
+      - extract-batch
+    output_format: json
+
+  judge-score:
+    name: judge-score
+    description: "Confidence scoring, hallucination detection, deterministic validation"
+    command: "scripts/judge-score.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - score
+      - score-batch
+      - validate
+    output_format: json
+
+  ontology-align:
+    name: ontology-align
+    description: "Map entities to configured ontologies"
+    command: "scripts/ontology-align.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - align
+      - align-batch
+      - lookup
+    output_format: json
+
+  embed-index:
+    name: embed-index
+    description: "Generate SPECTER2 embeddings and index into sqlite-vec"
+    command: "scripts/embed-index.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - index
+      - index-batch
+      - search
+    output_format: json
+
+  graph-build:
+    name: graph-build
+    description: "Build knowledge graph from entities and relations"
+    command: "scripts/graph-build.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - build
+      - query
+      - communities
+    output_format: json
+
+  hypothesis-gen:
+    name: hypothesis-gen
+    description: "Generate hypotheses from accumulated findings"
+    command: "scripts/hypothesis-gen.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - generate
+      - evaluate
+      - list
+    output_format: json
+
+  daily-digest:
+    name: daily-digest
+    description: "Generate daily research digest"
+    command: "scripts/daily-digest.sh"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - generate
+      - preview
+    output_format: text
+
+  query-db:
+    name: query-db
+    description: "Query the scientific research database"
+    command: "scripts/query-endpoint.py"
+    env_required: []
+    path_restricted: true
+    subcommands:
+      - papers
+      - findings
+      - hypotheses
+      - search
+      - graph
+      - health
+    output_format: json
+
+settings:
+  runtime_root_env: SCIRES_RUNTIME_ROOT
+  default_timeout: 300
+  max_output_bytes: 5242880
+  audit_logging: true
+  redact_secrets: true

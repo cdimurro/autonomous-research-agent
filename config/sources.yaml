@@ -1,0 +1,74 @@
+# Feed sources configuration
+# Add your own RSS feeds and API endpoints for your research domain.
+# The agent will poll these feeds on the configured interval and ingest new papers.
+#
+# Feed types:
+#   rss  — Standard RSS/Atom feed (arXiv, Nature, bioRxiv, PubMed, etc.)
+#   api  — OpenAlex REST API (supports concept filtering)
+#
+# Relevance keywords:
+#   If provided, papers are scored by keyword match in title+abstract.
+#   Empty list [] means accept all papers from that feed.
+
+feeds:
+  # === EXAMPLE: arXiv RSS feeds ===
+  # Find arXiv categories at https://arxiv.org/category_taxonomy
+  # RSS format: https://rss.arxiv.org/rss/<category>
+
+  # arxiv_cs_ai:
+  #   url: "https://rss.arxiv.org/rss/cs.AI"
+  #   type: rss
+  #   poll_interval_hours: 4
+  #   relevance_keywords:
+  #     - "large language model"
+  #     - "reinforcement learning"
+  #     - "transformer"
+
+  # === EXAMPLE: Nature journal RSS ===
+  # Find Nature journals at https://www.nature.com/siteindex
+  # RSS format: https://www.nature.com/<journal-code>.rss
+
+  # nature_example:
+  #   url: "https://www.nature.com/nature.rss"
+  #   type: rss
+  #   poll_interval_hours: 12
+  #   relevance_keywords: []  # Accept all
+
+  # === EXAMPLE: bioRxiv RSS ===
+  # Subjects: https://connect.biorxiv.org/biorxiv_xml.php?subject=<subject>
+  # Available: neuroscience, ecology, genomics, bioinformatics, etc.
+
+  # biorxiv_neuro:
+  #   url: "https://connect.biorxiv.org/biorxiv_xml.php?subject=neuroscience"
+  #   type: rss
+  #   poll_interval_hours: 12
+  #   relevance_keywords:
+  #     - "brain-computer interface"
+  #     - "neural decoding"
+
+  # === EXAMPLE: OpenAlex API ===
+  # Find concept IDs at https://docs.openalex.org/api-entities/concepts
+  # Filter by concept, date, institution, etc.
+
+  # openalex_ml:
+  #   url: "https://api.openalex.org/works"
+  #   type: api
+  #   poll_interval_hours: 12
+  #   params:
+  #     filter: "concepts.id:C154945302,from_publication_date:{today-7d}"
+  #     sort: "publication_date:desc"
+  #     per_page: 50
+  #   concepts:
+  #     - "C154945302"   # Machine learning
+
+# ─────────────────────────────────────────
+# ADD YOUR FEEDS BELOW
+# ─────────────────────────────────────────
+
+
+settings:
+  max_papers_per_poll: 50
+  dedup_window_days: 90
+  relevance_threshold: 0.3       # Papers scoring below this are skipped
+  rate_limit_arxiv_seconds: 3    # arXiv requests: respect robots.txt
+  rate_limit_default_seconds: 1  # All other feeds

@@ -1,0 +1,23 @@
+# Runtime data (mutable state, PDFs, DB, logs)
+runtime/
+
+# Environment (contains local paths)
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# macOS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/

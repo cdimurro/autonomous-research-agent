@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.scires.daily-digest</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/PATH/TO/REPO/scripts/daily-digest.sh</string>
+        <string>generate</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SCIRES_RUNTIME_ROOT</key>
+        <string>/PATH/TO/REPO/runtime</string>
+        <key>SCIRES_REPO_ROOT</key>
+        <string>/PATH/TO/REPO</string>
+        <key>SCIRES_VENV</key>
+        <string>/PATH/TO/VENV</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/PATH/TO/REPO/runtime/logs/digest-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/PATH/TO/REPO/runtime/logs/digest-stderr.log</string>
+</dict>
+</plist>

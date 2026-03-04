@@ -1,0 +1,119 @@
+# Ontology alignment configuration
+#
+# Define ontologies for your research domain. The alignment phase maps
+# extracted entities to standardized terms from these ontologies.
+#
+# Structure:
+#   Each ontology has:
+#     - name, description, base_url
+#     - terms: mapping of ontology IDs to human-readable names
+#     - keywords_to_terms: keyword → ontology ID for fuzzy matching
+#
+# If you don't need ontology alignment, leave this file with only the
+# generic sections below. The alignment phase will skip entities that
+# don't match any ontology.
+
+# ─────────────────────────────────────────
+# GENERIC: Scientific methods & software
+# These apply across most research domains.
+# ─────────────────────────────────────────
+
+generic:
+  name: "Generic Scientific Terms"
+  description: "Cross-domain methods, software, and instruments"
+  categories:
+    methods:
+      - "X-ray diffraction"
+      - "XRD"
+      - "scanning electron microscopy"
+      - "SEM"
+      - "transmission electron microscopy"
+      - "TEM"
+      - "cryo-EM"
+      - "atomic force microscopy"
+      - "AFM"
+      - "NMR"
+      - "mass spectrometry"
+      - "DFT"
+      - "density functional theory"
+      - "molecular dynamics"
+      - "Monte Carlo"
+      - "machine learning"
+      - "deep learning"
+      - "neural network"
+      - "Bayesian"
+      - "high-throughput screening"
+      - "in situ"
+      - "operando"
+    software:
+      - "VASP"
+      - "Gaussian"
+      - "GROMACS"
+      - "LAMMPS"
+      - "AlphaFold"
+      - "PyTorch"
+      - "TensorFlow"
+      - "scikit-learn"
+      - "Quantum ESPRESSO"
+      - "ORCA"
+      - "COMSOL"
+      - "ANSYS"
+    simulation_methods:
+      - "finite element"
+      - "FDTD"
+      - "GCMC"
+      - "NSGA-II"
+      - "genetic algorithm"
+      - "particle swarm"
+      - "ab initio"
+
+# ─────────────────────────────────────────
+# DOMAIN-SPECIFIC: Add your own ontologies
+# ─────────────────────────────────────────
+#
+# Example: Environment Ontology (ENVO) for ecology research
+#
+# envo:
+#   name: "Environment Ontology"
+#   description: "Ecosystem and environmental types"
+#   base_url: "http://purl.obolibrary.org/obo/ENVO_"
+#   terms:
+#     ENVO_01000174: "forest biome"
+#     ENVO_01000177: "grassland biome"
+#     ENVO_00000043: "wetland"
+#   keywords_to_terms:
+#     "forest": "ENVO_01000174"
+#     "grassland": "ENVO_01000177"
+#     "wetland": "ENVO_00000043"
+#
+# Example: Battery Data Format (BDF) for energy research
+#
+# bdf:
+#   name: "Battery Data Format"
+#   description: "Battery materials, chemistries, and metrics"
+#   categories:
+#     cell_chemistry:
+#       - "lithium-ion"
+#       - "sodium-ion"
+#       - "solid-state"
+#     electrode_materials:
+#       - "LiFePO4"
+#       - "graphite"
+#       - "silicon"
+#     performance_metrics:
+#       - "energy_density_gravimetric"
+#       - "cycle_life"
+#       - "coulombic_efficiency"
+#
+# Example: Gene Ontology (GO) for biology research
+#
+# go:
+#   name: "Gene Ontology"
+#   description: "Biological processes, molecular functions, cellular components"
+#   base_url: "http://purl.obolibrary.org/obo/GO_"
+#   terms:
+#     GO_0008150: "biological_process"
+#     GO_0003674: "molecular_function"
+#   keywords_to_terms:
+#     "apoptosis": "GO_0006915"
+#     "cell cycle": "GO_0007049"

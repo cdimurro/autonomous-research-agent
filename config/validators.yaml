@@ -1,0 +1,84 @@
+# Domain-specific numeric validators
+#
+# Define physical bounds for metrics in your research domain.
+# The judge phase uses these to check extracted values without LLM involvement.
+# If a metric isn't listed here, only generic checks (percentage 0-100, etc.) apply.
+#
+# Format:
+#   domains:
+#     <domain_name>:
+#       <metric_name>:
+#         min: <lower bound>
+#         max: <upper bound>
+#         unit: "<unit string>"
+
+domains:
+  # === EXAMPLE: Energy domain ===
+  # energy:
+  #   energy_density_gravimetric:
+  #     min: 1
+  #     max: 2000
+  #     unit: "Wh/kg"
+  #   solar_efficiency:
+  #     min: 0
+  #     max: 47
+  #     unit: "%"
+  #   voltage:
+  #     min: 0
+  #     max: 5
+  #     unit: "V"
+  #   cycle_life:
+  #     min: 1
+  #     max: 100000
+  #     unit: "cycles"
+
+  # === EXAMPLE: Materials domain ===
+  # materials:
+  #   bandgap:
+  #     min: 0
+  #     max: 15
+  #     unit: "eV"
+  #   conductivity:
+  #     min: 1e-20
+  #     max: 1e8
+  #     unit: "S/m"
+
+  # === EXAMPLE: Ecology domain ===
+  # ecology:
+  #   ph:
+  #     min: 0
+  #     max: 14
+  #     unit: ""
+  #   biodiversity_index:
+  #     min: 0
+  #     max: 1
+  #     unit: ""
+  #   soil_organic_carbon:
+  #     min: 0
+  #     max: 30
+  #     unit: "%"
+
+  # === EXAMPLE: Medicine domain ===
+  # medicine:
+  #   blood_pressure_systolic:
+  #     min: 40
+  #     max: 300
+  #     unit: "mmHg"
+  #   heart_rate:
+  #     min: 20
+  #     max: 300
+  #     unit: "bpm"
+
+  # ─────────────────────────────────────────
+  # ADD YOUR DOMAIN VALIDATORS BELOW
+  # ─────────────────────────────────────────
+
+  generic:
+    percentage:
+      min: 0
+      max: 100
+      unit: "%"
+    temperature:
+      min: -273.15
+      max: 3000
+      unit: "C"

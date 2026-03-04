@@ -1,0 +1,51 @@
+# AdaParse-lite parser routing configuration
+tiers:
+  tier0:
+    name: "GROBID bibliographic spine"
+    parser: "grobid"
+    always_run: true
+    description: "Fast text-layer + metadata/references extraction"
+
+  tier1:
+    name: "Docling primary"
+    parser: "docling"
+    ocr: false
+    tables: false
+    conditions:
+      has_text_layer: true
+      font_quality_min: 0.7
+
+  tier1_ocr:
+    name: "Docling with OCR"
+    parser: "docling"
+    ocr: true
+    tables: false
+    conditions:
+      has_text_layer: true
+      font_quality_min: 0.0
+      font_quality_max: 0.7
+
+  tier2:
+    name: "Docling full OCR"
+    parser: "docling"
+    ocr: true
+    tables: true
+    conditions:
+      has_text_layer: false
+
+# Feature extraction thresholds
+classifier:
+  text_layer_min_chars_per_page: 100
+  font_quality_threshold: 0.7
+  image_density_vlm_threshold: 0.3
+
+# Quality gate
+quality_gate:
+  min_quality_score: 0.3
+  escalate_on_failure: true
+  max_escalations: 1
+
+# Vision model (future - currently disabled)
+use_vision: false
+vision_model: "qwen3.5:9b-q4_K_M"
+vision_trigger: "image_density > 0.3 AND quality_score < 0.3"
