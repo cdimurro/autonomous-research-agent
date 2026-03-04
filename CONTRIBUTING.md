@@ -37,7 +37,7 @@ Open an issue with:
 
 ## Domain Config Packs
 
-If you've configured the agent for a specific research domain and want to share it, consider contributing a "domain pack" — a folder under `examples/` containing:
+If you've configured the agent for a specific research domain and want to share it, consider contributing a "domain pack" — a folder under `config/examples/` containing:
 - `sources.yaml` — feed definitions for that domain
 - `ontologies.yaml` — relevant ontology mappings
 - `validators.yaml` — domain-specific numeric validators

@@ -10,7 +10,7 @@ export PAPER_ID="${2:-}"
 PYTHON="${SCIRES_VENV}/bin/python3"
 
 "$PYTHON" << 'PYEOF'
-import sqlite3, json, os, sys, time, re, requests
+import sqlite3, json, os, sys, time, re, requests, yaml
 from datetime import datetime
 
 COMMAND = os.environ.get("COMMAND", "score-batch")
@@ -24,25 +24,43 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
 with open(f"{REPO_ROOT}/prompts/system_judge.md") as f:
     JUDGE_PROMPT = f.read()
 
-# Physical range validators
-VALIDATORS = {
-    "energy_density_gravimetric": (1, 2000, "Wh/kg"),
-    "energy_density_volumetric": (1, 5000, "Wh/L"),
-    "power_density": (1, 50000, "W/kg"),
-    "solar_efficiency": (0, 47, "%"), "pce": (0, 47, "%"),
-    "power_conversion_efficiency": (0, 47, "%"),
-    "voltage": (0, 5, "V"), "open_circuit_voltage": (0, 2, "V"),
-    "capacity": (1, 500, "mAh/g"), "cycle_life": (1, 100000, "cycles"),
-    "coulombic_efficiency": (0, 100, "%"), "fill_factor": (0, 100, "%"),
-    "bandgap": (0, 15, "eV"), "conductivity": (1e-20, 1e8, "S/m"),
-    "temperature": (-273.15, 3000, "C"),
-    "ph": (0, 14, ""), "co2_concentration": (0, 100000, "ppm"),
-    "biodiversity_index": (0, 1, ""), "shannon_diversity": (0, 6, ""),
-    "simpson_diversity": (0, 1, ""), "species_richness": (0, 100000, ""),
-    "biomass_density": (0, 2000, "t/ha"), "soil_organic_carbon": (0, 30, "%"),
-    "carbon_sequestration_rate": (0, 50, "tC/ha/yr"), "canopy_cover": (0, 100, "%"),
-    "efficiency": (0, 100, "%"), "percentage": (0, 100, "%"),
-}
+# Load validators from config/validators.yaml
+VALIDATORS = {}
+try:
+    with open(f"{REPO_ROOT}/config/validators.yaml") as f:
+        vconf = yaml.safe_load(f)
+    for domain, metrics in (vconf.get("domains") or {}).items():
+        for metric, bounds in (metrics or {}).items():
+            VALIDATORS[metric] = (bounds["min"], bounds["max"], bounds.get("unit", ""))
+except Exception as e:
+    print(f"[judge] Warning: Could not load validators.yaml ({e}), using defaults", file=sys.stderr)
+    VALIDATORS = {"percentage": (0, 100, "%"), "temperature": (-273.15, 3000, "C")}
+
+# Load confidence config
+CONF_CONFIG = {}
+try:
+    with open(f"{REPO_ROOT}/config/confidence.yaml") as f:
+        CONF_CONFIG = yaml.safe_load(f) or {}
+except Exception as e:
+    print(f"[judge] Warning: Could not load confidence.yaml ({e})", file=sys.stderr)
+
+# Source quality tiers from confidence.yaml
+SOURCE_TIERS = CONF_CONFIG.get("source_tiers") or {"nature": 0.95, "openalex": 0.75, "arxiv": 0.65}
+
+# Confidence weights from confidence.yaml
+WEIGHTS = {}
+for factor_name, factor_conf in (CONF_CONFIG.get("factors") or {}).items():
+    if isinstance(factor_conf, dict) and "weight" in factor_conf:
+        WEIGHTS[factor_name] = factor_conf["weight"]
+if not WEIGHTS:
+    WEIGHTS = {"source_quality": 0.20, "extraction_quality": 0.25,
+               "cross_reference": 0.15, "numeric_validation": 0.25,
+               "hallucination_check": 0.15}
+
+# Thresholds from confidence.yaml
+THRESHOLDS = CONF_CONFIG.get("thresholds") or {"accept_finding": 0.60, "reject_finding": 0.25}
+
+print(f"[judge] Loaded {len(VALIDATORS)} validators, {len(SOURCE_TIERS)} source tiers")
 
 def get_db():
     db = sqlite3.connect(DB_PATH)
@@ -180,7 +198,7 @@ def score_paper(db, paper_id):
 
         # 3. Source quality (from paper metadata)
         source = paper["source"]
-        source_score = {"nature": 0.95, "openalex": 0.75, "arxiv": 0.65, "rew": 0.50}.get(source, 0.5)
+        source_score = SOURCE_TIERS.get(source, 0.5)
 
         # 4. Extraction quality
         has_structured = finding["structured_data"] is not None
@@ -197,16 +215,15 @@ def score_paper(db, paper_id):
         }
 
         # Weighted average
-        weights = {"source_quality": 0.20, "extraction_quality": 0.25,
-                   "cross_reference": 0.15, "numeric_validation": 0.25,
-                   "hallucination_check": 0.15}
-        overall = sum(factors[k] * weights[k] for k in factors)
+        overall = sum(factors[k] * WEIGHTS.get(k, 0.2) for k in factors)
 
-        # Verdict
-        if hall_score < 0.5 or overall < 0.25:
+        # Verdict (using thresholds from confidence.yaml)
+        accept_thresh = THRESHOLDS.get("accept_finding", 0.60)
+        reject_thresh = THRESHOLDS.get("reject_finding", 0.25)
+        if hall_score < 0.5 or overall < reject_thresh:
             verdict = "rejected"
             rejected += 1
-        elif overall >= 0.6 and hall_score >= 0.5:
+        elif overall >= accept_thresh and hall_score >= 0.5:
             verdict = "accepted"
             accepted += 1
         else:

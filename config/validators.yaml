@@ -13,68 +13,118 @@
 #         unit: "<unit string>"
 
 domains:
-  # === EXAMPLE: Energy domain ===
-  # energy:
-  #   energy_density_gravimetric:
-  #     min: 1
-  #     max: 2000
-  #     unit: "Wh/kg"
-  #   solar_efficiency:
-  #     min: 0
-  #     max: 47
-  #     unit: "%"
-  #   voltage:
-  #     min: 0
-  #     max: 5
-  #     unit: "V"
-  #   cycle_life:
-  #     min: 1
-  #     max: 100000
-  #     unit: "cycles"
+  energy:
+    energy_density_gravimetric:
+      min: 1
+      max: 2000
+      unit: "Wh/kg"
+    energy_density_volumetric:
+      min: 1
+      max: 5000
+      unit: "Wh/L"
+    power_density:
+      min: 1
+      max: 50000
+      unit: "W/kg"
+    solar_efficiency:
+      min: 0
+      max: 47
+      unit: "%"
+    pce:
+      min: 0
+      max: 47
+      unit: "%"
+    power_conversion_efficiency:
+      min: 0
+      max: 47
+      unit: "%"
+    voltage:
+      min: 0
+      max: 5
+      unit: "V"
+    open_circuit_voltage:
+      min: 0
+      max: 2
+      unit: "V"
+    capacity:
+      min: 1
+      max: 500
+      unit: "mAh/g"
+    cycle_life:
+      min: 1
+      max: 100000
+      unit: "cycles"
+    coulombic_efficiency:
+      min: 0
+      max: 100
+      unit: "%"
+    fill_factor:
+      min: 0
+      max: 100
+      unit: "%"
 
-  # === EXAMPLE: Materials domain ===
-  # materials:
-  #   bandgap:
-  #     min: 0
-  #     max: 15
-  #     unit: "eV"
-  #   conductivity:
-  #     min: 1e-20
-  #     max: 1e8
-  #     unit: "S/m"
+  materials:
+    bandgap:
+      min: 0
+      max: 15
+      unit: "eV"
+    conductivity:
+      min: 1e-20
+      max: 1e8
+      unit: "S/m"
 
-  # === EXAMPLE: Ecology domain ===
-  # ecology:
-  #   ph:
-  #     min: 0
-  #     max: 14
-  #     unit: ""
-  #   biodiversity_index:
-  #     min: 0
-  #     max: 1
-  #     unit: ""
-  #   soil_organic_carbon:
-  #     min: 0
-  #     max: 30
-  #     unit: "%"
-
-  # === EXAMPLE: Medicine domain ===
-  # medicine:
-  #   blood_pressure_systolic:
-  #     min: 40
-  #     max: 300
-  #     unit: "mmHg"
-  #   heart_rate:
-  #     min: 20
-  #     max: 300
-  #     unit: "bpm"
+  ecology:
+    ph:
+      min: 0
+      max: 14
+      unit: ""
+    co2_concentration:
+      min: 0
+      max: 100000
+      unit: "ppm"
+    biodiversity_index:
+      min: 0
+      max: 1
+      unit: ""
+    shannon_diversity:
+      min: 0
+      max: 6
+      unit: ""
+    simpson_diversity:
+      min: 0
+      max: 1
+      unit: ""
+    species_richness:
+      min: 0
+      max: 100000
+      unit: ""
+    biomass_density:
+      min: 0
+      max: 2000
+      unit: "t/ha"
+    soil_organic_carbon:
+      min: 0
+      max: 30
+      unit: "%"
+    carbon_sequestration_rate:
+      min: 0
+      max: 50
+      unit: "tC/ha/yr"
+    canopy_cover:
+      min: 0
+      max: 100
+      unit: "%"
 
   # ─────────────────────────────────────────
-  # ADD YOUR DOMAIN VALIDATORS BELOW
+  # ADD YOUR DOMAIN VALIDATORS ABOVE
   # ─────────────────────────────────────────
 
   generic:
     percentage:
+      min: 0
+      max: 100
+      unit: "%"
+    efficiency:
       min: 0
       max: 100
       unit: "%"

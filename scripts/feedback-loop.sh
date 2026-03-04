@@ -57,8 +57,26 @@ for cycle in range(1, MAX_CYCLES + 1):
 
         print(f"[feedback] Cycle {cycle}: {rejected} rejected, avg confidence {avg_conf:.2f}. Re-extracting...")
 
+        # Build critique context from rejected/low-confidence findings
+        rejected_findings = db.execute(
+            """SELECT content, judge_rationale, confidence FROM findings
+               WHERE paper_id=? AND extraction_cycle=? AND (judge_verdict='rejected' OR confidence < 0.5)
+               LIMIT 5""",
+            (PAPER_ID, cycle - 1)
+        ).fetchall()
+        feedback_summary = "; ".join(
+            f"[{f['confidence']:.2f}] {f['content'][:80]}... ({f['judge_rationale']})"
+            for f in rejected_findings
+        ) if rejected_findings else ""
+
         # Re-run extraction with critique context
         env = {**os.environ}
+        if feedback_summary:
+            env["SCIRES_FEEDBACK_CONTEXT"] = (
+                f"The following findings were rejected or scored low in cycle {cycle-1}: "
+                f"{feedback_summary}. "
+                "Please improve accuracy: use exact verbatim quotes and verify numeric values."
+            )
         result = subprocess.run(
             ["bash", f"{REPO_ROOT}/scripts/structsense-extract.sh", "extract", PAPER_ID],
             capture_output=True, text=True, timeout=600, env=env

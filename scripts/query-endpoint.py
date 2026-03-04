@@ -39,85 +39,100 @@ def auth_required(f):
 
 @app.route("/health")
 def health():
+    db = None
     try:
         db = get_db()
         total = db.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
-        db.close()
-        return jsonify({"status": "ok", "total_papers": total, "db_path": DB_PATH})
+        return jsonify({"status": "ok", "total_papers": total})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 @app.route("/papers")
 @auth_required
 def papers():
-    status = request.args.get("status")
-    limit = min(int(request.args.get("limit", 20)), 100)
-    offset = int(request.args.get("offset", 0))
+    db = None
+    try:
+        status = request.args.get("status")
+        limit = min(int(request.args.get("limit", 20)), 100)
+        offset = int(request.args.get("offset", 0))
 
-    db = get_db()
-    query = "SELECT paper_id, title, source, status, relevance_score, publication_date, fetched_at FROM papers"
-    params = []
+        db = get_db()
+        query = "SELECT paper_id, title, source, status, relevance_score, publication_date, fetched_at FROM papers"
+        params = []
 
-    if status:
-        query += " WHERE status = ?"
-        params.append(status)
+        if status:
+            query += " WHERE status = ?"
+            params.append(status)
 
-    query += " ORDER BY fetched_at DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+        query += " ORDER BY fetched_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
-    rows = db.execute(query, params).fetchall()
-    db.close()
-    return jsonify([dict(r) for r in rows])
+        rows = db.execute(query, params).fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        if db:
+            db.close()
 
 @app.route("/findings")
 @auth_required
 def findings():
-    paper_id = request.args.get("paper_id")
-    min_confidence = float(request.args.get("min_confidence", 0))
-    finding_type = request.args.get("type")
-    limit = min(int(request.args.get("limit", 50)), 200)
+    db = None
+    try:
+        paper_id = request.args.get("paper_id")
+        min_confidence = float(request.args.get("min_confidence", 0))
+        finding_type = request.args.get("type")
+        limit = min(int(request.args.get("limit", 50)), 200)
 
-    db = get_db()
-    query = "SELECT * FROM findings WHERE 1=1"
-    params = []
+        db = get_db()
+        query = "SELECT * FROM findings WHERE 1=1"
+        params = []
 
-    if paper_id:
-        query += " AND paper_id = ?"
-        params.append(paper_id)
-    if min_confidence > 0:
-        query += " AND confidence >= ?"
-        params.append(min_confidence)
-    if finding_type:
-        query += " AND finding_type = ?"
-        params.append(finding_type)
+        if paper_id:
+            query += " AND paper_id = ?"
+            params.append(paper_id)
+        if min_confidence > 0:
+            query += " AND confidence >= ?"
+            params.append(min_confidence)
+        if finding_type:
+            query += " AND finding_type = ?"
+            params.append(finding_type)
 
-    query += " ORDER BY confidence DESC LIMIT ?"
-    params.append(limit)
+        query += " ORDER BY confidence DESC LIMIT ?"
+        params.append(limit)
 
-    rows = db.execute(query, params).fetchall()
-    db.close()
-    return jsonify([dict(r) for r in rows])
+        rows = db.execute(query, params).fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        if db:
+            db.close()
 
 @app.route("/hypotheses")
 @auth_required
 def hypotheses():
-    status = request.args.get("status")
-    limit = min(int(request.args.get("limit", 20)), 100)
+    db = None
+    try:
+        status = request.args.get("status")
+        limit = min(int(request.args.get("limit", 20)), 100)
 
-    db = get_db()
-    query = "SELECT * FROM hypotheses"
-    params = []
+        db = get_db()
+        query = "SELECT * FROM hypotheses"
+        params = []
 
-    if status:
-        query += " WHERE status = ?"
-        params.append(status)
+        if status:
+            query += " WHERE status = ?"
+            params.append(status)
 
-    query += " ORDER BY confidence DESC LIMIT ?"
-    params.append(limit)
+        query += " ORDER BY confidence DESC LIMIT ?"
+        params.append(limit)
 
-    rows = db.execute(query, params).fetchall()
-    db.close()
-    return jsonify([dict(r) for r in rows])
+        rows = db.execute(query, params).fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        if db:
+            db.close()
 
 @app.route("/search")
 @auth_required
@@ -129,22 +144,20 @@ def search():
     if not q:
         return jsonify({"error": "Missing 'q' parameter"}), 400
 
-    db = get_db()
+    db = None
+    try:
+        db = get_db()
 
-    if search_type == "text":
-        # Simple text search
-        rows = db.execute("""
-            SELECT paper_id, title, abstract, source, status
-            FROM papers
-            WHERE title LIKE ? OR abstract LIKE ?
-            LIMIT ?
-        """, (f"%{q}%", f"%{q}%", limit)).fetchall()
-        db.close()
-        return jsonify([dict(r) for r in rows])
+        if search_type == "text":
+            rows = db.execute("""
+                SELECT paper_id, title, abstract, source, status
+                FROM papers
+                WHERE title LIKE ? OR abstract LIKE ?
+                LIMIT ?
+            """, (f"%{q}%", f"%{q}%", limit)).fetchall()
+            return jsonify([dict(r) for r in rows])
 
-    elif search_type == "vector":
-        # Vector similarity search (requires SPECTER2 embedding)
-        try:
+        elif search_type == "vector":
             import numpy as np
             from transformers import AutoTokenizer
             from adapters import AutoAdapterModel
@@ -176,13 +189,14 @@ def search():
                     "title": meta["title"] if meta else None,
                     "source": meta["source"] if meta else None
                 })
-            db.close()
             return jsonify(output)
-        except Exception as e:
-            db.close()
-            return jsonify({"error": f"Vector search failed: {e}"}), 500
 
-    return jsonify({"error": f"Unknown search type: {search_type}"}), 400
+        return jsonify({"error": f"Unknown search type: {search_type}"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Search failed: {e}"}), 500
+    finally:
+        if db:
+            db.close()
 
 @app.route("/graph")
 @auth_required
@@ -193,46 +207,53 @@ def graph():
     if not entity:
         return jsonify({"error": "Missing 'entity' parameter"}), 400
 
-    db = get_db()
-    ent = db.execute(
-        "SELECT * FROM entities WHERE canonical_name=? OR name LIKE ? LIMIT 1",
-        (entity.lower(), f"%{entity}%")
-    ).fetchone()
+    db = None
+    try:
+        db = get_db()
+        ent = db.execute(
+            "SELECT * FROM entities WHERE canonical_name=? OR name LIKE ? LIMIT 1",
+            (entity.lower(), f"%{entity}%")
+        ).fetchone()
 
-    if not ent:
-        db.close()
-        return jsonify({"error": f"Entity '{entity}' not found"}), 404
+        if not ent:
+            return jsonify({"error": f"Entity '{entity}' not found"}), 404
 
-    eid = ent["entity_id"]
-    rels = db.execute("""
-        SELECT r.relation_type, r.confidence, e2.name as target, e2.entity_type
-        FROM relations r
-        JOIN entities e2 ON r.target_id = e2.entity_id AND r.target_type = 'entity'
-        WHERE r.source_id = ? AND r.source_type = 'entity'
-        ORDER BY r.confidence DESC
-    """, (eid,)).fetchall()
+        eid = ent["entity_id"]
+        rels = db.execute("""
+            SELECT r.relation_type, r.confidence, e2.name as target, e2.entity_type
+            FROM relations r
+            JOIN entities e2 ON r.target_id = e2.entity_id AND r.target_type = 'entity'
+            WHERE r.source_id = ? AND r.source_type = 'entity'
+            ORDER BY r.confidence DESC
+        """, (eid,)).fetchall()
 
-    db.close()
-    return jsonify({
-        "entity": dict(ent),
-        "relations": [dict(r) for r in rels]
-    })
+        return jsonify({
+            "entity": dict(ent),
+            "relations": [dict(r) for r in rels]
+        })
+    finally:
+        if db:
+            db.close()
 
 @app.route("/stats")
 @auth_required
 def stats():
-    db = get_db()
-    result = {
-        "papers": {r["status"]: r["cnt"] for r in
-                   db.execute("SELECT status, COUNT(*) as cnt FROM papers GROUP BY status").fetchall()},
-        "findings": db.execute("SELECT COUNT(*) FROM findings").fetchone()[0],
-        "findings_accepted": db.execute("SELECT COUNT(*) FROM findings WHERE judge_verdict='accepted'").fetchone()[0],
-        "entities": db.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
-        "hypotheses": db.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0],
-        "relations": db.execute("SELECT COUNT(*) FROM relations").fetchone()[0],
-    }
-    db.close()
-    return jsonify(result)
+    db = None
+    try:
+        db = get_db()
+        result = {
+            "papers": {r["status"]: r["cnt"] for r in
+                       db.execute("SELECT status, COUNT(*) as cnt FROM papers GROUP BY status").fetchall()},
+            "findings": db.execute("SELECT COUNT(*) FROM findings").fetchone()[0],
+            "findings_accepted": db.execute("SELECT COUNT(*) FROM findings WHERE judge_verdict='accepted'").fetchone()[0],
+            "entities": db.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
+            "hypotheses": db.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0],
+            "relations": db.execute("SELECT COUNT(*) FROM relations").fetchone()[0],
+        }
+        return jsonify(result)
+    finally:
+        if db:
+            db.close()
 
 if __name__ == "__main__":
     import werkzeug.serving

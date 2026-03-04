@@ -38,7 +38,7 @@ check_kill() {
     fi
 }
 
-PHASE_TIMEOUT="${SCIRES_PHASE_TIMEOUT:-1800}"  # 30 min default per phase
+PHASE_TIMEOUT="${SCIRES_PHASE_TIMEOUT:-2700}"  # 45 min default per phase
 
 # Portable timeout: prefer coreutils timeout/gtimeout, fallback to bash bg+wait
 run_with_timeout() {
@@ -116,17 +116,26 @@ if [ "$MODE" = "--cycle" ]; then
         log "WARNING: GROBID not responding"
     fi
 
-    # Pre-flight: Auto-retry previously failed papers (max 3 retries)
+    # Pre-flight: Auto-retry failed papers and reset stuck papers
     RESET_COUNT=$("$SCIRES_VENV/bin/python3" -c "
 import sqlite3, os
 db = sqlite3.connect(os.environ['SCIRES_RUNTIME_ROOT'] + '/db/scires.db')
-c = db.execute(\"UPDATE papers SET status='queued', error_message=NULL WHERE status='failed' AND retry_count < 3\").rowcount
+# Reset failed papers (increment retry_count)
+failed = db.execute(\"\"\"UPDATE papers SET status='queued', error_message=NULL, retry_count=retry_count+1
+    WHERE status='failed' AND retry_count < 3\"\"\").rowcount
+# Reset papers stuck in intermediate states for >1 hour
+stuck = db.execute(\"\"\"UPDATE papers SET status='queued', error_message='reset: stuck', retry_count=retry_count+1
+    WHERE status IN ('extracting','parsing','fetching')
+    AND updated_at < datetime('now','-1 hour')
+    AND retry_count < 3\"\"\").rowcount
 db.commit()
-print(c)
+print(f'{failed},{stuck}')
 db.close()
 ")
-    if [ "$RESET_COUNT" -gt 0 ]; then
-        log "Pre-flight: Reset $RESET_COUNT failed papers for retry"
+    FAILED_RESET=$(echo "$RESET_COUNT" | cut -d, -f1)
+    STUCK_RESET=$(echo "$RESET_COUNT" | cut -d, -f2)
+    if [ "$FAILED_RESET" -gt 0 ] || [ "$STUCK_RESET" -gt 0 ]; then
+        log "Pre-flight: Reset $FAILED_RESET failed + $STUCK_RESET stuck papers for retry"
     fi
 
     # Phase 1: INGEST — Poll feeds

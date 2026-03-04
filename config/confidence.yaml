@@ -42,6 +42,17 @@ factors:
       fuzzy_match: 0.70
       no_match: 0.10
 
+# Source quality tiers — maps feed source name to quality score
+# Used by judge-score.sh for the source_quality confidence factor
+source_tiers:
+  nature: 0.95
+  science: 0.95
+  openalex: 0.75
+  pubmed: 0.80
+  biorxiv: 0.65
+  arxiv: 0.65
+  rew: 0.50
+
 # Thresholds
 thresholds:
   accept_finding: 0.60

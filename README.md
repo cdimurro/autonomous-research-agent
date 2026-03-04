@@ -79,7 +79,7 @@ ollama pull qwen3.5:9b-q4_K_M
 
 # Start GROBID
 docker pull lfoppiano/grobid:0.8.2
-docker run -d --name grobid -p 8070:8070 --memory=1280m lfoppiano/grobid:0.8.2
+docker run -d --name grobid -p 8070:8070 --memory=2048m lfoppiano/grobid:0.8.2
 
 # Download SPECTER2 weights (for scientific embeddings)
 python3 -c "

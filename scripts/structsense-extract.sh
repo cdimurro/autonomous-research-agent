@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import requests
+import yaml
 from datetime import datetime
 from pathlib import Path
 
@@ -32,6 +33,23 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
 with open(f"{REPO_ROOT}/prompts/system_extractor.md") as f:
     SYSTEM_PROMPT = f.read()
 
+# Load model params from config/models.yaml
+EXTRACT_TEMPERATURE = 0.2
+EXTRACT_MAX_TOKENS = 8192
+EXTRACT_NUM_CTX = 16384
+try:
+    with open(f"{REPO_ROOT}/config/models.yaml") as f:
+        mconf = yaml.safe_load(f) or {}
+    ext = (mconf.get("routing") or {}).get("by_task_type", {}).get("extraction", {})
+    EXTRACT_TEMPERATURE = float(ext.get("temperature", EXTRACT_TEMPERATURE))
+    EXTRACT_MAX_TOKENS = int(ext.get("max_tokens", EXTRACT_MAX_TOKENS))
+    for prov in (mconf.get("providers") or {}).values():
+        for m in (prov.get("models") or {}).values():
+            if m.get("role") == "primary":
+                EXTRACT_NUM_CTX = int(m.get("context_window", EXTRACT_NUM_CTX))
+except Exception as e:
+    print(f"[structsense] Warning: Could not load models.yaml ({e}), using defaults", file=sys.stderr)
+
 def get_db():
     db = sqlite3.connect(DB_PATH)
     db.execute("PRAGMA journal_mode = WAL")
@@ -46,7 +64,7 @@ def generate_id():
     rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     return f"{ts}{rand}"
 
-def call_ollama(system_prompt, user_message, temperature=0.2, max_tokens=8192):
+def call_ollama(system_prompt, user_message, temperature=None, max_tokens=None):
     """Call Ollama chat API"""
     payload = {
         "model": OLLAMA_MODEL,
@@ -56,9 +74,9 @@ def call_ollama(system_prompt, user_message, temperature=0.2, max_tokens=8192):
         ],
         "stream": False,
         "options": {
-            "num_predict": max_tokens,
-            "num_ctx": 16384,
-            "temperature": temperature
+            "num_predict": max_tokens or EXTRACT_MAX_TOKENS,
+            "num_ctx": EXTRACT_NUM_CTX,
+            "temperature": temperature if temperature is not None else EXTRACT_TEMPERATURE
         }
     }
 
@@ -145,6 +163,11 @@ Full Text:
 {parsed_text}
 
 Extract all findings, entities, and relations from this paper. Remember: every finding MUST include a verbatim provenance_quote from the text above."""
+
+    # Append feedback context if available (set by feedback-loop.sh)
+    feedback_ctx = os.environ.get("SCIRES_FEEDBACK_CONTEXT", "")
+    if feedback_ctx:
+        user_message += f"\n\nPrevious extraction feedback:\n{feedback_ctx}"
 
     print(f"[structsense] {paper_id}: Extracting (cycle {cycle}, {len(parsed_text)} chars)...")
     db.execute("UPDATE papers SET status='extracting', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE paper_id=?", (paper_id,))
@@ -301,8 +324,15 @@ if COMMAND == "extract" and PAPER_ID:
 elif COMMAND == "extract-batch":
     papers = db.execute("SELECT paper_id FROM papers WHERE status='parsed' LIMIT 5").fetchall()
     print(f"[structsense] Processing {len(papers)} papers...")
+    succeeded = 0
     for paper in papers:
-        extract_paper(db, paper["paper_id"])
+        if extract_paper(db, paper["paper_id"]):
+            succeeded += 1
+    print(f"[structsense] Batch complete: {succeeded}/{len(papers)} succeeded")
+    db.close()
+    if len(papers) > 0 and succeeded == 0:
+        sys.exit(1)
+    sys.exit(0)
 else:
     print("Usage: structsense-extract.sh extract <paper_id> | extract-batch", file=sys.stderr)
 

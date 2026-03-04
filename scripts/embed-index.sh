@@ -167,8 +167,18 @@ if COMMAND == "index" and PAPER_ID:
 elif COMMAND == "index-batch":
     papers = db.execute("SELECT paper_id FROM papers WHERE status='aligned' LIMIT 10").fetchall()
     print(f"[embed] Indexing {len(papers)} papers...")
+    succeeded = 0
     for p in papers:
-        index_paper(db, p["paper_id"])
+        try:
+            index_paper(db, p["paper_id"])
+            succeeded += 1
+        except Exception as e:
+            print(f"[embed] Error indexing {p['paper_id']}: {e}", file=sys.stderr)
+    print(f"[embed] Batch complete: {succeeded}/{len(papers)} succeeded")
+    db.close()
+    if len(papers) > 0 and succeeded == 0:
+        sys.exit(1)
+    sys.exit(0)
 elif COMMAND == "search" and QUERY:
     search_type_env = os.environ.get("SEARCH_TYPE", "paper")
     search_type = search_type_env.split("=")[1] if "=" in search_type_env else search_type_env
