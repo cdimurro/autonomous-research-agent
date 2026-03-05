@@ -12,7 +12,7 @@
         <string>set -- --cycle; . '/PATH/TO/REPO/scripts/orchestrator.sh'</string>
     </array>
     <key>StartInterval</key>
-    <integer>14400</integer>
+    <integer>3600</integer>
     <key>EnvironmentVariables</key>
     <dict>
         <key>SCIRES_RUNTIME_ROOT</key>

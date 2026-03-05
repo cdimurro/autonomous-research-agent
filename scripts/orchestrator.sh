@@ -195,7 +195,7 @@ db.close()
     NEW_INDEXED=$("$SCIRES_VENV/bin/python3" -c "
 import sqlite3, os
 db = sqlite3.connect(os.environ['SCIRES_RUNTIME_ROOT'] + '/db/scires.db')
-count = db.execute(\"SELECT COUNT(*) FROM papers WHERE status='indexed' AND updated_at >= datetime('now', '-4 hours')\").fetchone()[0]
+count = db.execute(\"SELECT COUNT(*) FROM papers WHERE status='indexed' AND updated_at >= datetime('now', '-1 hour')\").fetchone()[0]
 print(count)
 db.close()
 ")

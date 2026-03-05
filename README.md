@@ -179,7 +179,7 @@ launchctl load ~/Library/LaunchAgents/com.scires.daily-digest.plist
 launchctl load ~/Library/LaunchAgents/com.scires.db-backup.plist
 ```
 
-The agent will now run every 4 hours, generate daily digests at 07:00, and back up the database at 02:00.
+The agent will now run every hour, generate daily digests at 07:00, and back up the database at 02:00.
 
 ## The Pipeline in Detail
 
