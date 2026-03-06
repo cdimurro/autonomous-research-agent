@@ -261,19 +261,47 @@ def score_paper(db, paper_id):
     print(f"[judge] {paper_id}: {accepted} accepted, {revised} revised, {rejected} rejected (avg confidence: {avg_conf:.2f})")
     return {"accepted": accepted, "revised": revised, "rejected": rejected, "avg_confidence": avg_conf}
 
+def run_rubric_grading(paper_id):
+    """Invoke rubric grading for a paper after judge scoring."""
+    import subprocess
+    rubric_script = f"{REPO_ROOT}/scripts/rubric-grade.sh"
+    if not os.path.exists(rubric_script):
+        print(f"[judge] Rubric grader not found at {rubric_script}, skipping", file=sys.stderr)
+        return
+    try:
+        result = subprocess.run(
+            ["bash", rubric_script, "grade", paper_id],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode != 0 and result.stderr:
+            print(f"[judge] Rubric grading warning: {result.stderr.strip()}", file=sys.stderr)
+    except Exception as e:
+        print(f"[judge] Rubric grading failed: {e}", file=sys.stderr)
+
 # Main
 db = get_db()
 if COMMAND == "score" and PAPER_ID:
     score_paper(db, PAPER_ID)
+    db.close()
+    run_rubric_grading(PAPER_ID)
 elif COMMAND == "score-batch":
     papers = db.execute("SELECT paper_id FROM papers WHERE status='extracted' LIMIT 10").fetchall()
     print(f"[judge] Scoring {len(papers)} papers...")
+    paper_ids = []
     for p in papers:
         score_paper(db, p["paper_id"])
+        paper_ids.append(p["paper_id"])
+    db.close()
+    for pid in paper_ids:
+        run_rubric_grading(pid)
 elif COMMAND == "validate" and PAPER_ID:
     findings = db.execute("SELECT * FROM findings WHERE paper_id=? AND structured_data IS NOT NULL", (PAPER_ID,)).fetchall()
     for f in findings:
         results = validate_numeric(f["structured_data"])
         print(json.dumps({"finding_id": f["finding_id"], "validations": results}, indent=2))
-db.close()
+    db.close()
+else:
+    db.close()
 PYEOF

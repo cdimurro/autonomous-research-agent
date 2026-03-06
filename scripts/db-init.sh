@@ -279,6 +279,26 @@ CREATE INDEX IF NOT EXISTS idx_runs_task ON runs(task_type);
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at);
 
 -- ============================================================
+-- EVALUATION: Rubric Results
+-- ============================================================
+CREATE TABLE IF NOT EXISTS rubric_results (
+    rubric_result_id TEXT PRIMARY KEY,
+    artifact_id     TEXT NOT NULL,
+    artifact_type   TEXT NOT NULL DEFAULT 'finding',
+    rubric_id       TEXT NOT NULL,
+    rubric_version  TEXT NOT NULL,
+    total_score     REAL NOT NULL,
+    max_score       REAL NOT NULL,
+    pass_threshold  REAL NOT NULL,
+    passed          INTEGER NOT NULL CHECK(passed IN (0,1)),
+    item_results_json TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_rubric_artifact ON rubric_results(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_rubric_passed ON rubric_results(passed);
+
+-- ============================================================
 -- GRAPH-RAG: Communities
 -- ============================================================
 CREATE TABLE IF NOT EXISTS graph_communities (

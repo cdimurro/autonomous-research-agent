@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rubric_item_result.json",
+  "title": "RubricItemResult",
+  "description": "The result of evaluating a single rubric item.",
+  "type": "object",
+  "required": [
+    "item_id",
+    "name",
+    "score",
+    "max_points",
+    "passed",
+    "rationale"
+  ],
+  "properties": {
+    "item_id": {
+      "type": "string",
+      "description": "Identifier matching the rubric item definition."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name of the rubric item."
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Points awarded for this item."
+    },
+    "max_points": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum points available for this item."
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Whether this item scored above its pass threshold (score > 0)."
+    },
+    "failure_tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Machine-readable tags describing failure modes (e.g. 'missing_provenance', 'range_violation')."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Human-readable explanation of the score."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "IDs of evidence used to grade this item."
+    },
+    "missing_inputs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Inputs that were expected but absent."
+    }
+  },
+  "additionalProperties": false
+}

@@ -28,7 +28,7 @@ jobs:
           sed "s|/path/to/this/repo|$(pwd)|g; s|/path/to/your/python-venv|$HOME/research-venv|g" \
               .env.example > .env
           source .env
-          mkdir -p "$SCIRES_RUNTIME_ROOT"/{db,pdfs,parsed,extractions,backups,logs,state,workspace,cache}
+          mkdir -p "$SCIRES_RUNTIME_ROOT"/{db,pdfs,parsed,extractions,evaluations,backups,logs,state,workspace,cache}
 
       - name: Initialize database
         run: |
@@ -44,3 +44,8 @@ jobs:
         run: |
           source .env
           bash tests/test-validators.sh
+
+      - name: Run rubric grading tests
+        run: |
+          source .env
+          bash tests/test-rubric-grading.sh

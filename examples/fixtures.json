@@ -1,0 +1,53 @@
+{
+  "description": "Two scientific conclusion candidates for rubric evaluation demo. One strong (well-supported perovskite solar cell finding), one weak (unsupported claim with no evidence).",
+  "candidates": [
+    {
+      "artifact_id": "demo_strong_001",
+      "artifact_type": "finding",
+      "content": "The perovskite solar cell achieved a power conversion efficiency of 25.6% under standard AM1.5G illumination conditions, representing a significant improvement over the 23.1% baseline.",
+      "structured_data": {
+        "metric": "solar_efficiency",
+        "value": 25.6,
+        "unit": "%"
+      },
+      "provenance_quote": "Under standard AM1.5G illumination, the champion device demonstrated a stabilized power conversion efficiency of 25.6 +/- 0.3%, a marked improvement from the 23.1% efficiency of the unmodified control device.",
+      "provenance_page": 4,
+      "provenance_section": "Results and Discussion",
+      "paper_id": "demo_paper_001",
+      "evidence_refs": ["demo_vr_001", "demo_cs_001"],
+      "validator_results": [
+        {
+          "validator": "range_solar_efficiency",
+          "passed": true,
+          "value": 25.6,
+          "range": [0, 47],
+          "error": null
+        }
+      ],
+      "confidence_context": {
+        "overall_score": 0.82,
+        "factors": {
+          "source_quality": 0.95,
+          "extraction_quality": 1.0,
+          "numeric_validation": 1.0,
+          "hallucination_check": 0.9,
+          "cross_reference": 0.5
+        },
+        "verdict": "accepted"
+      }
+    },
+    {
+      "artifact_id": "demo_weak_001",
+      "artifact_type": "finding",
+      "content": "The material shows promising energy properties.",
+      "structured_data": null,
+      "provenance_quote": null,
+      "provenance_page": null,
+      "provenance_section": null,
+      "paper_id": "demo_paper_002",
+      "evidence_refs": [],
+      "validator_results": [],
+      "confidence_context": null
+    }
+  ]
+}

@@ -40,7 +40,7 @@ echo "  Dependencies installed."
 # ── Step 4: Create runtime directories ──
 echo "[4/6] Creating runtime directories..."
 RUNTIME="${SCIRES_RUNTIME_ROOT:-$REPO_ROOT/runtime}"
-mkdir -p "$RUNTIME"/{db,pdfs,parsed,extractions,backups,logs,state,workspace,cache}
+mkdir -p "$RUNTIME"/{db,pdfs,parsed,extractions,evaluations,backups,logs,state,workspace,cache}
 echo "  Runtime directories ready at $RUNTIME"
 
 # ── Step 5: Initialize database ──

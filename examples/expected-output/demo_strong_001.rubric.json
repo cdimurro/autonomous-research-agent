@@ -1,0 +1,95 @@
+{
+  "rubric_result_id": "19cc176905c6vyetrhp",
+  "rubric_id": "scientific_conclusion_v1",
+  "rubric_version": "1.0.0",
+  "artifact_id": "demo_strong_001",
+  "artifact_type": "finding",
+  "total_score": 10,
+  "max_score": 10,
+  "pass_threshold": 6,
+  "passed": true,
+  "graded_at": "2026-03-06T04:44:58Z",
+  "grader_name": "demo-rubric-eval.sh",
+  "grader_version": "1.0.0",
+  "item_results": [
+    {
+      "item_id": "evidence_support",
+      "name": "Evidence Support",
+      "score": 2,
+      "max_points": 2,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Structured data has metric and value.",
+      "evidence_refs": [],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "provenance_support",
+      "name": "Provenance Support",
+      "score": 2,
+      "max_points": 2,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Provenance quote present (208 chars).",
+      "evidence_refs": [],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "numeric_consistency",
+      "name": "Numeric Consistency",
+      "score": 2,
+      "max_points": 2,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "All 1 validators passed.",
+      "evidence_refs": [
+        "range_solar_efficiency"
+      ],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "unit_consistency",
+      "name": "Unit Consistency",
+      "score": 1,
+      "max_points": 1,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Unit '%' matches expected '%'.",
+      "evidence_refs": [],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "contradiction_awareness",
+      "name": "Contradiction Awareness",
+      "score": 1,
+      "max_points": 1,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Content references the reported metric/value.",
+      "evidence_refs": [],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "uncertainty_calibration",
+      "name": "Uncertainty Calibration",
+      "score": 1,
+      "max_points": 1,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Confidence 0.82 calibrated with evidence quality.",
+      "evidence_refs": [],
+      "missing_inputs": []
+    },
+    {
+      "item_id": "conclusion_alignment",
+      "name": "Conclusion Alignment",
+      "score": 1,
+      "max_points": 1,
+      "passed": true,
+      "failure_tags": [],
+      "rationale": "Content aligns with structured metric/value.",
+      "evidence_refs": [],
+      "missing_inputs": []
+    }
+  ]
+}

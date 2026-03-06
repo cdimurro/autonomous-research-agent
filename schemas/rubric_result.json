@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rubric_result.json",
+  "title": "RubricResult",
+  "description": "The complete result of evaluating an artifact against a rubric.",
+  "type": "object",
+  "required": [
+    "rubric_result_id",
+    "rubric_id",
+    "rubric_version",
+    "artifact_id",
+    "artifact_type",
+    "total_score",
+    "max_score",
+    "pass_threshold",
+    "passed",
+    "graded_at",
+    "grader_name",
+    "grader_version",
+    "item_results"
+  ],
+  "properties": {
+    "rubric_result_id": {
+      "type": "string",
+      "description": "Unique identifier for this grading result."
+    },
+    "rubric_id": {
+      "type": "string",
+      "description": "Identifier of the rubric used (e.g. 'scientific_conclusion_v1')."
+    },
+    "rubric_version": {
+      "type": "string",
+      "description": "Semantic version of the rubric definition."
+    },
+    "artifact_id": {
+      "type": "string",
+      "description": "ID of the artifact that was graded."
+    },
+    "artifact_type": {
+      "type": "string",
+      "description": "Type of artifact graded (e.g. 'finding')."
+    },
+    "total_score": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Sum of all item scores."
+    },
+    "max_score": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum possible score across all items."
+    },
+    "pass_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Minimum total_score required to pass."
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Whether total_score >= pass_threshold."
+    },
+    "graded_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of when grading occurred."
+    },
+    "grader_name": {
+      "type": "string",
+      "description": "Name of the grading implementation."
+    },
+    "grader_version": {
+      "type": "string",
+      "description": "Version of the grading implementation."
+    },
+    "item_results": {
+      "type": "array",
+      "items": { "$ref": "rubric_item_result.json" },
+      "description": "Per-item grading results."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,51 @@
+# Rubric definitions for scientific evaluation
+#
+# Each rubric defines a set of independently-scored items.
+# The grader evaluates each item using deterministic logic
+# tied to available evidence, validator outputs, and provenance.
+#
+# Rubrics are intentionally minimal in v1 — extend by adding
+# new rubric blocks here, not by modifying the grader.
+
+rubrics:
+  scientific_conclusion_v1:
+    version: "1.0.0"
+    description: "Evaluates whether a candidate conclusion is scientifically acceptable."
+    pass_threshold: 6
+    max_score: 10
+    items:
+
+      evidence_support:
+        max_points: 2
+        description: "Conclusion has structured data with a measurable claim."
+        requires: ["structured_data"]
+
+      provenance_support:
+        max_points: 2
+        description: "Conclusion cites a verbatim provenance quote from the source text."
+        requires: ["provenance_quote"]
+
+      numeric_consistency:
+        max_points: 2
+        description: "Numeric values pass deterministic range validators."
+        requires: ["validator_results"]
+
+      unit_consistency:
+        max_points: 1
+        description: "Reported units match the expected unit for the metric."
+        requires: ["structured_data"]
+
+      contradiction_awareness:
+        max_points: 1
+        description: "Conclusion does not contradict its own structured data or provenance."
+        requires: ["content", "structured_data"]
+
+      uncertainty_calibration:
+        max_points: 1
+        description: "Confidence score is calibrated — high confidence requires strong evidence."
+        requires: ["confidence_context"]
+
+      conclusion_alignment:
+        max_points: 1
+        description: "Content text aligns with the structured metric and value."
+        requires: ["content", "structured_data"]

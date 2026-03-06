@@ -1,0 +1,121 @@
+{
+  "rubric_result_id": "19cc176905e5pmjaf8c",
+  "rubric_id": "scientific_conclusion_v1",
+  "rubric_version": "1.0.0",
+  "artifact_id": "demo_weak_001",
+  "artifact_type": "finding",
+  "total_score": 0,
+  "max_score": 10,
+  "pass_threshold": 6,
+  "passed": false,
+  "graded_at": "2026-03-06T04:44:58Z",
+  "grader_name": "demo-rubric-eval.sh",
+  "grader_version": "1.0.0",
+  "item_results": [
+    {
+      "item_id": "evidence_support",
+      "name": "Evidence Support",
+      "score": 0,
+      "max_points": 2,
+      "passed": false,
+      "failure_tags": [
+        "missing_required_inputs"
+      ],
+      "rationale": "Required inputs missing: structured_data",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "structured_data"
+      ]
+    },
+    {
+      "item_id": "provenance_support",
+      "name": "Provenance Support",
+      "score": 0,
+      "max_points": 2,
+      "passed": false,
+      "failure_tags": [
+        "missing_required_inputs"
+      ],
+      "rationale": "Required inputs missing: provenance_quote",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "provenance_quote"
+      ]
+    },
+    {
+      "item_id": "numeric_consistency",
+      "name": "Numeric Consistency",
+      "score": 0,
+      "max_points": 2,
+      "passed": false,
+      "failure_tags": [
+        "missing_required_inputs"
+      ],
+      "rationale": "Required inputs missing: validator_results",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "validator_results"
+      ]
+    },
+    {
+      "item_id": "unit_consistency",
+      "name": "Unit Consistency",
+      "score": 0,
+      "max_points": 1,
+      "passed": false,
+      "failure_tags": [
+        "missing_required_inputs"
+      ],
+      "rationale": "Required inputs missing: structured_data",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "structured_data"
+      ]
+    },
+    {
+      "item_id": "contradiction_awareness",
+      "name": "Contradiction Awareness",
+      "score": 0,
+      "max_points": 1,
+      "passed": false,
+      "failure_tags": [
+        "insufficient_data"
+      ],
+      "rationale": "Cannot check without content and structured data.",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "structured_data"
+      ]
+    },
+    {
+      "item_id": "uncertainty_calibration",
+      "name": "Uncertainty Calibration",
+      "score": 0,
+      "max_points": 1,
+      "passed": false,
+      "failure_tags": [
+        "missing_required_inputs"
+      ],
+      "rationale": "Required inputs missing: confidence_context",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "confidence_context"
+      ]
+    },
+    {
+      "item_id": "conclusion_alignment",
+      "name": "Conclusion Alignment",
+      "score": 0,
+      "max_points": 1,
+      "passed": false,
+      "failure_tags": [
+        "insufficient_data"
+      ],
+      "rationale": "Cannot check without content and structured data.",
+      "evidence_refs": [],
+      "missing_inputs": [
+        "structured_data"
+      ]
+    }
+  ]
+}

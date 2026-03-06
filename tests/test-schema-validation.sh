@@ -33,7 +33,7 @@ FK=$(sqlite3 "$DB_PATH" "PRAGMA foreign_keys=ON; PRAGMA foreign_keys;")
 check "Foreign keys can be enabled" "$(echo "$FK" | grep -q "1" && echo ok || echo "off")"
 
 # Check all required tables exist
-for table in papers findings entities relations hypotheses confidence_scores verification_results feed_state runs extraction_provenance graph_communities; do
+for table in papers findings entities relations hypotheses confidence_scores verification_results feed_state runs extraction_provenance rubric_results graph_communities; do
     EXISTS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")
     check "Table '$table' exists" "$([ "$EXISTS" = "1" ] && echo ok || echo "missing")"
 done

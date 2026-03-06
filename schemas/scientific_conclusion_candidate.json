@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scientific_conclusion_candidate.json",
+  "title": "ScientificConclusionCandidate",
+  "description": "A judged finding promoted to a candidate scientific conclusion for rubric evaluation.",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "artifact_type",
+    "content",
+    "paper_id"
+  ],
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "description": "Unique identifier for this candidate (typically the finding_id)."
+    },
+    "artifact_type": {
+      "type": "string",
+      "enum": ["finding"],
+      "description": "Source artifact type. Currently only 'finding'."
+    },
+    "content": {
+      "type": "string",
+      "description": "The textual content of the finding/conclusion."
+    },
+    "structured_data": {
+      "type": ["object", "null"],
+      "description": "Parsed structured data (metric, value, unit, etc.)."
+    },
+    "provenance_quote": {
+      "type": ["string", "null"],
+      "description": "Verbatim quote from source text supporting this conclusion."
+    },
+    "provenance_page": {
+      "type": ["integer", "null"],
+      "description": "Page number of the provenance quote."
+    },
+    "provenance_section": {
+      "type": ["string", "null"],
+      "description": "Section header where the provenance quote was found."
+    },
+    "paper_id": {
+      "type": "string",
+      "description": "ID of the source paper."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "IDs of supporting verification_results or confidence_scores."
+    },
+    "validator_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["validator", "passed"],
+        "properties": {
+          "validator": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "value": { "type": ["number", "null"] },
+          "range": {
+            "type": ["array", "null"],
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "error": { "type": ["string", "null"] }
+        }
+      },
+      "default": [],
+      "description": "Deterministic numeric validation results."
+    },
+    "confidence_context": {
+      "type": ["object", "null"],
+      "description": "Confidence scoring context from the judge phase.",
+      "properties": {
+        "overall_score": { "type": "number" },
+        "factors": { "type": "object" },
+        "verdict": { "type": "string" }
+      }
+    }
+  },
+  "additionalProperties": false
+}
