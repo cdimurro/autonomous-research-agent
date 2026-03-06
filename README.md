@@ -3,15 +3,15 @@
 [![CI](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An autonomous research agent for any topic that runs 24/7 on your own hardware. It analyzes scientific papers, extracts structured findings, validates every claim against physical bounds, and scores each conclusion through a 7-criterion rubric.
+An autonomous research agent that's designed to study any topic and run 24/7 on your own hardware. It analyzes scientific papers, extracts structured findings, validates every claim against physical bounds, and then scores each conclusion using a rubric with 7 pre-defined criteria.
 
 You can configure it for any field or research domain — just add your sources, feeds, and ontologies.
 
 ## What Makes This Different
 
-Most research tools rely on expensive cloud providers and don't have determinism built-in. They typically rely on advanced reasoning models to extract insights, but the results vary and aren't reproducible due to the non-deterministic nature of LLMs. This system changes that by running a small but powerful LLM locally, and also includes built-in deterministic governance systems. 
+Most research tools use expensive cloud providers that don't have determinism or trust built-in. Instead, they rely on advanced frontier reasoning models to extract the scientific insights for them. This causes results to vary, and it also means that the results can't be easily reproduced due to the non-deterministic nature of LLMs. This system changes that by running a small but powerful LLM locally, while also including built-in deterministic governance systems that provide trust. 
 
-How this works: every finding must carry a verbatim quote from a credible scientific source, every numeric value is automatically checked against known physical limits, and every conclusion is graded across seven independent criteria before it enters the knowledge graph. A local LLM handles the extraction. Everything after that — numeric validation, source verification, rubric grading — is deterministic. The key difference is that there are no LLM's used in the evaluation path.
+How this works in practice: every finding must carry a verbatim quote from a credible scientific source, every numeric value is automatically checked against known physical limits, and every conclusion is graded across seven independent criteria before it enters the knowledge graph. A local LLM handles the extraction. Everything after that — numeric validation, source verification, rubric grading — is deterministic. The key difference is that there are no LLM's used in the evaluation path.
 
 ```
 Paper → Parsed text → Extracted finding → Provenance quote
