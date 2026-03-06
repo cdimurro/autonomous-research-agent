@@ -3,25 +3,27 @@
 [![CI](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/cdimurro/autonomous-research-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A provenance-first scientific reasoning engine that runs autonomously on your own hardware. It ingests papers from any research domain, extracts structured findings with verbatim source evidence, validates claims against physical bounds, and evaluates every conclusion through a decomposed rubric — producing machine-readable audit trails at each step.
+This agent reads scientific papers, pulls out the findings, and checks whether the LLM made things up. It runs 24/7 on your own machine — no cloud, no API keys.
 
-No cloud dependency. No API keys. Every extracted claim carries its own proof.
+Point it at any research domain. It fetches papers from RSS feeds and APIs, parses the PDFs, extracts structured claims with exact quotes from the source text, then validates every number against known physical limits. A 7-point rubric grades each conclusion before it enters the knowledge graph.
 
-## What Makes This Different
+The LLM does the reading. Everything after that is deterministic.
 
-Most research tools extract text. This system extracts *accountable scientific claims*.
+## Why This Exists
 
-Every finding must carry a verbatim provenance quote from the source paper. Numeric values are checked against domain-specific physical bounds (you can't claim 99% solar cell efficiency — the validator knows the theoretical limit is 47%). Conclusions are then graded against a 7-criterion rubric that scores evidence quality, provenance strength, numeric consistency, and calibration — independently and deterministically.
+LLMs are good at pulling structured data out of papers. They're also good at making things up. This system treats the LLM as an untrusted source and checks its work:
 
-The result is a knowledge graph where every node has an auditable evidence chain:
+- Every finding must include a verbatim quote from the paper. No quote, no finding.
+- Numeric values get checked against physical bounds. Claim 99% solar cell efficiency? The validator knows the limit is 47%.
+- A rubric scores each conclusion across 7 criteria — evidence, provenance, numeric consistency, units, contradictions, calibration, and alignment. All scoring is pure logic, no LLM.
+
+The result: a knowledge graph where you can trace any claim back to the exact sentence in the paper that supports it.
 
 ```
-Paper → Parsed text → Extracted finding → Provenance quote
-  → Numeric validation → Confidence score → Rubric grade
-    → Per-criterion pass/fail with rationale
+Paper → Parsed text → Finding + quote from source
+  → Numeric check → Confidence score → Rubric grade
+    → Per-criterion pass/fail with explanation
 ```
-
-This isn't an LLM wrapper. It's a structured evaluation architecture that uses an LLM for extraction, then validates everything the LLM said.
 
 ## Architecture
 
@@ -54,40 +56,37 @@ This isn't an LLM wrapper. It's a structured evaluation architecture that uses a
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Evaluation Architecture
+## How Evaluation Works
 
-Scientific claims pass through two independent evaluation layers:
+Each finding goes through two checks.
 
-**Layer 1 — Confidence scoring** (`judge-score.sh`): A weighted composite of five factors — source quality, extraction quality, numeric validation, hallucination detection, and cross-reference corroboration. Produces a 0–1 score and an accept/revise/reject verdict. Purely deterministic except for the hallucination check (fuzzy quote matching).
+**First: confidence scoring** (`judge-score.sh`). Five weighted factors — journal quality, extraction completeness, numeric validation, quote verification, and cross-reference — produce a 0–1 score. Above 0.60 is accepted, below 0.25 is rejected, everything else gets flagged for review.
 
-**Layer 2 — Rubric grading** (`rubric-grade.sh`): Decomposes evaluation into 7 independently-scored criteria defined in [`config/rubrics.yaml`](config/rubrics.yaml). Each criterion produces a score, pass/fail status, failure tags, and a human-readable rationale. All grading logic is deterministic — no LLM involvement.
+**Then: rubric grading** (`rubric-grade.sh`). Each accepted finding is scored against 7 criteria. Every criterion is graded independently with its own pass/fail, score, and written explanation.
 
-| Rubric Criterion | What It Checks | Points |
+| Criterion | What it checks | Points |
 |---|---|---|
-| Evidence support | Structured data has metric + value | 2 |
-| Provenance support | Verbatim source quote present and substantial | 2 |
-| Numeric consistency | Values pass domain-specific range validators | 2 |
-| Unit consistency | Reported units match expected units for the metric | 1 |
-| Contradiction awareness | Content doesn't contradict its own structured data | 1 |
-| Uncertainty calibration | High confidence requires strong underlying evidence | 1 |
-| Conclusion alignment | Textual content references the structured metric/value | 1 |
+| Evidence support | Does the finding have a metric and a value? | 2 |
+| Provenance support | Is there a real quote from the paper? | 2 |
+| Numeric consistency | Do the numbers fall within known physical limits? | 2 |
+| Unit consistency | Do the units match what's expected for that metric? | 1 |
+| Contradiction awareness | Does the text contradict its own data? | 1 |
+| Uncertainty calibration | Is high confidence backed by strong evidence? | 1 |
+| Conclusion alignment | Does the text actually mention the metric it claims to report? | 1 |
 
-**Pass threshold**: 6/10. Results are persisted to the `rubric_results` table and written as JSON artifacts to `runtime/evaluations/`.
+A finding needs 6/10 to pass. Results go into the database and get written as JSON files you can inspect.
 
-See [`docs/EVALUATION.md`](docs/EVALUATION.md) for the full evaluation flow, artifact contracts, and extension guide.
+See [`docs/EVALUATION.md`](docs/EVALUATION.md) for the full details.
 
-## End-to-End Example
+## Try It
 
-See what the evaluation pipeline actually produces. From a fresh clone:
+Run the demo to see the rubric in action. It grades two findings — one solid, one empty — without needing Ollama or GROBID:
 
 ```bash
-# After setup (see Quick Start below), run the demo:
 bash examples/demo-rubric-eval.sh
 ```
 
-This grades two realistic scientific conclusion candidates — one strong, one weak — and writes rubric results to `examples/expected-output/`. You can inspect the results to see exactly how the 7-criterion rubric evaluates each claim.
-
-See [`examples/`](examples/) for the full demo, input fixtures, and expected output.
+Output shows each criterion's score and reasoning. Check [`examples/expected-output/`](examples/expected-output/) for what to expect.
 
 ## Quick Start
 
@@ -105,19 +104,18 @@ See [`examples/`](examples/) for the full demo, input fixtures, and expected out
 git clone https://github.com/cdimurro/autonomous-research-agent.git
 cd autonomous-research-agent
 
-# Create Python virtual environment
 python3.11 -m venv ~/research-venv
 source ~/research-venv/bin/activate
 pip install -r requirements.txt
 
-# Pull an Ollama model (9B recommended for 16GB systems)
+# Pull a model (9B recommended for 16GB systems)
 ollama pull qwen3.5:9b-q4_K_M
 
 # Start GROBID
 docker pull lfoppiano/grobid:0.8.2
 docker run -d --name grobid -p 8070:8070 --memory=2048m lfoppiano/grobid:0.8.2
 
-# Download SPECTER2 weights (scientific embeddings)
+# Download SPECTER2 (scientific embeddings)
 python3 -c "
 from transformers import AutoTokenizer
 from adapters import AutoAdapterModel
@@ -138,9 +136,9 @@ bash scripts/db-init.sh
 mkdir -p runtime/{db,pdfs,parsed,extractions,evaluations,logs,state,backups,workspace,cache}
 ```
 
-### Add Your Research Domain
+### Point It at Your Field
 
-Edit `config/sources.yaml` to add RSS feeds and API endpoints for your field:
+Edit `config/sources.yaml`:
 
 ```yaml
 feeds:
@@ -153,23 +151,23 @@ feeds:
       - "reinforcement learning"
 ```
 
-Add domain-specific numeric validators in `config/validators.yaml` and ontology mappings in `config/ontologies.yaml`.
+You can also add numeric validators for your domain's metrics (`config/validators.yaml`) and ontology mappings (`config/ontologies.yaml`).
 
 ### Run
 
 ```bash
 source .env
 
-# Run a single pipeline cycle
+# Run one full cycle
 bash scripts/orchestrator.sh --cycle
 
-# Or run individual phases
+# Or run phases individually
 bash scripts/orchestrator.sh --phase ingest
 bash scripts/orchestrator.sh --phase fetch
 bash scripts/orchestrator.sh --phase extract
 ```
 
-### Query Results
+### Query
 
 ```bash
 python3 scripts/query-endpoint.py &
@@ -181,7 +179,7 @@ curl "localhost:8099/hypotheses?status=proposed"
 curl "localhost:8099/stats"
 ```
 
-### Run Autonomously (macOS)
+### Run 24/7 (macOS)
 
 ```bash
 # Edit paths in launchd/*.plist, then:
@@ -192,126 +190,124 @@ launchctl load ~/Library/LaunchAgents/com.scires.daily-digest.plist
 launchctl load ~/Library/LaunchAgents/com.scires.db-backup.plist
 ```
 
-## The Pipeline
+## Pipeline
 
-| Phase | What It Does |
+| Phase | What happens |
 |-------|-------------|
-| **INGEST** | Polls RSS/API feeds, filters by keyword relevance, deduplicates by arXiv ID / DOI / PDF hash |
-| **FETCH** | Downloads PDFs via multi-source resolution: direct URL → Unpaywall → Semantic Scholar → OpenAlex |
-| **PARSE** | Tiered parser routing: GROBID for metadata (always), Docling for full text, Docling+OCR for scanned PDFs |
-| **EXTRACT** | Local LLM extracts structured findings, entities, and relations with verbatim provenance quotes |
-| **JUDGE** | Deterministic validation (numeric bounds, quote verification, confidence scoring) + rubric grading |
-| **FEEDBACK** | Low-confidence findings get critique-and-re-extract loops (up to 3 cycles) |
-| **ALIGN** | Maps entities to configured ontologies (skips if none defined) |
-| **INDEX** | SPECTER2 embeddings stored in sqlite-vec for semantic similarity search |
-| **HYPOTHESIZE** | Cross-finding synthesis with mandatory contradiction checking and recursive critique |
+| **INGEST** | Polls feeds, filters by keywords, deduplicates by arXiv ID / DOI / PDF hash |
+| **FETCH** | Downloads PDFs — tries direct URL, then Unpaywall, Semantic Scholar, OpenAlex |
+| **PARSE** | GROBID handles metadata, Docling handles full text, OCR kicks in for scanned pages |
+| **EXTRACT** | LLM pulls out findings, entities, and relations — each with a verbatim source quote |
+| **JUDGE** | Checks numbers against physical bounds, verifies quotes exist in the text, scores confidence, runs rubric |
+| **FEEDBACK** | Low-confidence findings get sent back for re-extraction (up to 3 tries) |
+| **ALIGN** | Maps entities to ontologies if you've configured them |
+| **INDEX** | Generates SPECTER2 embeddings for semantic search |
+| **HYPOTHESIZE** | Looks across findings to generate hypotheses, then tries to poke holes in them |
 
 ## Configuration
 
-| File | Purpose |
-|------|---------|
-| `config/sources.yaml` | RSS feeds and API endpoints for your research domain |
-| `config/validators.yaml` | Numeric range validators for domain-specific metrics |
-| `config/ontologies.yaml` | Domain ontology mappings (ENVO, BDF, GO, custom) |
-| `config/confidence.yaml` | Confidence scoring weights and thresholds |
-| `config/rubrics.yaml` | Rubric definitions for scientific evaluation |
-| `config/models.yaml` | LLM model configuration and task routing |
-| `config/routing.yaml` | PDF parser tier routing rules |
-| `config/skills.yaml` | Script capability manifest (subcommands, network policy) |
+| File | What it controls |
+|------|-----------------|
+| `config/sources.yaml` | Where to find papers (RSS feeds, APIs) |
+| `config/validators.yaml` | Physical bounds for numeric metrics in your domain |
+| `config/rubrics.yaml` | How findings get graded |
+| `config/confidence.yaml` | Weights and thresholds for confidence scoring |
+| `config/ontologies.yaml` | Entity-to-ontology mappings |
+| `config/models.yaml` | Which LLM to use and how |
+| `config/routing.yaml` | How PDFs get routed to parsers |
+| `config/skills.yaml` | Script subcommands and network policies |
 
 ## Database
 
 SQLite with WAL mode, foreign keys, and sqlite-vec:
 
-| Table | Contents |
-|-------|----------|
-| `papers` | Metadata, status state machine, relevance scores |
-| `findings` | Structured findings with provenance quotes and confidence |
-| `entities` | Named entities (materials, methods, organisms, etc.) |
-| `relations` | Typed relationships (uses, measures, contradicts, etc.) |
+| Table | What's in it |
+|-------|-------------|
+| `papers` | Metadata, processing status, relevance scores |
+| `findings` | Extracted claims with provenance quotes and confidence |
+| `entities` | Materials, methods, organisms, metrics, etc. |
+| `relations` | How entities connect (uses, measures, contradicts, etc.) |
 | `hypotheses` | Generated hypotheses with critique logs |
-| `confidence_scores` | Per-finding confidence breakdowns |
-| `verification_results` | Deterministic validator outputs |
-| `rubric_results` | Per-finding rubric grading with item-level detail |
-| `extraction_provenance` | Parser used, tier, quality score, timing |
-| `feed_state` | Per-feed polling state |
-| `graph_communities` | Detected entity clusters |
-| `paper_embeddings` | SPECTER2 768-dim vectors (sqlite-vec) |
+| `confidence_scores` | Breakdown of each finding's confidence factors |
+| `verification_results` | Which validators ran and what they found |
+| `rubric_results` | Per-finding rubric grades with item-level detail |
+| `extraction_provenance` | Which parser was used, how long it took, quality score |
+| `feed_state` | Polling state for each feed |
+| `graph_communities` | Clusters of related entities |
+| `paper_embeddings` | SPECTER2 vectors for semantic search |
 
 ## Project Structure
 
 ```
-├── config/                        # All configuration (YAML)
-│   ├── sources.yaml               # Feed definitions (YOU EDIT THIS)
+├── config/                        # YAML configuration
+│   ├── sources.yaml               # Feed definitions (start here)
 │   ├── validators.yaml            # Numeric range validators
-│   ├── rubrics.yaml               # Evaluation rubric definitions
+│   ├── rubrics.yaml               # Evaluation rubric
 │   ├── confidence.yaml            # Scoring weights
 │   ├── ontologies.yaml            # Domain ontologies
-│   ├── models.yaml                # LLM configuration
-│   ├── routing.yaml               # Parser routing rules
-│   └── skills.yaml                # Script capability manifest
-├── schemas/                       # Artifact contracts (JSON Schema)
+│   ├── models.yaml                # LLM settings
+│   ├── routing.yaml               # Parser routing
+│   └── skills.yaml                # Script manifest
+├── schemas/                       # JSON Schema contracts
 │   ├── scientific_conclusion_candidate.json
 │   ├── rubric_result.json
 │   └── rubric_item_result.json
-├── scripts/
-│   ├── orchestrator.sh            # 9-phase pipeline loop
-│   ├── judge-score.sh             # Confidence scoring + rubric dispatch
-│   ├── rubric-grade.sh            # Rubric evaluation engine
-│   ├── feed-ingest.sh             # RSS/API polling
-│   ├── pdf-fetch.sh               # Multi-source PDF download
-│   ├── parser-route.sh            # Tiered parser routing
+├── scripts/                       # Pipeline and utilities
+│   ├── orchestrator.sh            # Runs the 9-phase loop
+│   ├── judge-score.sh             # Confidence scoring
+│   ├── rubric-grade.sh            # Rubric evaluation
+│   ├── feed-ingest.sh             # Feed polling
+│   ├── pdf-fetch.sh               # PDF downloads
+│   ├── parser-route.sh            # Parser routing
 │   ├── structsense-extract.sh     # LLM extraction
-│   ├── feedback-loop.sh           # Critique loop
-│   ├── ontology-align.sh          # Entity alignment
-│   ├── embed-index.sh             # SPECTER2 indexing
+│   ├── feedback-loop.sh           # Re-extraction loop
+│   ├── ontology-align.sh          # Ontology mapping
+│   ├── embed-index.sh             # Embedding generation
 │   ├── hypothesis-gen.sh          # Hypothesis generation
 │   ├── query-endpoint.py          # Flask API
-│   ├── db-init.sh                 # Schema setup
-│   ├── db-backup.sh               # Daily backups
-│   ├── health-check.sh            # System monitoring
-│   └── lib/                       # Shared utilities
+│   ├── db-init.sh                 # Database setup
+│   ├── db-backup.sh               # Backups
+│   ├── health-check.sh            # Monitoring
+│   └── lib/                       # Shared helpers
 ├── prompts/                       # LLM system prompts
-├── examples/                      # End-to-end demo
-├── docs/                          # Architecture documentation
+├── examples/                      # Demo + fixtures
+├── docs/                          # Architecture docs
 ├── launchd/                       # macOS scheduling
 ├── tests/                         # Test suite
-└── runtime/                       # All mutable data (gitignored)
+└── runtime/                       # Mutable data (gitignored)
 ```
 
 ## Design Principles
 
-1. **Provenance is mandatory.** Every extracted claim must cite a verbatim quote from the source text. No quote, no finding.
-2. **Validation is deterministic.** Numeric bounds, unit checks, and rubric grading use pure logic — no LLM in the evaluation path.
-3. **Artifacts are machine-readable.** Schemas in `schemas/`, structured JSON outputs, typed database columns. Everything is inspectable.
-4. **Configuration over code.** New domains, validators, ontologies, and rubrics are added through YAML, not by modifying scripts.
-5. **Phases are independent.** Each pipeline phase reads from and writes to the database. Phases can run individually, be skipped, or be replaced.
+1. **No finding without proof.** Every claim needs a verbatim quote from the source.
+2. **The LLM reads, logic validates.** Numeric checks, unit checks, and rubric grading don't touch the LLM.
+3. **Everything is inspectable.** JSON schemas define outputs. Database columns are typed. Rubric results explain themselves.
+4. **Config, not code.** New domains, validators, and rubrics go in YAML files.
+5. **Phases stand alone.** Each pipeline step reads from and writes to the database. Run them individually, skip them, or swap them out.
 
 ## Non-Goals
 
-This project intentionally does not:
-
-- **Build a platform.** No plugin system, no SDK, no extension API. Add capabilities by editing config or scripts.
-- **Replace peer review.** The rubric evaluates extraction quality and evidence support, not scientific truth.
-- **Require cloud infrastructure.** Everything runs on a single machine with SQLite and a local LLM.
-- **Optimize for scale.** Designed for thoroughness on a single researcher's hardware, not for processing millions of papers.
+- **Not a platform.** No plugins, no SDK. Extend it by editing config or scripts.
+- **Not a replacement for peer review.** It checks extraction quality, not scientific truth.
+- **Not cloud-dependent.** One machine, SQLite, local LLM.
+- **Not built for scale.** Built for thoroughness on a single researcher's hardware.
 
 ## Safety
 
-- **Kill switch**: `echo '{}' > runtime/state/STOPPED.json` halts all processing instantly
-- **Thermal guard**: Pauses on high CPU temperature (macOS `kern.thermalpressure`)
-- **Provenance enforcement**: Findings without source quotes are flagged
-- **Deterministic validation**: Numeric values checked against physical bounds without LLM involvement
-- **Daily backups**: Compressed SQLite backups with 14-day rotation
-- **Auto-retry**: Failed papers retry up to 3 times across cycles
+- **Kill switch**: `echo '{}' > runtime/state/STOPPED.json` stops everything
+- **Thermal guard**: Pauses when CPU temperature spikes (macOS)
+- **Quote enforcement**: Findings without source quotes get flagged
+- **Range validation**: Numbers checked against physical limits, no LLM involved
+- **Backups**: Daily compressed SQLite snapshots, 14-day rotation
+- **Auto-retry**: Failed papers get 3 more chances across future cycles
 
 ## Tests
 
 ```bash
-bash tests/test-schema-validation.sh   # Database schema integrity (17 checks)
+bash tests/test-schema-validation.sh   # Database schema (17 checks)
 bash tests/test-validators.sh          # Numeric validators (39 cases)
-bash tests/test-rubric-grading.sh      # Rubric config + grading logic (29 cases)
-bash tests/test-parser-routing.sh      # PDF parser tools (requires poppler)
+bash tests/test-rubric-grading.sh      # Rubric grading (29 cases)
+bash tests/test-parser-routing.sh      # PDF parser tools (needs poppler)
 ```
 
 ## RAM Budget (16 GB system)
@@ -326,7 +322,7 @@ bash tests/test-parser-routing.sh      # PDF parser tools (requires poppler)
 | Flask API | 0.05 GB | 0.1 GB |
 | **Total** | **~9.5 GB** | **~11.4 GB** |
 
-Phases run serially — heavy components never overlap at peak. Ollama auto-unloads after 2 minutes idle.
+Phases run one at a time — heavy components never overlap. Ollama unloads after 2 minutes idle.
 
 ## License
 
@@ -334,4 +330,4 @@ MIT — see [LICENSE](LICENSE)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
