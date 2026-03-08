@@ -1,0 +1,26 @@
+name: materials
+domain: materials-science
+goal: "Identify novel material compositions, structures, or processing techniques with breakthrough potential in strength, conductivity, or functionality."
+candidate_budget: 8
+simulation_budget: 3
+scoring_weights:
+  novelty: 0.25
+  plausibility: 0.20
+  impact: 0.20
+  evidence_strength: 0.15
+  simulation_readiness: 0.15
+  inverse_validation_cost: 0.05
+novelty_threshold: 0.3
+evidence_minimum: 2
+allowed_simulators:
+  - mock
+publication_threshold: 0.60
+banned_claims:
+  - "room temperature superconductor at ambient pressure without experimental evidence"
+  - "negative mass material"
+safety_constraints:
+  - "Material properties must be within known physical bounds"
+  - "Crystal structures must be geometrically feasible"
+runtime_budget_minutes: 60
+validation_policy: strict
+mode: demo_local

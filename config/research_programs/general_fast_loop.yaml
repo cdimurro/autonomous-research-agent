@@ -1,0 +1,27 @@
+name: general_fast_loop
+domain: cross-domain
+goal: "Identify breakthrough candidates across scientific domains by synthesizing recent high-confidence findings."
+candidate_budget: 10
+simulation_budget: 3
+scoring_weights:
+  novelty: 0.20
+  plausibility: 0.20
+  impact: 0.20
+  evidence_strength: 0.20
+  simulation_readiness: 0.10
+  inverse_validation_cost: 0.10
+novelty_threshold: 0.3
+evidence_minimum: 2
+allowed_simulators:
+  - mock
+publication_threshold: 0.60
+banned_claims:
+  - "perpetual motion"
+  - "free energy"
+  - "faster than light travel"
+safety_constraints:
+  - "No claims violating conservation of energy"
+  - "No claims violating thermodynamic limits"
+runtime_budget_minutes: 60
+validation_policy: strict
+mode: demo_local
