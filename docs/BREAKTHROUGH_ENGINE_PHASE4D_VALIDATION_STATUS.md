@@ -1,6 +1,6 @@
 # Phase 4D Validation Status
 
-## Current Status: Wiring Complete — Live Validation Blocked (Ollama Unavailable)
+## Current Status: VALIDATED — All Runs Complete, Baseline Tagged
 
 ## Session: 2026-03-08
 
@@ -56,28 +56,32 @@
 **What to record for each run** (see validation plan for full checklist):
 - run_id, domain, sub_domain, mode, embedding_block_rate, active_corpus_size, draft_outcome
 
-### Phase E–F: Analysis and Fixes — DEFERRED
+### Live Validation Results — COMPLETE
 
-Pending live run data.
+| Domain | Runs | Block Rate | Avg Max Sim | Drafts |
+|--------|------|------------|-------------|--------|
+| clean-energy | 6 | 0% | 0.636 | 2/2 review |
+| materials-science | 6 | 0% | 0.600 | 2/2 review |
+| **Phase 4C baseline** | 8 | **90%** | **0.950** | 2/3 review |
 
-### Phase G: Final Tests — COMPLETE (pre-live)
+Block rate: **90% → 0%**. Avg max similarity: **0.950 → 0.618**. All thresholds unchanged.
+
+### Phase E: Analysis — COMPLETE
+
+See [BREAKTHROUGH_ENGINE_PHASE4D_VALIDATION_REPORT.md](BREAKTHROUGH_ENGINE_PHASE4D_VALIDATION_REPORT.md).
+
+### Phase F: Fixes Applied
+
+- SQL update: added `materials-science` to materials paper subjects (hyphen mismatch)
+- Added `materials_shadow.yaml` and `materials_review.yaml` program configs
+
+### Phase G: Final Tests — COMPLETE
 
 ```
-317 passed in 6.78s (after Phase B+C wiring)
+325 passed in 6.76s (0 failed, 0 warnings)
 ```
 
-Full suite passes with new archival and active-corpus filtering wired in.
+### Phase H: Baseline Tags — COMPLETE
 
-### Phase H: Baseline Commit — PARTIAL
-
-- Implementation checkpoint: `breakthrough-engine-phase4d-implemented`
-- Validated baseline tag: DEFERRED (requires live runs)
-
-## Remaining Gap
-
-Only one gap remains before validated baseline can be declared:
-
-> **Run live Ollama validation (8 shadow + 4 review cycles across two domains) and compare
-> embedding block rate against Phase 4C baseline (90%).**
-
-All code wiring is complete. The architecture is ready for live validation.
+- Implementation: `breakthrough-engine-phase4d-implemented`
+- Validated: `breakthrough-engine-phase4d-validated`
