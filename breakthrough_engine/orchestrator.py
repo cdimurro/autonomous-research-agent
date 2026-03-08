@@ -50,7 +50,13 @@ from .models import (
     new_id,
 )
 from .notifications import NotificationDispatcher
+from .corpus_manager import CorpusManager
+from .diversity import DiversityEngine
+from .domain_fit import DomainFitEvaluator
+from .embedding_monitor import EmbeddingMonitor
+from .embeddings import EmbeddingNoveltyEngine, MockEmbeddingProvider, EmbeddingProvider
 from .novelty import NoveltyEngine
+from .retrieval import rank_evidence
 from .review import create_draft
 from .scoring import rank_candidates, score_candidate
 from .simulator import MockSimulatorAdapter, SimulatorAdapter, get_simulator
@@ -94,12 +100,23 @@ class BreakthroughOrchestrator:
         generator: Optional[CandidateGenerator] = None,
         simulator: Optional[SimulatorAdapter] = None,
         dispatcher: Optional[NotificationDispatcher] = None,
+        embedding_provider: Optional[EmbeddingProvider] = None,
     ):
         self.program = program
         self.repo = repo
         self.memory = RunMemory(repo.db)
         self.novelty_engine = NoveltyEngine(repo.db)
+        self.domain_fit_evaluator = DomainFitEvaluator()
         self.dispatcher = dispatcher or NotificationDispatcher()
+
+        # Phase 4B: Embedding novelty engine
+        emb_provider = embedding_provider or MockEmbeddingProvider()
+        self.embedding_novelty = EmbeddingNoveltyEngine(provider=emb_provider)
+        self.embedding_monitor = EmbeddingMonitor(repo)
+
+        # Phase 4D: Diversity and corpus management
+        self.diversity_engine = DiversityEngine(repo)
+        self.corpus_manager = CorpusManager(repo)
 
         # Wire up components based on run mode
         if evidence_source:
@@ -170,14 +187,46 @@ class BreakthroughOrchestrator:
         metrics.stage_durations["evidence_gathering"] = round(time.time() - t_step, 2)
         logger.info("[%s] Gathered %d evidence items", run.id[:8], len(evidence))
 
-        # Step 2: Generate candidates
+        # Step 1.5: Pre-run corpus maintenance (Phase 4D)
+        archival_stats: dict = {}
+        try:
+            archival_stats = self.corpus_manager.run_archival(self.program.domain)
+            logger.info(
+                "[%s] Corpus maintenance: archived_by_age=%d total_archived=%d active_size=%d",
+                run.id[:8],
+                archival_stats.get("archived_by_age", 0),
+                archival_stats.get("total_archived", 0),
+                self.corpus_manager.get_active_count(self.program.domain),
+            )
+        except Exception as e:
+            logger.warning("[%s] Corpus archival failed (non-fatal): %s", run.id[:8], e)
+
+        # Step 2: Generate candidates (with diversity steering)
         t_step = time.time()
         logger.info("[%s] Step 2: Generating candidates (budget=%d)", run.id[:8], self.program.candidate_budget)
+
+        # Build diversity context for this run (Phase 4D)
+        diversity_ctx = None
+        try:
+            diversity_ctx = self.diversity_engine.build_context(
+                run_id=run.id,
+                domain=self.program.domain,
+            )
+            logger.info(
+                "[%s] Diversity context: sub_domain=%r excluded_topics=%d",
+                run.id[:8],
+                diversity_ctx.sub_domain,
+                len(diversity_ctx.excluded_topics),
+            )
+        except Exception as e:
+            logger.warning("[%s] Diversity context build failed (non-fatal): %s", run.id[:8], e)
+
         candidates = self.generator.generate(
             evidence=evidence,
             domain=self.program.domain,
             budget=self.program.candidate_budget,
             run_id=run.id,
+            diversity_context=diversity_ctx,
         )
         run.candidates_generated = len(candidates)
         for c in candidates:
@@ -205,9 +254,15 @@ class BreakthroughOrchestrator:
         candidates = self._run_evidence_gate(run, candidates, evidence, evidence_packs)
         metrics.stage_durations["evidence_harness"] = round(time.time() - t_step, 2)
 
-        # Step 5.5: Novelty gate (Phase 3)
+        # Step 5.5: Novelty gate (Phase 3) + embedding novelty (Phase 4B)
         t_step = time.time()
-        logger.info("[%s] Step 5.5: Novelty gate", run.id[:8])
+        logger.info("[%s] Step 5.5: Novelty gate (lexical + embedding)", run.id[:8])
+        # Phase 4C: Start embedding monitoring for this run
+        self.embedding_monitor.start_run(
+            run.id, self.embedding_novelty.provider,
+            self.embedding_novelty.similarity_threshold,
+            self.embedding_novelty.warn_threshold,
+        )
         candidates = self._run_novelty_gate(run, candidates, evidence, novelty_results)
         metrics.novelty_fail_count = sum(
             1 for nr in novelty_results.values()
@@ -218,6 +273,13 @@ class BreakthroughOrchestrator:
             if hasattr(nr, 'decision') and nr.decision == NoveltyDecision.WARN
         )
         metrics.stage_durations["novelty_gate"] = round(time.time() - t_step, 2)
+
+        # Step 5.6: Domain-fit gate (Phase 4B)
+        t_step = time.time()
+        logger.info("[%s] Step 5.6: Domain-fit gate", run.id[:8])
+        domain_fit_results: dict[str, object] = {}
+        candidates = self._run_domain_fit_gate(run, candidates, evidence, domain_fit_results)
+        metrics.stage_durations["domain_fit_gate"] = round(time.time() - t_step, 2)
 
         # Step 6: Score and rank
         t_step = time.time()
@@ -291,6 +353,23 @@ class BreakthroughOrchestrator:
             )
             self.repo.save_harness_decision(decision)
             publication_passed[c.id] = decision.passed
+
+            # Phase 4B: Save publication gate diagnostic
+            try:
+                gate_reasons = []
+                if decision.passed:
+                    gate_reasons.append(f"score={scores[c.id].final_score:.3f} >= {self.program.publication_threshold}")
+                    if decision.warnings:
+                        gate_reasons.append(f"warnings: {', '.join(decision.warnings[:3])}")
+                else:
+                    gate_reasons.extend(decision.failed_rules)
+                self.repo.save_gate_diagnostic(
+                    run_id=run.id, candidate_id=c.id, gate_name="publication",
+                    passed=decision.passed, score=scores[c.id].final_score,
+                    reasons=gate_reasons,
+                )
+            except Exception:
+                pass
 
             if decision.passed:
                 final_candidates.append(c)
@@ -406,6 +485,66 @@ class BreakthroughOrchestrator:
         metrics.total_duration_seconds = round(time.time() - t0, 2)
         self.repo.save_run_metrics(metrics)
 
+        # Phase 4C: Finalize embedding monitoring
+        try:
+            self.embedding_monitor.finish_run()
+        except Exception:
+            pass
+
+        # Phase 4C: Save calibration diagnostics
+        try:
+            pub_fail_reasons = []
+            for c_id, passed in publication_passed.items():
+                if not passed:
+                    cand = self.repo.get_candidate(c_id)
+                    if cand:
+                        pub_fail_reasons.append(cand.get("rejection_reason", "")[:100])
+
+            df_scores = []
+            for df in domain_fit_results.values():
+                if hasattr(df, "domain_fit_score"):
+                    df_scores.append(df.domain_fit_score)
+
+            self.repo.save_calibration_diagnostic({
+                "run_id": run.id,
+                "lexical_block_count": metrics.novelty_fail_count,
+                "embedding_block_count": sum(
+                    1 for nr_id, nr in novelty_results.items()
+                    if hasattr(nr, 'explanation') and 'Embedding similarity' in (nr.explanation or '')
+                ),
+                "domain_fit_fail_count": sum(
+                    1 for df in domain_fit_results.values()
+                    if hasattr(df, 'passed') and not df.passed
+                ),
+                "domain_fit_mean_score": (
+                    sum(df_scores) / len(df_scores) if df_scores else 0.0
+                ),
+                "publication_pass_count": sum(1 for v in publication_passed.values() if v),
+                "publication_fail_count": sum(1 for v in publication_passed.values() if not v),
+                "publication_fail_reasons": pub_fail_reasons[:5],
+                "draft_count": 1 if metrics.draft_created else 0,
+                "candidate_count": run.candidates_generated,
+                "active_thresholds": {
+                    "publication_threshold": self.program.publication_threshold,
+                    "embedding_block": self.embedding_novelty.similarity_threshold,
+                    "embedding_warn": self.embedding_novelty.warn_threshold,
+                    "domain_fit_min": self.domain_fit_evaluator._min_score_override or 0.25,
+                    "corpus_maintenance": {
+                        "archived_by_age": archival_stats.get("archived_by_age", 0),
+                        "total_archived_this_run": archival_stats.get("total_archived", 0),
+                        "active_corpus_size": self.corpus_manager.get_active_count(self.program.domain),
+                    },
+                },
+            })
+        except Exception:
+            pass
+
+        # Phase 4D: Advance sub-domain rotation after run completes
+        try:
+            self.diversity_engine.advance_rotation(self.program.domain)
+        except Exception as e:
+            logger.debug("Rotation advance failed (non-fatal): %s", e)
+
         # Notify completion
         self.dispatcher.run_completed(
             run.id, self.program.name, run.status.value,
@@ -456,10 +595,34 @@ class BreakthroughOrchestrator:
     ) -> list[CandidateHypothesis]:
         passing = []
         for c in candidates:
+            # Phase 4B: Improved evidence linking
+            # First try direct ref matching, then fall back to ranked matching
+            items = []
             if c.evidence_refs:
                 items = [e for e in evidence if e.id in c.evidence_refs]
-            else:
-                items = evidence[:self.program.evidence_minimum]
+
+            if not items and evidence:
+                # Use ranked evidence matching based on mechanism keywords
+                ranked = rank_evidence(
+                    evidence,
+                    domain=self.program.domain,
+                    mechanism=c.mechanism,
+                )
+                items = [item for item, _ in ranked[:max(self.program.evidence_minimum, 2)]]
+                # Update evidence_refs to reflect actual links
+                c.evidence_refs = [e.id for e in items]
+
+                # Persist ranking details
+                for item, detail in ranked[:5]:
+                    try:
+                        self.repo.save_evidence_ranking(
+                            candidate_id=c.id,
+                            evidence_id=item.id,
+                            composite_score=detail.get("composite_score", 0),
+                            rank_explanation=detail.get("rank_explanation", ""),
+                        )
+                    except Exception:
+                        pass  # v003 migration may not be applied
 
             pack = EvidencePack(
                 candidate_id=c.id,
@@ -486,9 +649,33 @@ class BreakthroughOrchestrator:
         evidence: list,
         novelty_results: dict,
     ) -> list[CandidateHypothesis]:
-        """Phase 3: Novelty gate — check each candidate against prior art."""
+        """Novelty gate — lexical (Phase 3) + embedding (Phase 4B)."""
+        # Build prior texts for embedding novelty — filtered to active corpus only (Phase 4D)
+        prior_texts = []
+        try:
+            domain = candidates[0].domain if candidates else ""
+            prior_cands = self.novelty_engine._get_prior_candidates(domain, run.id)
+            # Phase 4D: filter to active (non-archived) candidates only
+            active_ids = self.corpus_manager.get_active_candidate_ids(domain)
+            total_prior = len(prior_cands)
+            active_prior = [pc for pc in prior_cands if pc.get("id") in active_ids] if active_ids else prior_cands
+            logger.info(
+                "[%s] Novelty corpus: total_prior=%d active=%d (archived excluded=%d)",
+                run.id[:8], total_prior, len(active_prior), total_prior - len(active_prior),
+            )
+            for pc in active_prior:
+                prior_texts.append({
+                    "title": pc.get("title", ""),
+                    "text": f"{pc.get('title', '')}. {pc.get('statement', '')}. {pc.get('mechanism', '')}",
+                    "source": "local_candidate",
+                    "source_id": pc.get("id", ""),
+                })
+        except Exception:
+            pass
+
         passing = []
         for c in candidates:
+            # Lexical novelty
             result = self.novelty_engine.evaluate(
                 candidate=c,
                 retrieved_evidence=evidence,
@@ -497,7 +684,48 @@ class BreakthroughOrchestrator:
             self.repo.save_novelty_check(result)
             novelty_results[c.id] = result
 
+            # Embedding novelty (Phase 4B)
+            emb_detail = self.embedding_novelty.evaluate(
+                candidate=c,
+                prior_texts=prior_texts,
+                retrieved_evidence=evidence,
+            )
+            # Phase 4C: Record in embedding monitor
+            self.embedding_monitor.record_evaluation(emb_detail)
+            # Persist embedding novelty detail
+            try:
+                self.repo.save_embedding_novelty({
+                    "candidate_id": c.id,
+                    **emb_detail.to_dict(),
+                })
+            except Exception:
+                pass  # v003 migration may not be applied yet
+
+            # Combined decision: fail if either lexical hard-fail or embedding block
+            blocked = False
             if result.decision == NoveltyDecision.FAIL:
+                blocked = True
+            elif emb_detail.blocked_by_prior_art:
+                blocked = True
+                result.explanation += (
+                    f" | Embedding similarity={emb_detail.embedding_similarity_max:.3f} "
+                    f"exceeds threshold (semantic near-duplicate)"
+                )
+
+            # Save gate diagnostic
+            try:
+                self.repo.save_gate_diagnostic(
+                    run_id=run.id, candidate_id=c.id, gate_name="novelty",
+                    passed=not blocked, score=result.novelty_score,
+                    reasons=result.overlap_reasons[:5] + (
+                        [f"embedding_sim={emb_detail.embedding_similarity_max:.3f}"]
+                        if emb_detail.embedding_similarity_max > 0 else []
+                    ),
+                )
+            except Exception:
+                pass
+
+            if blocked:
                 self._reject(run, c, CandidateStatus.NOVELTY_FAILED,
                              f"Novelty gate: {result.explanation[:200]}",
                              "novelty_gate", result.overlap_reasons[:5])
@@ -505,6 +733,48 @@ class BreakthroughOrchestrator:
                 if result.decision == NoveltyDecision.WARN:
                     logger.info("[%s] Novelty warning for '%s': %s",
                                 run.id[:8], c.title[:40], result.explanation[:100])
+                passing.append(c)
+        return passing
+
+    def _run_domain_fit_gate(
+        self,
+        run: RunRecord,
+        candidates: list[CandidateHypothesis],
+        evidence: list,
+        domain_fit_results: dict,
+    ) -> list[CandidateHypothesis]:
+        """Phase 4B: Domain-fit gate — reject candidates that don't fit the program."""
+        passing = []
+        for c in candidates:
+            fit = self.domain_fit_evaluator.evaluate(
+                candidate=c,
+                program=self.program,
+                evidence=evidence,
+            )
+            domain_fit_results[c.id] = fit
+
+            # Persist domain fit
+            try:
+                self.repo.save_domain_fit(fit.to_dict())
+            except Exception:
+                pass  # v003 migration may not be applied yet
+
+            # Save gate diagnostic
+            try:
+                self.repo.save_gate_diagnostic(
+                    run_id=run.id, candidate_id=c.id, gate_name="domain_fit",
+                    passed=fit.passed, score=fit.domain_fit_score,
+                    reasons=fit.mismatch_flags[:5] if not fit.passed else fit.relevance_reasons[:3],
+                )
+            except Exception:
+                pass
+
+            if not fit.passed:
+                self._reject(run, c, CandidateStatus.PUBLICATION_FAILED,
+                             f"Domain fit failed: score={fit.domain_fit_score:.2f}, "
+                             f"flags={', '.join(fit.mismatch_flags[:3])}",
+                             "domain_fit", fit.mismatch_flags[:5])
+            else:
                 passing.append(c)
         return passing
 

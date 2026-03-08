@@ -338,3 +338,152 @@ class CompositeRetrievalSource(EvidenceSource):
         # Sort by relevance and trim
         all_items.sort(key=lambda x: x.relevance_score, reverse=True)
         return all_items[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4B: Retrieval ranking and query construction
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could", "of", "in", "to",
+    "for", "with", "on", "at", "from", "by", "as", "into", "through",
+    "during", "before", "after", "and", "but", "or", "not", "so", "yet",
+    "that", "this", "it", "its", "we", "our", "they", "their",
+})
+
+
+def _extract_keywords(text: str) -> list[str]:
+    """Extract meaningful keywords from text, removing stop words."""
+    words = _re.findall(r"[a-z0-9]+", text.lower())
+    return [w for w in words if w not in _STOP_WORDS and len(w) > 2]
+
+
+def build_retrieval_query(
+    domain: str,
+    mechanism: str = "",
+    program_goal: str = "",
+    prior_art_keywords: list[str] | None = None,
+) -> str:
+    """Build an improved retrieval query from multiple signal sources.
+
+    Combines domain terms, mechanism keywords, program goal terms,
+    and optional prior-art keywords for better retrieval precision.
+    """
+    parts: list[str] = []
+
+    # Domain as base
+    parts.append(domain.replace("-", " ").replace("_", " "))
+
+    # Top mechanism keywords
+    if mechanism:
+        mech_kw = _extract_keywords(mechanism)[:6]
+        if mech_kw:
+            parts.append(" ".join(mech_kw))
+
+    # Program goal keywords
+    if program_goal:
+        goal_kw = _extract_keywords(program_goal)[:4]
+        if goal_kw:
+            parts.append(" ".join(goal_kw))
+
+    # Prior-art keywords
+    if prior_art_keywords:
+        parts.extend(prior_art_keywords[:3])
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for part in parts:
+        for word in part.split():
+            w = word.lower().strip()
+            if w and w not in seen:
+                seen.add(w)
+                tokens.append(w)
+
+    return " ".join(tokens[:20])
+
+
+def rank_evidence(
+    items: list[EvidenceItem],
+    domain: str,
+    mechanism: str = "",
+    domain_keywords: set[str] | None = None,
+    recency_weight: float = 0.1,
+) -> list[tuple[EvidenceItem, dict]]:
+    """Rank evidence items using a layered scoring approach.
+
+    Returns list of (item, ranking_detail) sorted by composite score.
+    Ranking layers:
+    1. API relevance score (from OpenAlex/Crossref)
+    2. Title/abstract domain keyword overlap
+    3. Mechanism keyword overlap
+    4. Recency bonus (if publication date available)
+    """
+    if not items:
+        return []
+
+    mech_keywords = set(_extract_keywords(mechanism)) if mechanism else set()
+    dom_keywords = domain_keywords or set()
+    domain_terms = set(_extract_keywords(domain.replace("-", " ")))
+    all_domain_kw = dom_keywords | domain_terms
+
+    scored: list[tuple[EvidenceItem, dict, float]] = []
+
+    for item in items:
+        detail: dict = {}
+
+        # Layer 1: API relevance
+        api_score = item.relevance_score
+        detail["api_relevance"] = round(api_score, 3)
+
+        # Layer 2: Domain keyword overlap in title + quote
+        item_text = f"{item.title} {item.quote}".lower()
+        if all_domain_kw:
+            dom_hits = sum(1 for kw in all_domain_kw if kw in item_text)
+            domain_overlap = min(1.0, dom_hits / max(1, len(all_domain_kw)) * 3)
+        else:
+            domain_overlap = 0.5
+        detail["domain_overlap"] = round(domain_overlap, 3)
+
+        # Layer 3: Mechanism keyword overlap
+        if mech_keywords:
+            mech_hits = sum(1 for kw in mech_keywords if kw in item_text)
+            mech_overlap = min(1.0, mech_hits / max(1, len(mech_keywords)) * 2)
+        else:
+            mech_overlap = 0.0
+        detail["mechanism_overlap"] = round(mech_overlap, 3)
+
+        # Layer 4: Recency bonus (parse year from citation)
+        recency_bonus = 0.0
+        year_match = _re.search(r"\b(20[12]\d)\b", item.citation)
+        if year_match:
+            year = int(year_match.group(1))
+            if year >= 2024:
+                recency_bonus = recency_weight
+            elif year >= 2022:
+                recency_bonus = recency_weight * 0.5
+        detail["recency_bonus"] = round(recency_bonus, 3)
+
+        # Composite score
+        composite = (
+            api_score * 0.35
+            + domain_overlap * 0.30
+            + mech_overlap * 0.20
+            + recency_bonus
+            + 0.15 * 0.5  # baseline
+        )
+        detail["composite_score"] = round(composite, 3)
+        detail["rank_explanation"] = (
+            f"api={api_score:.2f} dom={domain_overlap:.2f} "
+            f"mech={mech_overlap:.2f} recency={recency_bonus:.2f}"
+        )
+
+        scored.append((item, detail, composite))
+
+    # Sort by composite score descending
+    scored.sort(key=lambda x: x[2], reverse=True)
+    return [(item, detail) for item, detail, _ in scored]

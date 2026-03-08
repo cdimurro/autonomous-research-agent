@@ -1,0 +1,84 @@
+# Domain-fit configuration: Clean Energy
+# Used by DomainFitEvaluator to score candidate relevance.
+#
+# To add a new domain: create a new YAML in config/domain_fit/<domain>.yaml
+# with the same structure. The filename (without .yaml) must match the
+# domain field in the research program config.
+
+domain: clean-energy
+
+positive_keywords:
+  - solar
+  - photovoltaic
+  - perovskite
+  - wind
+  - turbine
+  - battery
+  - hydrogen
+  - electrolysis
+  - fuel cell
+  - grid
+  - renewable
+  - efficiency
+  - energy storage
+  - thermoelectric
+  - geothermal
+  - biomass
+  - carbon capture
+  - supercapacitor
+  - power conversion
+  - inverter
+  - smart grid
+  - microgrid
+  - nuclear fusion
+  - fission
+  - tidal
+  - wave energy
+  - heat pump
+  - thermal
+  - photocatalyst
+  - electrochemical
+  - electrode
+  - catalyst
+  - membrane
+  - ionic
+  - semiconductor
+  - bandgap
+  - junction
+
+negative_keywords:
+  - crispr
+  - diagnostic
+  - pathogen
+  - drug delivery
+  - gene therapy
+
+# Scoring weights (must sum to <= 1.0 before goal bonus)
+weights:
+  title: 0.15
+  statement: 0.30
+  mechanism: 0.25
+  evidence: 0.15
+  keyword_diversity: 0.15
+
+# Minimum composite score to pass domain-fit gate
+min_score: 0.25
+
+# Weight applied to program-goal keyword overlap
+program_goal_weight: 0.30
+
+# Penalty applied per off-domain (negative) keyword detected
+off_domain_penalty: 0.15
+
+# Sub-domains used by DiversityEngine for rotation
+sub_domains:
+  - solar photovoltaics
+  - grid-scale energy storage
+  - green hydrogen production
+  - wind energy systems
+  - carbon capture and utilization
+  - thermal energy storage
+  - fuel cells and electrolyzers
+  - building energy efficiency
+  - offshore energy systems
+  - bioenergy and biomass

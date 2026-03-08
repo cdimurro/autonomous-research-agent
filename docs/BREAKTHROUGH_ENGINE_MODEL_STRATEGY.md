@@ -1,6 +1,6 @@
 # Breakthrough Engine - Model Strategy
 
-## Status: Initial Strategy Defined (Phase 4A)
+## Status: Updated for Phase 4C (live embedding validation)
 
 ## Decision Context
 
@@ -74,18 +74,68 @@ Llama 3.1 8B is widely available, well-tested, and has good JSON output complian
 | Dimension | Qwen 3.5 9B | Llama 3.1 8B |
 |-----------|-------------|--------------|
 | Generation quality | Good | Adequate |
-| JSON compliance | Good (with /no_think prefix) | Good |
+| JSON compliance | Good (with `think: false` API flag) | Good |
 | Speed (M-series) | ~15-30 tok/s | ~20-40 tok/s |
 | VRAM | ~6GB Q4 | ~5GB Q4 |
 | Context | 32K | 128K |
 | Availability | Ollama registry | Ollama registry |
 
+## Phase 4B: Embedding Model Strategy
+
+### Embedding Decision Table
+
+| Role | Primary Model | Backup | Why Selected | Cost | Required Now? |
+|------|--------------|--------|--------------|------|---------------|
+| Novelty embeddings | `nomic-embed-text` (Ollama) | `MockEmbeddingProvider` | 768d, good scientific text similarity, local-first | $0 (local) | Optional (mock fallback works) |
+
+### Primary: nomic-embed-text
+
+- **768-dimensional** embeddings
+- **Local-first**: Runs via Ollama, no API keys
+- **Good quality** for scientific text similarity tasks
+- **Environment override**: `BT_EMBEDDING_MODEL=nomic-embed-text`
+- **Fallback**: If Ollama embedding endpoint is unavailable, the system falls back to `MockEmbeddingProvider` (deterministic hash-based, always available)
+
+### Separation of Concerns
+
+| Component | Model | Purpose |
+|-----------|-------|---------|
+| Candidate generation | qwen3.5:9b-q4_K_M | Generate hypotheses from evidence |
+| Novelty embeddings | nomic-embed-text | Detect semantic near-duplicates |
+| Scoring | Rule-based (no LLM) | Deterministic formula |
+| Domain-fit | Rule-based (no LLM) | Keyword-based relevance |
+
+The embedding model is used **only** for novelty detection. It does not influence candidate generation, scoring, or publication decisions directly.
+
+### Thinking-Mode Disable Mechanism
+
+The Ollama API payload uses `"think": False` (Python bool) in the JSON body to disable thinking mode for Qwen 3.5. This was changed from the original `/no_think` prefix approach in Phase 4A after observing that the model spent all tokens on thinking when thinking mode was enabled.
+
+## Phase 4C: Production Embedding Validation
+
+### Actual runtime configuration (verified):
+- **Generation model**: `qwen3.5:9b-q4_K_M` via Ollama (confirmed running)
+- **Embedding model**: `nomic-embed-text` via Ollama (768d, pulled and verified)
+- **Thinking mode**: `"think": False` in API payload (no `/no_think` prefix)
+- **Mock fallback**: `MockEmbeddingProvider` (64d hash-based, always available)
+
+### Domain-fit model: Rule-based (no LLM)
+- Keyword matching from YAML config files (`config/domain_fit/`)
+- No LLM involvement in domain-fit evaluation
+- Configurable per domain without code changes
+
+### Embedding monitoring
+- Per-run embedding stats persisted in `bt_embedding_monitor`
+- Cross-run drift analysis via `EmbeddingMonitor.get_drift_report()`
+- Saturation detection and repeated-neighbor clustering
+
 ## What Remains Deferred
 
 1. **Multi-model orchestration**: Not needed. Single model for generation is sufficient.
 2. **API-based models (Claude, GPT)**: Not needed for local-first operation. Can be added later if quality demands it.
-3. **Embedding models**: Not needed until embedding-based novelty (Phase 4B).
-4. **Fine-tuned models**: Premature. Need real run data first to know what to fine-tune on.
+3. **Fine-tuned models**: Premature. Need real run data first to know what to fine-tune on.
+4. **LLM-based critique/review**: Deferred. Human review is the current quality gate.
+5. **LLM-based domain classification**: Deferred. Keyword-based approach is working and now configurable.
 
 ## Upgrade Path
 

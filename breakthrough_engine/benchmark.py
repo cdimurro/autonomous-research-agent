@@ -177,6 +177,7 @@ class BenchmarkCandidateGenerator(CandidateGenerator):
         domain: str,
         budget: int = 10,
         run_id: str = "",
+        diversity_context=None,
     ) -> list[CandidateHypothesis]:
         result = []
         for c in self._candidates[:budget]:

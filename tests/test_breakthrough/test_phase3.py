@@ -665,10 +665,10 @@ class TestMigrationV002:
         assert "bt_run_metrics" in tables
         assert "bt_retrieval_cache" in tables
 
-    def test_schema_version_is_2(self):
+    def test_schema_version_is_current(self):
         db = _make_db()
         from breakthrough_engine.db import _current_version
-        assert _current_version(db) == 2
+        assert _current_version(db) >= 2  # v002+ (Phase 3+)
 
     def test_idempotent_init(self):
         db = _make_db()
@@ -677,7 +677,7 @@ class TestMigrationV002:
         # Re-init should be safe
         from breakthrough_engine.db import init_db
         # Can't re-init in-memory, but verify version
-        assert v1 == 2
+        assert v1 >= 2  # v002+ (Phase 3+)
 
 
 # ---------------------------------------------------------------------------

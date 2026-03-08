@@ -32,6 +32,11 @@ from .models import (
     SimulationSpec,
 )
 
+def _utcnow() -> str:
+    """Return current UTC time as ISO-8601 string."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 # ---------------------------------------------------------------------------
 # Migrations
 # ---------------------------------------------------------------------------
@@ -267,6 +272,134 @@ CREATE TABLE IF NOT EXISTS bt_retrieval_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_rc_source ON bt_retrieval_cache(source_name);
 CREATE INDEX IF NOT EXISTS idx_bt_rc_expires ON bt_retrieval_cache(expires_at);
+""",
+    3: """
+-- Phase 4B: Domain fit assessments
+CREATE TABLE IF NOT EXISTS bt_domain_fit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    domain_fit_score REAL DEFAULT 0.0,
+    title_relevance REAL DEFAULT 0.0,
+    statement_relevance REAL DEFAULT 0.0,
+    mechanism_relevance REAL DEFAULT 0.0,
+    evidence_relevance REAL DEFAULT 0.0,
+    relevance_reasons TEXT DEFAULT '[]',
+    mismatch_flags TEXT DEFAULT '[]',
+    matched_keywords TEXT DEFAULT '[]',
+    passed INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_df_cand ON bt_domain_fit(candidate_id);
+
+-- Phase 4B: Embedding novelty details
+CREATE TABLE IF NOT EXISTS bt_embedding_novelty (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    embedding_similarity_max REAL DEFAULT 0.0,
+    nearest_neighbors TEXT DEFAULT '[]',
+    novelty_basis TEXT DEFAULT 'lexical_only',
+    blocked_by_prior_art INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_en_cand ON bt_embedding_novelty(candidate_id);
+
+-- Phase 4B: Evidence ranking details
+CREATE TABLE IF NOT EXISTS bt_evidence_rankings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    evidence_id TEXT NOT NULL,
+    composite_score REAL DEFAULT 0.0,
+    rank_explanation TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_er_cand ON bt_evidence_rankings(candidate_id);
+
+-- Phase 4B: Publication gate diagnostics
+CREATE TABLE IF NOT EXISTS bt_gate_diagnostics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    gate_name TEXT NOT NULL,
+    passed INTEGER NOT NULL,
+    score REAL DEFAULT 0.0,
+    reasons TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_gd_run ON bt_gate_diagnostics(run_id);
+""",
+    4: """
+-- Phase 4C: Embedding monitoring per-run
+CREATE TABLE IF NOT EXISTS bt_embedding_monitor (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    embedding_model TEXT NOT NULL DEFAULT 'mock',
+    embedding_dim INTEGER NOT NULL DEFAULT 64,
+    similarity_threshold REAL NOT NULL DEFAULT 0.88,
+    warn_threshold REAL NOT NULL DEFAULT 0.78,
+    candidates_evaluated INTEGER DEFAULT 0,
+    blocked_count INTEGER DEFAULT 0,
+    warned_count INTEGER DEFAULT 0,
+    max_similarity REAL DEFAULT 0.0,
+    mean_similarity REAL DEFAULT 0.0,
+    top_k_similarities TEXT DEFAULT '[]',
+    nearest_neighbor_summary TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_em_run ON bt_embedding_monitor(run_id);
+
+-- Phase 4C: Calibration diagnostics per-run
+CREATE TABLE IF NOT EXISTS bt_calibration_diagnostics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    lexical_block_count INTEGER DEFAULT 0,
+    embedding_block_count INTEGER DEFAULT 0,
+    domain_fit_fail_count INTEGER DEFAULT 0,
+    domain_fit_mean_score REAL DEFAULT 0.0,
+    publication_pass_count INTEGER DEFAULT 0,
+    publication_fail_count INTEGER DEFAULT 0,
+    publication_fail_reasons TEXT DEFAULT '[]',
+    draft_count INTEGER DEFAULT 0,
+    candidate_count INTEGER DEFAULT 0,
+    active_thresholds TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_cd_run ON bt_calibration_diagnostics(run_id);
+""",
+    5: """
+-- Phase 4D: Diversity context used per run
+CREATE TABLE IF NOT EXISTS bt_diversity_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    sub_domain TEXT DEFAULT '',
+    excluded_topics TEXT DEFAULT '[]',
+    excluded_neighbor_titles TEXT DEFAULT '[]',
+    rotation_policy TEXT DEFAULT 'auto',
+    focus_areas TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_run ON bt_diversity_context(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_domain ON bt_diversity_context(domain);
+
+-- Phase 4D: Domain/sub-domain rotation state
+CREATE TABLE IF NOT EXISTS bt_rotation_state (
+    domain TEXT PRIMARY KEY,
+    last_sub_domain TEXT DEFAULT '',
+    sub_domain_index INTEGER DEFAULT 0,
+    total_runs INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+-- Phase 4D: Corpus archive marker
+CREATE TABLE IF NOT EXISTS bt_corpus_archive (
+    candidate_id TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    archived_reason TEXT DEFAULT 'recency',
+    cluster_id TEXT DEFAULT '',
+    archived_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_ca_domain ON bt_corpus_archive(domain);
 """,
 }
 
@@ -709,3 +842,255 @@ class Repository:
         )
         self.db.commit()
         return cursor.rowcount
+
+    # -- Phase 4B: Domain fit --
+
+    def save_domain_fit(self, fit: dict) -> None:
+        self.db.execute(
+            """INSERT INTO bt_domain_fit
+               (candidate_id, domain, domain_fit_score, title_relevance,
+                statement_relevance, mechanism_relevance, evidence_relevance,
+                relevance_reasons, mismatch_flags, matched_keywords, passed)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (fit["candidate_id"], fit["domain"], fit["domain_fit_score"],
+             fit["title_relevance"], fit["statement_relevance"],
+             fit["mechanism_relevance"], fit["evidence_relevance"],
+             json.dumps(fit.get("relevance_reasons", [])),
+             json.dumps(fit.get("mismatch_flags", [])),
+             json.dumps(fit.get("matched_keywords", [])),
+             int(fit.get("passed", True))),
+        )
+        self.db.commit()
+
+    def get_domain_fit(self, candidate_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_domain_fit WHERE candidate_id=?", (candidate_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    # -- Phase 4B: Embedding novelty --
+
+    def save_embedding_novelty(self, detail: dict) -> None:
+        self.db.execute(
+            """INSERT INTO bt_embedding_novelty
+               (candidate_id, embedding_similarity_max, nearest_neighbors,
+                novelty_basis, blocked_by_prior_art)
+               VALUES (?,?,?,?,?)""",
+            (detail["candidate_id"], detail.get("embedding_similarity_max", 0.0),
+             json.dumps(detail.get("nearest_neighbors", [])),
+             detail.get("novelty_basis", "lexical_only"),
+             int(detail.get("blocked_by_prior_art", False))),
+        )
+        self.db.commit()
+
+    def get_embedding_novelty(self, candidate_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_embedding_novelty WHERE candidate_id=?", (candidate_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    # -- Phase 4B: Gate diagnostics --
+
+    def save_gate_diagnostic(
+        self, run_id: str, candidate_id: str, gate_name: str,
+        passed: bool, score: float = 0.0, reasons: list[str] | None = None,
+    ) -> None:
+        self.db.execute(
+            """INSERT INTO bt_gate_diagnostics
+               (run_id, candidate_id, gate_name, passed, score, reasons)
+               VALUES (?,?,?,?,?,?)""",
+            (run_id, candidate_id, gate_name, int(passed), score,
+             json.dumps(reasons or [])),
+        )
+        self.db.commit()
+
+    def list_gate_diagnostics(self, run_id: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_gate_diagnostics WHERE run_id=? ORDER BY created_at",
+            (run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 4B: Evidence rankings --
+
+    def save_evidence_ranking(
+        self, candidate_id: str, evidence_id: str,
+        composite_score: float, rank_explanation: str,
+    ) -> None:
+        self.db.execute(
+            """INSERT INTO bt_evidence_rankings
+               (candidate_id, evidence_id, composite_score, rank_explanation)
+               VALUES (?,?,?,?)""",
+            (candidate_id, evidence_id, composite_score, rank_explanation),
+        )
+        self.db.commit()
+
+    def list_evidence_rankings(self, candidate_id: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_evidence_rankings WHERE candidate_id=? ORDER BY composite_score DESC",
+            (candidate_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 4C: Embedding monitoring --
+
+    def save_embedding_monitor(self, data: dict) -> None:
+        self.db.execute(
+            """INSERT INTO bt_embedding_monitor
+               (run_id, embedding_model, embedding_dim, similarity_threshold,
+                warn_threshold, candidates_evaluated, blocked_count, warned_count,
+                max_similarity, mean_similarity, top_k_similarities,
+                nearest_neighbor_summary)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (data["run_id"], data.get("embedding_model", "mock"),
+             data.get("embedding_dim", 64),
+             data.get("similarity_threshold", 0.88),
+             data.get("warn_threshold", 0.78),
+             data.get("candidates_evaluated", 0),
+             data.get("blocked_count", 0),
+             data.get("warned_count", 0),
+             data.get("max_similarity", 0.0),
+             data.get("mean_similarity", 0.0),
+             json.dumps(data.get("top_k_similarities", [])),
+             json.dumps(data.get("nearest_neighbor_summary", []))),
+        )
+        self.db.commit()
+
+    def get_embedding_monitor(self, run_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_embedding_monitor WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_embedding_monitors(self, limit: int = 20) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_embedding_monitor ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 4C: Calibration diagnostics --
+
+    def save_calibration_diagnostic(self, data: dict) -> None:
+        self.db.execute(
+            """INSERT INTO bt_calibration_diagnostics
+               (run_id, lexical_block_count, embedding_block_count,
+                domain_fit_fail_count, domain_fit_mean_score,
+                publication_pass_count, publication_fail_count,
+                publication_fail_reasons, draft_count, candidate_count,
+                active_thresholds)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (data["run_id"],
+             data.get("lexical_block_count", 0),
+             data.get("embedding_block_count", 0),
+             data.get("domain_fit_fail_count", 0),
+             data.get("domain_fit_mean_score", 0.0),
+             data.get("publication_pass_count", 0),
+             data.get("publication_fail_count", 0),
+             json.dumps(data.get("publication_fail_reasons", [])),
+             data.get("draft_count", 0),
+             data.get("candidate_count", 0),
+             json.dumps(data.get("active_thresholds", {}))),
+        )
+        self.db.commit()
+
+    def get_calibration_diagnostic(self, run_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_calibration_diagnostics WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_calibration_diagnostics(self, limit: int = 20) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_calibration_diagnostics ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        return [dict(r) for r in rows]
+
+    # -- Phase 4D: Diversity context --
+
+    def save_diversity_context(self, data: dict) -> None:
+        now = _utcnow()
+        self.db.execute(
+            """INSERT INTO bt_diversity_context
+               (run_id, domain, sub_domain, excluded_topics,
+                excluded_neighbor_titles, rotation_policy, focus_areas, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                data["run_id"],
+                data["domain"],
+                data.get("sub_domain", ""),
+                json.dumps(data.get("excluded_topics", [])),
+                json.dumps(data.get("excluded_neighbor_titles", [])),
+                data.get("rotation_policy", "auto"),
+                json.dumps(data.get("focus_areas", [])),
+                now,
+            ),
+        )
+        self.db.commit()
+
+    def get_diversity_context(self, run_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_diversity_context WHERE run_id=? ORDER BY id DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for key in ("excluded_topics", "excluded_neighbor_titles", "focus_areas"):
+            if isinstance(d.get(key), str):
+                d[key] = json.loads(d[key])
+        return d
+
+    # -- Phase 4D: Rotation state --
+
+    def get_rotation_state(self, domain: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_rotation_state WHERE domain=?", (domain,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def save_rotation_state(
+        self, domain: str, sub_domain: str, index: int, total: int
+    ) -> None:
+        now = _utcnow()
+        self.db.execute(
+            """INSERT INTO bt_rotation_state
+               (domain, last_sub_domain, sub_domain_index, total_runs, updated_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(domain) DO UPDATE SET
+                 last_sub_domain=excluded.last_sub_domain,
+                 sub_domain_index=excluded.sub_domain_index,
+                 total_runs=excluded.total_runs,
+                 updated_at=excluded.updated_at""",
+            (domain, sub_domain, index, total, now),
+        )
+        self.db.commit()
+
+    # -- Phase 4D: Corpus archive --
+
+    def archive_candidate(
+        self, candidate_id: str, domain: str, reason: str = "recency", cluster_id: str = ""
+    ) -> None:
+        now = _utcnow()
+        self.db.execute(
+            """INSERT OR IGNORE INTO bt_corpus_archive
+               (candidate_id, domain, archived_reason, cluster_id, archived_at)
+               VALUES (?,?,?,?,?)""",
+            (candidate_id, domain, reason, cluster_id, now),
+        )
+        self.db.commit()
+
+    def list_archived_candidates(self, domain: str, limit: int = 100) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_corpus_archive WHERE domain=? ORDER BY archived_at DESC LIMIT ?",
+            (domain, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def is_archived(self, candidate_id: str) -> bool:
+        row = self.db.execute(
+            "SELECT 1 FROM bt_corpus_archive WHERE candidate_id=?", (candidate_id,)
+        ).fetchone()
+        return row is not None

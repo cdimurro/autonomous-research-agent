@@ -270,7 +270,11 @@ def run_publication_gate(
     simulation_result: SimulationResult | None,
     publication_threshold: float = 0.60,
 ) -> HarnessDecision:
-    """Final gate before a candidate can be published."""
+    """Final gate before a candidate can be published.
+
+    Phase 4B: Added evidence quality check, mechanism specificity check,
+    and more explanatory diagnostics.
+    """
     failed = []
     warnings = []
     fixes = []
@@ -283,6 +287,9 @@ def run_publication_gate(
     if evidence_pack is None or len(evidence_pack.items) == 0:
         failed.append("no_evidence_attached")
         fixes.append("Attach at least one evidence item")
+    elif len(evidence_pack.items) < 2:
+        warnings.append("weak_evidence_count")
+        fixes.append("Attach at least 2 evidence items for stronger support")
 
     # Simulation result status
     if simulation_result is None:
@@ -303,6 +310,20 @@ def run_publication_gate(
         )
         fixes.append("Improve candidate score above publication threshold")
 
+    # Phase 4B: Evidence strength floor
+    if score.evidence_strength_score < 0.3:
+        warnings.append(f"low_evidence_strength ({score.evidence_strength_score:.2f})")
+        fixes.append("Provide stronger, more relevant evidence")
+
+    # Phase 4B: Mechanism specificity check
+    if len(candidate.mechanism.strip()) < 50:
+        warnings.append("mechanism_lacks_detail")
+        fixes.append("Provide a more detailed mechanism description (>50 chars)")
+
+    # Phase 4B: Novelty score floor
+    if score.novelty_score < 0.3:
+        warnings.append(f"low_novelty_score ({score.novelty_score:.2f})")
+
     # Must not claim confirmed discovery
     lower_stmt = candidate.statement.lower()
     if "confirmed discovery" in lower_stmt or "proven fact" in lower_stmt:
@@ -310,6 +331,22 @@ def run_publication_gate(
         fixes.append("Label as 'validated_breakthrough_candidate', not confirmed discovery")
 
     passed = len(failed) == 0
+
+    # Build explanatory diagnostic summary
+    pass_reasons = []
+    if passed:
+        pass_reasons.append(f"score={score.final_score:.3f}>={publication_threshold:.3f}")
+        pass_reasons.append(f"evidence={len(evidence_pack.items) if evidence_pack else 0}")
+        pass_reasons.append(f"assumptions={len(candidate.assumptions)}")
+        if warnings:
+            pass_reasons.append(f"warnings={len(warnings)}")
+
+    explanation = "Publication gate"
+    if passed:
+        explanation += f": PASSED ({'; '.join(pass_reasons)})"
+    else:
+        explanation += f": FAILED ({len(failed)} rules: {', '.join(failed[:3])})"
+
     return HarnessDecision(
         harness_name="publication_gate",
         candidate_id=candidate.id,
@@ -318,7 +355,5 @@ def run_publication_gate(
         warnings=warnings,
         suggested_fixes=fixes,
         score_contribution=1.0 if passed else 0.0,
-        explanation="Publication gate" + (
-            ": PASSED" if passed else f": FAILED ({len(failed)} rules violated)"
-        ),
+        explanation=explanation,
     )

@@ -2,7 +2,7 @@
 
 ## Active
 
-None. All Phase 4A blockers resolved.
+None. All Phase 4A and 4B blockers resolved.
 
 ## Resolved
 

@@ -1,0 +1,68 @@
+# Domain-fit configuration: Materials Science
+
+domain: materials
+
+positive_keywords:
+  - alloy
+  - polymer
+  - ceramic
+  - composite
+  - nanomaterial
+  - graphene
+  - carbon nanotube
+  - metal-organic framework
+  - mof
+  - crystal
+  - lattice
+  - superconductor
+  - topological
+  - metamaterial
+  - thin film
+  - coating
+  - corrosion
+  - fatigue
+  - tensile
+  - hardness
+  - elasticity
+  - thermal conductivity
+  - piezoelectric
+  - ferroelectric
+  - magnetic
+  - semiconductor
+  - dielectric
+  - biomaterial
+  - scaffold
+  - hydrogel
+  - aerogel
+  - quantum dot
+
+negative_keywords:
+  - crispr
+  - diagnostic
+  - pathogen
+  - drug delivery
+  - vaccine
+
+weights:
+  title: 0.15
+  statement: 0.30
+  mechanism: 0.25
+  evidence: 0.15
+  keyword_diversity: 0.15
+
+min_score: 0.25
+program_goal_weight: 0.30
+off_domain_penalty: 0.15
+
+# Sub-domains used by DiversityEngine for rotation
+sub_domains:
+  - two-dimensional materials
+  - metal-organic frameworks
+  - high-entropy alloys
+  - biomaterials and hydrogels
+  - quantum materials
+  - polymer nanocomposites
+  - self-healing materials
+  - additive manufacturing materials
+  - catalytic materials
+  - optical and photonic materials
