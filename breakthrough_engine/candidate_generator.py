@@ -182,9 +182,10 @@ class OllamaCandidateGenerator(CandidateGenerator):
             "model": self.config.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "/no_think\n" + user_message},
+                {"role": "user", "content": user_message},
             ],
             "stream": False,
+            "think": False,
             "options": {
                 "num_predict": self.config.max_tokens,
                 "temperature": self.config.temperature,

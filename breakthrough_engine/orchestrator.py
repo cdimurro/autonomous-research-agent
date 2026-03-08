@@ -305,9 +305,17 @@ class BreakthroughOrchestrator:
         logger.info("[%s] Step 10: Publication selection (mode=%s)", run.id[:8], self.program.mode.value)
 
         if self.program.mode in SHADOW_MODES:
-            # Shadow mode: no publication or draft
-            run.status = RunStatus.COMPLETED_NO_PUBLICATION
-            logger.info("[%s] Shadow mode — no publication created", run.id[:8])
+            # Shadow mode: no publication or draft, but mark passing candidates as finalists
+            if final_candidates:
+                run.status = RunStatus.COMPLETED
+                for c in final_candidates:
+                    c.status = CandidateStatus.FINALIST
+                    self.repo.update_candidate_status(c.id, CandidateStatus.FINALIST)
+                logger.info("[%s] Shadow mode — %d finalist(s), no publication created",
+                            run.id[:8], len(final_candidates))
+            else:
+                run.status = RunStatus.COMPLETED_NO_PUBLICATION
+                logger.info("[%s] Shadow mode — no candidates passed publication gate", run.id[:8])
         elif final_candidates:
             final_ranked = rank_candidates(
                 [scores[c.id] for c in final_candidates],

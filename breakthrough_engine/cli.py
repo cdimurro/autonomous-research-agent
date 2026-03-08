@@ -115,6 +115,9 @@ def main(argv: list[str] | None = None):
     metrics_sub = metrics_p.add_subparsers(dest="metrics_command")
     metrics_sub.add_parser("recent", help="Show recent run metrics")
 
+    # doctor
+    sub.add_parser("doctor", help="Check system readiness (Ollama, DB, models)")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -124,6 +127,10 @@ def main(argv: list[str] | None = None):
 
     if not args.command:
         parser.print_help()
+        return
+
+    if args.command == "doctor":
+        _cmd_doctor(args)
         return
 
     if args.command == "benchmark":
@@ -438,6 +445,93 @@ def _cmd_review(repo: Repository, args):
         else:
             print("Failed to reject draft (not found or already reviewed).", file=sys.stderr)
             sys.exit(1)
+
+
+def _cmd_doctor(args):
+    """Check system readiness: Ollama connectivity, model availability, DB, findings."""
+    import os
+    import sqlite3
+
+    checks = []
+
+    # 1. Ollama connectivity
+    try:
+        import requests
+        host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")
+        resp = requests.get(f"http://{host}/api/tags", timeout=5)
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+        model_names = [m["name"] for m in models]
+        checks.append(("Ollama server", "PASS", f"Reachable at {host}, {len(models)} model(s)"))
+
+        # 2. Required model
+        target_model = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
+        if any(target_model in n for n in model_names):
+            checks.append(("Model available", "PASS", f"{target_model} found"))
+        else:
+            checks.append(("Model available", "FAIL", f"{target_model} not found. Available: {', '.join(model_names)}"))
+    except Exception as e:
+        checks.append(("Ollama server", "FAIL", f"Not reachable: {e}"))
+        checks.append(("Model available", "FAIL", "Cannot check (server unreachable)"))
+
+    # 3. Database
+    db_path = getattr(args, "db", None) or os.path.join(
+        os.environ.get("SCIRES_RUNTIME_ROOT", "runtime"), "db", "scires.db"
+    )
+    if os.path.exists(db_path):
+        checks.append(("Database file", "PASS", f"Exists at {db_path}"))
+        try:
+            db = sqlite3.connect(db_path)
+            # Check bt_ tables
+            tables = [r[0] for r in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'bt_%'"
+            ).fetchall()]
+            checks.append(("BT tables", "PASS" if tables else "WARN", f"{len(tables)} bt_ tables"))
+
+            # Check findings table
+            try:
+                count = db.execute("SELECT COUNT(*) FROM findings").fetchone()[0]
+                checks.append(("Findings table", "PASS" if count > 0 else "WARN",
+                              f"{count} findings"))
+            except sqlite3.OperationalError:
+                checks.append(("Findings table", "FAIL", "Table does not exist"))
+
+            # Check papers table
+            try:
+                count = db.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+                checks.append(("Papers table", "PASS" if count > 0 else "WARN",
+                              f"{count} papers"))
+            except sqlite3.OperationalError:
+                checks.append(("Papers table", "FAIL", "Table does not exist"))
+
+            db.close()
+        except Exception as e:
+            checks.append(("Database read", "FAIL", str(e)))
+    else:
+        checks.append(("Database file", "WARN", f"Not found at {db_path} (will be created on first run)"))
+
+    # 4. Research programs
+    from .config_loader import list_programs
+    programs = list_programs()
+    checks.append(("Research programs", "PASS" if programs else "FAIL",
+                   f"{len(programs)} programs: {', '.join(programs)}"))
+
+    # Print results
+    print("Breakthrough Engine - System Readiness Check")
+    print("=" * 55)
+    all_pass = True
+    for name, status, detail in checks:
+        icon = {"PASS": "+", "FAIL": "X", "WARN": "!"}[status]
+        print(f"  [{icon}] {name}: {status} — {detail}")
+        if status == "FAIL":
+            all_pass = False
+    print("=" * 55)
+
+    if all_pass:
+        print("All checks passed. System is ready for production runs.")
+    else:
+        print("Some checks failed. Address the issues above before running production modes.")
+        sys.exit(1)
 
 
 def _cmd_metrics(repo: Repository, args):
