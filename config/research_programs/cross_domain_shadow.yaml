@@ -1,0 +1,29 @@
+name: cross_domain_shadow
+domain: clean-energy+materials
+goal: "Discover novel hybrid hypotheses that bridge clean energy and materials science, combining techniques or mechanisms from both domains."
+candidate_budget: 8
+simulation_budget: 3
+scoring_weights:
+  novelty: 0.20
+  plausibility: 0.25
+  impact: 0.25
+  evidence_strength: 0.15
+  simulation_readiness: 0.10
+  inverse_validation_cost: 0.05
+novelty_threshold: 0.35
+evidence_minimum: 2
+allowed_simulators:
+  - mock
+publication_threshold: 0.60
+banned_claims:
+  - "perpetual motion"
+  - "over-unity device"
+  - "cold fusion at room temperature without nuclear signatures"
+  - "free energy"
+safety_constraints:
+  - "Must not violate thermodynamic limits"
+  - "Must not claim efficiencies above Shockley-Queisser limit without multi-junction justification"
+  - "Energy balance must be positive"
+runtime_budget_minutes: 60
+validation_policy: strict
+mode: production_shadow

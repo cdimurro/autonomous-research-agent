@@ -246,21 +246,32 @@ class NoveltyEngine:
         )
 
     def _get_prior_candidates(self, domain: str, exclude_run_id: str) -> list[dict]:
-        """Retrieve prior candidates from the DB."""
+        """Retrieve prior candidates from the DB.
+
+        For cross-domain runs (domain contains '+'), searches both individual
+        domains and the cross-domain domain itself.
+        """
         try:
+            domains = [domain]
+            if "+" in domain:
+                domains.extend(domain.split("+"))
+                domains.append("cross-domain")
+
+            placeholders = ",".join("?" for _ in domains)
+
             if exclude_run_id:
                 rows = self.db.execute(
-                    """SELECT id, title, statement, mechanism FROM bt_candidates
-                       WHERE domain=? AND run_id != ?
+                    f"""SELECT id, title, statement, mechanism FROM bt_candidates
+                       WHERE domain IN ({placeholders}) AND run_id != ?
                        ORDER BY created_at DESC LIMIT 200""",
-                    (domain, exclude_run_id),
+                    (*domains, exclude_run_id),
                 ).fetchall()
             else:
                 rows = self.db.execute(
-                    """SELECT id, title, statement, mechanism FROM bt_candidates
-                       WHERE domain=?
+                    f"""SELECT id, title, statement, mechanism FROM bt_candidates
+                       WHERE domain IN ({placeholders})
                        ORDER BY created_at DESC LIMIT 200""",
-                    (domain,),
+                    domains,
                 ).fetchall()
             return [dict(r) for r in rows]
         except Exception:

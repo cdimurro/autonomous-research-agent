@@ -105,11 +105,14 @@ class CandidateGenerator(abc.ABC):
         budget: int = 10,
         run_id: str = "",
         diversity_context=None,
+        synthesis_context=None,
     ) -> list[CandidateHypothesis]:
         """Generate up to `budget` candidate hypotheses from evidence.
 
         diversity_context: optional DiversityContext used to steer generation
         away from saturated semantic regions. Ignored if None.
+        synthesis_context: optional SynthesisContext for cross-domain runs.
+        Ignored if None.
         """
 
 
@@ -134,6 +137,7 @@ class OllamaCandidateGenerator(CandidateGenerator):
         budget: int = 10,
         run_id: str = "",
         diversity_context=None,
+        synthesis_context=None,
     ) -> list[CandidateHypothesis]:
         budget = min(budget, self.config.max_candidates)
 
@@ -146,8 +150,23 @@ class OllamaCandidateGenerator(CandidateGenerator):
             budget=budget,
         )
 
-        # Append diversity steering if provided
-        if diversity_context is not None:
+        # Append synthesis steering if provided (Phase 5)
+        if synthesis_context is not None:
+            try:
+                from .synthesis import build_synthesis_prompt_addendum
+                addendum = build_synthesis_prompt_addendum(synthesis_context)
+                if addendum:
+                    user_message = user_message + addendum
+                    logger.debug(
+                        "Synthesis addendum applied: %s+%s bridge=%s",
+                        synthesis_context.primary_domain,
+                        synthesis_context.secondary_domain,
+                        synthesis_context.bridge_mechanism,
+                    )
+            except Exception as e:
+                logger.warning("Could not build synthesis addendum: %s", e)
+        # Append diversity steering if provided (Phase 4D)
+        elif diversity_context is not None:
             try:
                 from .diversity import build_diversity_prompt_addendum
                 addendum = build_diversity_prompt_addendum(diversity_context)
@@ -431,6 +450,7 @@ class FakeCandidateGenerator(CandidateGenerator):
         budget: int = 10,
         run_id: str = "",
         diversity_context=None,
+        synthesis_context=None,
     ) -> list[CandidateHypothesis]:
         candidates = [
             CandidateHypothesis(
@@ -489,6 +509,7 @@ class DemoCandidateGenerator(CandidateGenerator):
         budget: int = 10,
         run_id: str = "",
         diversity_context=None,
+        synthesis_context=None,
     ) -> list[CandidateHypothesis]:
         # Reuse FakeCandidateGenerator but add variation based on evidence count
         base = FakeCandidateGenerator().generate(evidence, domain, budget, run_id)

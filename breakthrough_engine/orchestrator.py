@@ -52,6 +52,13 @@ from .models import (
 from .notifications import NotificationDispatcher
 from .corpus_manager import CorpusManager
 from .diversity import DiversityEngine
+from .synthesis import (
+    SynthesisContext,
+    SynthesisEngine,
+    SynthesisFitEvaluator,
+    build_synthesis_prompt_addendum,
+    tag_evidence_roles,
+)
 from .domain_fit import DomainFitEvaluator
 from .embedding_monitor import EmbeddingMonitor
 from .embeddings import EmbeddingNoveltyEngine, MockEmbeddingProvider, EmbeddingProvider
@@ -118,6 +125,10 @@ class BreakthroughOrchestrator:
         self.diversity_engine = DiversityEngine(repo)
         self.corpus_manager = CorpusManager(repo)
 
+        # Phase 5: Cross-domain synthesis
+        self.synthesis_engine = SynthesisEngine(repo)
+        self.synthesis_fit_evaluator = SynthesisFitEvaluator()
+
         # Wire up components based on run mode
         if evidence_source:
             self.evidence_source = evidence_source
@@ -180,9 +191,27 @@ class BreakthroughOrchestrator:
         # Step 1: Gather evidence
         t_step = time.time()
         logger.info("[%s] Step 1: Gathering evidence", run.id[:8])
-        evidence = self.evidence_source.gather(
-            domain=self.program.domain, limit=20
-        )
+        is_synthesis_run = self.synthesis_engine.is_cross_domain_program(self.program)
+        if is_synthesis_run:
+            # Phase 5: Gather evidence from both domains
+            primary, secondary = self.synthesis_engine.parse_domain_pair(
+                self.program.domain
+            )
+            evidence_primary = self.evidence_source.gather(
+                domain=primary, limit=10
+            )
+            evidence_secondary = self.evidence_source.gather(
+                domain=secondary, limit=10
+            )
+            evidence = evidence_primary + evidence_secondary
+            logger.info(
+                "[%s] Cross-domain evidence: %d primary + %d secondary",
+                run.id[:8], len(evidence_primary), len(evidence_secondary),
+            )
+        else:
+            evidence = self.evidence_source.gather(
+                domain=self.program.domain, limit=20
+            )
         metrics.evidence_count = len(evidence)
         metrics.stage_durations["evidence_gathering"] = round(time.time() - t_step, 2)
         logger.info("[%s] Gathered %d evidence items", run.id[:8], len(evidence))
@@ -207,19 +236,40 @@ class BreakthroughOrchestrator:
 
         # Build diversity context for this run (Phase 4D)
         diversity_ctx = None
-        try:
-            diversity_ctx = self.diversity_engine.build_context(
-                run_id=run.id,
-                domain=self.program.domain,
-            )
-            logger.info(
-                "[%s] Diversity context: sub_domain=%r excluded_topics=%d",
-                run.id[:8],
-                diversity_ctx.sub_domain,
-                len(diversity_ctx.excluded_topics),
-            )
-        except Exception as e:
-            logger.warning("[%s] Diversity context build failed (non-fatal): %s", run.id[:8], e)
+        synthesis_ctx: SynthesisContext | None = None
+
+        if is_synthesis_run:
+            # Phase 5: Cross-domain synthesis run
+            try:
+                primary, secondary = self.synthesis_engine.parse_domain_pair(
+                    self.program.domain
+                )
+                synthesis_ctx = self.synthesis_engine.build_context(
+                    run_id=run.id,
+                    primary_domain=primary,
+                    secondary_domain=secondary,
+                )
+                logger.info(
+                    "[%s] Synthesis context: %s+%s bridge=%r",
+                    run.id[:8], primary, secondary,
+                    synthesis_ctx.bridge_mechanism,
+                )
+            except Exception as e:
+                logger.warning("[%s] Synthesis context build failed (non-fatal): %s", run.id[:8], e)
+        else:
+            try:
+                diversity_ctx = self.diversity_engine.build_context(
+                    run_id=run.id,
+                    domain=self.program.domain,
+                )
+                logger.info(
+                    "[%s] Diversity context: sub_domain=%r excluded_topics=%d",
+                    run.id[:8],
+                    diversity_ctx.sub_domain,
+                    len(diversity_ctx.excluded_topics),
+                )
+            except Exception as e:
+                logger.warning("[%s] Diversity context build failed (non-fatal): %s", run.id[:8], e)
 
         candidates = self.generator.generate(
             evidence=evidence,
@@ -227,6 +277,7 @@ class BreakthroughOrchestrator:
             budget=self.program.candidate_budget,
             run_id=run.id,
             diversity_context=diversity_ctx,
+            synthesis_context=synthesis_ctx,
         )
         run.candidates_generated = len(candidates)
         for c in candidates:
@@ -280,6 +331,16 @@ class BreakthroughOrchestrator:
         domain_fit_results: dict[str, object] = {}
         candidates = self._run_domain_fit_gate(run, candidates, evidence, domain_fit_results)
         metrics.stage_durations["domain_fit_gate"] = round(time.time() - t_step, 2)
+
+        # Step 5.7: Synthesis fit gate (Phase 5 — cross-domain only)
+        evidence_roles_map: dict[str, dict[str, str]] = {}
+        if is_synthesis_run and synthesis_ctx:
+            t_step = time.time()
+            logger.info("[%s] Step 5.7: Synthesis fit gate", run.id[:8])
+            candidates = self._run_synthesis_fit_gate(
+                run, candidates, evidence_packs, synthesis_ctx, evidence_roles_map
+            )
+            metrics.stage_durations["synthesis_fit_gate"] = round(time.time() - t_step, 2)
 
         # Step 6: Score and rank
         t_step = time.time()
@@ -539,11 +600,19 @@ class BreakthroughOrchestrator:
         except Exception:
             pass
 
-        # Phase 4D: Advance sub-domain rotation after run completes
-        try:
-            self.diversity_engine.advance_rotation(self.program.domain)
-        except Exception as e:
-            logger.debug("Rotation advance failed (non-fatal): %s", e)
+        # Phase 4D/5: Advance rotation after run completes
+        if is_synthesis_run and synthesis_ctx:
+            try:
+                self.synthesis_engine.advance_bridge_rotation(
+                    synthesis_ctx.primary_domain, synthesis_ctx.secondary_domain
+                )
+            except Exception as e:
+                logger.debug("Synthesis rotation advance failed (non-fatal): %s", e)
+        else:
+            try:
+                self.diversity_engine.advance_rotation(self.program.domain)
+            except Exception as e:
+                logger.debug("Rotation advance failed (non-fatal): %s", e)
 
         # Notify completion
         self.dispatcher.run_completed(
@@ -776,6 +845,71 @@ class BreakthroughOrchestrator:
                              "domain_fit", fit.mismatch_flags[:5])
             else:
                 passing.append(c)
+        return passing
+
+    def _run_synthesis_fit_gate(
+        self,
+        run: RunRecord,
+        candidates: list[CandidateHypothesis],
+        evidence_packs: dict[str, EvidencePack],
+        synthesis_ctx: SynthesisContext,
+        evidence_roles_map: dict[str, dict[str, str]],
+    ) -> list[CandidateHypothesis]:
+        """Phase 5: Synthesis fit gate — reject weak cross-domain mashups."""
+        passing = []
+        for c in candidates:
+            # Tag evidence roles
+            pack = evidence_packs.get(c.id)
+            evidence_roles: dict[str, str] = {}
+            if pack and pack.items:
+                evidence_roles = tag_evidence_roles(
+                    pack.items,
+                    synthesis_ctx.primary_domain,
+                    synthesis_ctx.secondary_domain,
+                )
+            evidence_roles_map[c.id] = evidence_roles
+
+            # Evaluate synthesis fit
+            fit = self.synthesis_fit_evaluator.evaluate(
+                candidate=c,
+                synthesis_ctx=synthesis_ctx,
+                evidence_roles=evidence_roles,
+            )
+
+            # Persist
+            try:
+                fit_data = fit.to_dict()
+                fit_data["evidence_roles"] = evidence_roles
+                self.repo.save_synthesis_fit(fit_data)
+            except Exception:
+                pass
+
+            # Gate diagnostic
+            try:
+                self.repo.save_gate_diagnostic(
+                    run_id=run.id, candidate_id=c.id,
+                    gate_name="synthesis_fit",
+                    passed=fit.passed,
+                    score=fit.cross_domain_fit_score,
+                    reasons=fit.synthesis_reasons[:5],
+                )
+            except Exception:
+                pass
+
+            if not fit.passed:
+                self._reject(
+                    run, c, CandidateStatus.PUBLICATION_FAILED,
+                    f"Synthesis fit failed: score={fit.cross_domain_fit_score:.2f}, "
+                    f"reasons={', '.join(fit.synthesis_reasons[:3])}",
+                    "synthesis_fit", fit.synthesis_reasons[:5],
+                )
+            else:
+                passing.append(c)
+
+        logger.info(
+            "[%s] Synthesis fit: %d/%d passed",
+            run.id[:8], len(passing), len(candidates),
+        )
         return passing
 
     def _run_simulation_gate(

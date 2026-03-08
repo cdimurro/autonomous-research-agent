@@ -72,6 +72,9 @@ def load_domain_fit_config(
     # Also try partial: materials-science -> materials
     if "-" in domain:
         candidates.append(d / f"{domain.split('-')[0]}.yaml")
+    # Cross-domain: clean-energy+materials -> cross_domain.yaml
+    if "+" in domain:
+        candidates.insert(0, d / "cross_domain.yaml")
 
     for path in candidates:
         if path.exists():

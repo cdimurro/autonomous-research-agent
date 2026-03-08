@@ -41,19 +41,40 @@ def create_draft(
     evidence_pack: Optional[EvidencePack] = None,
     simulation_result: Optional[SimulationResult] = None,
     novelty_result: Optional[NoveltyResult] = None,
+    synthesis_context=None,
+    synthesis_fit=None,
+    evidence_roles: Optional[dict[str, str]] = None,
 ) -> PublicationDraft:
     """Create a publication draft pending operator review."""
     evidence_summary = _format_evidence(evidence_pack)
     sim_summary = _format_sim(simulation_result)
     novelty_summary = _format_novelty(novelty_result)
 
+    # Phase 5: Include synthesis metadata in summaries
+    if synthesis_context is not None:
+        evidence_summary = _format_synthesis_evidence(
+            evidence_pack, evidence_roles, synthesis_context
+        ) + "\n\n" + evidence_summary
+
+    abstract = f"Breakthrough candidate in {candidate.domain}: {candidate.statement[:200]}"
+    if synthesis_context is not None:
+        abstract = (
+            f"Cross-domain synthesis ({synthesis_context.primary_domain} + "
+            f"{synthesis_context.secondary_domain}): {candidate.statement[:200]}"
+        )
+
+    # Include synthesis fit in score breakdown
+    score_data = score.model_dump()
+    if synthesis_fit is not None:
+        score_data["synthesis_fit"] = synthesis_fit.to_dict()
+
     draft = PublicationDraft(
         run_id=run_id,
         candidate_id=candidate.id,
         candidate_title=candidate.title,
-        abstract=f"Breakthrough candidate in {candidate.domain}: {candidate.statement[:200]}",
+        abstract=abstract,
         hypothesis=candidate.statement,
-        score_breakdown=score.model_dump(),
+        score_breakdown=score_data,
         evidence_summary=evidence_summary,
         simulation_summary=sim_summary,
         novelty_summary=novelty_summary,
@@ -199,6 +220,31 @@ def reject_draft(
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
+def _format_synthesis_evidence(
+    pack: Optional[EvidencePack],
+    evidence_roles: Optional[dict[str, str]],
+    synthesis_context,
+) -> str:
+    """Format evidence with cross-domain role annotations."""
+    if not pack or not pack.items:
+        return ""
+    roles = evidence_roles or {}
+    lines = [
+        f"SYNTHESIS: {synthesis_context.primary_domain} + {synthesis_context.secondary_domain}",
+        f"Bridge: {synthesis_context.bridge_mechanism}",
+        "Evidence roles:",
+    ]
+    role_counts = {"primary_support": 0, "secondary_support": 0, "bridge_support": 0}
+    for item in pack.items:
+        role = roles.get(item.id, "untagged")
+        if role in role_counts:
+            role_counts[role] += 1
+    for role, count in role_counts.items():
+        if count > 0:
+            lines.append(f"  {role}: {count} item(s)")
+    return "\n".join(lines)
+
 
 def _format_evidence(pack: Optional[EvidencePack]) -> str:
     if not pack or not pack.items:

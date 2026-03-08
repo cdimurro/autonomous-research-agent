@@ -401,6 +401,38 @@ CREATE TABLE IF NOT EXISTS bt_corpus_archive (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_ca_domain ON bt_corpus_archive(domain);
 """,
+    6: """
+-- Phase 5: Synthesis context per run
+CREATE TABLE IF NOT EXISTS bt_synthesis_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    primary_domain TEXT NOT NULL,
+    secondary_domain TEXT NOT NULL,
+    primary_sub_domain TEXT DEFAULT '',
+    secondary_sub_domain TEXT DEFAULT '',
+    bridge_mechanism TEXT DEFAULT '',
+    pairing_policy TEXT DEFAULT 'rotating_pair',
+    excluded_cross_themes TEXT DEFAULT '[]',
+    focus_angles TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sc_run ON bt_synthesis_context(run_id);
+
+-- Phase 5: Synthesis fit assessment per candidate
+CREATE TABLE IF NOT EXISTS bt_synthesis_fit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    cross_domain_fit_score REAL DEFAULT 0.0,
+    bridge_mechanism_score REAL DEFAULT 0.0,
+    evidence_balance_score REAL DEFAULT 0.0,
+    superficial_mashup_flag INTEGER DEFAULT 0,
+    synthesis_reasons TEXT DEFAULT '[]',
+    evidence_roles TEXT DEFAULT '{}',
+    passed INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sf_cand ON bt_synthesis_fit(candidate_id);
+""",
 }
 
 
@@ -1094,3 +1126,70 @@ class Repository:
             "SELECT 1 FROM bt_corpus_archive WHERE candidate_id=?", (candidate_id,)
         ).fetchone()
         return row is not None
+
+    # -- Phase 5: Synthesis context --
+
+    def save_synthesis_context(self, data: dict) -> None:
+        now = _utcnow()
+        self.db.execute(
+            """INSERT INTO bt_synthesis_context
+               (run_id, primary_domain, secondary_domain, primary_sub_domain,
+                secondary_sub_domain, bridge_mechanism, pairing_policy,
+                excluded_cross_themes, focus_angles, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                data["run_id"],
+                data["primary_domain"],
+                data["secondary_domain"],
+                data.get("primary_sub_domain", ""),
+                data.get("secondary_sub_domain", ""),
+                data.get("bridge_mechanism", ""),
+                data.get("pairing_policy", "rotating_pair"),
+                json.dumps(data.get("excluded_cross_themes", [])),
+                json.dumps(data.get("focus_angles", [])),
+                now,
+            ),
+        )
+        self.db.commit()
+
+    def get_synthesis_context(self, run_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_synthesis_context WHERE run_id=? ORDER BY id DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for key in ("excluded_cross_themes", "focus_angles"):
+            if isinstance(d.get(key), str):
+                d[key] = json.loads(d[key])
+        return d
+
+    # -- Phase 5: Synthesis fit --
+
+    def save_synthesis_fit(self, data: dict) -> None:
+        self.db.execute(
+            """INSERT INTO bt_synthesis_fit
+               (candidate_id, cross_domain_fit_score, bridge_mechanism_score,
+                evidence_balance_score, superficial_mashup_flag,
+                synthesis_reasons, evidence_roles, passed)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                data["candidate_id"],
+                data.get("cross_domain_fit_score", 0.0),
+                data.get("bridge_mechanism_score", 0.0),
+                data.get("evidence_balance_score", 0.0),
+                int(data.get("superficial_mashup_flag", False)),
+                json.dumps(data.get("synthesis_reasons", [])),
+                json.dumps(data.get("evidence_roles", {})),
+                int(data.get("passed", True)),
+            ),
+        )
+        self.db.commit()
+
+    def get_synthesis_fit(self, candidate_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_synthesis_fit WHERE candidate_id=?",
+            (candidate_id,),
+        ).fetchone()
+        return dict(row) if row else None
