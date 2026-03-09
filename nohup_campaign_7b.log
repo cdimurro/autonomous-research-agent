@@ -1,0 +1,13 @@
+Launching campaign: overnight_clean_energy (overnight)
+
+Campaign f01a0a7c7230:
+  Status: completed_with_draft
+  Elapsed: 2488.0s
+  Champion: Thermal Conductivity Enhancement via Graphene-Interdigitated PCM Capsules
+  Healthy: True
+  Overnight ready: True
+  Artifacts:
+    runtime/campaigns/f01a0a7c72304481/campaign_summary.json
+    runtime/campaigns/f01a0a7c72304481/campaign_summary.md
+    runtime/campaigns/f01a0a7c72304481/health_report.json
+    runtime/campaigns/f01a0a7c72304481/preflight_report.json

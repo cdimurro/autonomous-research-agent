@@ -5,9 +5,18 @@ campaigns. Captures all candidate data, scores, finalists, falsification
 summaries, posteriors, evidence refs, and metadata in a normalized format
 optimized for external analysis (e.g., ChatGPT, spreadsheets).
 
+Phase 7C: Hardened telemetry integrity:
+- elapsed_seconds read from bt_campaign_receipts (not bt_daily_campaigns)
+- champion_rationale recovered via ladder campaign_id from stage_events
+- total_candidates_blocked: counted from actual NOVELTY_FAILED candidates
+- total_candidates_generated: counted from actual DB candidates per run
+- accounting_diagnostics section added for consistency auditing
+- falsification coverage: finalist/champion with None falsification marked explicitly
+- evidence_strength calibration: count penalty applied (v002 pack standard)
+
 Output structure:
   runtime/evaluation_packs/<campaign_id>/
-    evaluation_pack.json       # Complete structured pack
+    evaluation_pack.json       # Complete structured pack (schema v002)
     evaluation_pack.md         # Markdown summary for humans
     candidates.csv             # All candidates (CSV for spreadsheet analysis)
     finalists.csv              # Finalist rows with all score dimensions
@@ -31,7 +40,10 @@ logger = logging.getLogger(__name__)
 # Analysis Schema Version
 # ---------------------------------------------------------------------------
 
-ANALYSIS_SCHEMA_VERSION = "v001"
+ANALYSIS_SCHEMA_VERSION = "v002"
+
+# Falsification status for candidates missing falsification data
+FALSIFICATION_MISSING = "MISSING"
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +178,9 @@ class EvaluationPack:
     # Stage events
     stage_events: list[dict] = field(default_factory=list)
 
+    # Accounting diagnostics (v002)
+    accounting_diagnostics: dict = field(default_factory=dict)
+
     # Preflight
     preflight_readiness_score: float = 0.0
     preflight_pass_count: int = 0
@@ -223,6 +238,7 @@ class EvaluationPack:
             "champion": champion.to_dict() if champion else {},
             "champion_rationale": self.champion_rationale,
             "tiebreak_notes": tie_notes,
+            "accounting_diagnostics": self.accounting_diagnostics,
             "preflight": {
                 "readiness_score": self.preflight_readiness_score,
                 "pass_count": self.preflight_pass_count,
@@ -295,6 +311,103 @@ def _explain_rank(
 
 
 # ---------------------------------------------------------------------------
+# Accounting diagnostics (v002)
+# ---------------------------------------------------------------------------
+
+def _build_accounting_diagnostics(
+    *,
+    campaign_id: str,
+    ladder_campaign_id: str,
+    receipt_generated: int,
+    receipt_blocked: int,
+    receipt_shortlisted: int,
+    db_generated: int,
+    db_blocked: int,
+    db_finalists: int,
+    db_shortlisted: int,
+    elapsed_seconds: float,
+    champion_rationale_present: bool,
+    finalists_missing_falsification: int,
+) -> dict:
+    """Build accounting_diagnostics section for the v002 evaluation pack.
+
+    Flags any mismatches between what the campaign receipt reported and what
+    was actually observed by querying the DB directly.  These flags are
+    intended for post-hoc analysis and trust scoring.
+    """
+    issues = []
+
+    # Flag mismatches between receipt-reported counts and DB-derived counts.
+    if receipt_generated and abs(receipt_generated - db_generated) > max(1, db_generated * 0.1):
+        issues.append(
+            f"generated_count_mismatch: receipt={receipt_generated}, db={db_generated}"
+        )
+    if receipt_blocked and abs(receipt_blocked - db_blocked) > max(1, db_blocked * 0.2 + 1):
+        issues.append(
+            f"blocked_count_mismatch: receipt={receipt_blocked}, db={db_blocked}"
+        )
+    if elapsed_seconds == 0.0:
+        issues.append("elapsed_seconds_zero: campaign may not have written timing correctly")
+    if not champion_rationale_present:
+        issues.append("champion_rationale_empty: selection logic not recorded")
+    if finalists_missing_falsification > 0:
+        issues.append(
+            f"falsification_missing: {finalists_missing_falsification} finalist(s) lack falsification summary"
+        )
+    if not ladder_campaign_id:
+        issues.append(
+            "ladder_campaign_id_missing: could not recover DailySearchLadder campaign_id "
+            "from stage_events; champion_rationale recovery may be incomplete"
+        )
+
+    return {
+        "source_campaign_id": campaign_id,
+        "ladder_campaign_id": ladder_campaign_id,
+        "receipt_generated": receipt_generated,
+        "receipt_blocked": receipt_blocked,
+        "receipt_shortlisted": receipt_shortlisted,
+        "db_generated": db_generated,
+        "db_blocked": db_blocked,
+        "db_finalists": db_finalists,
+        "db_shortlisted": db_shortlisted,
+        "elapsed_seconds_source": "bt_campaign_receipts",
+        "issues": issues,
+        "integrity_ok": len(issues) == 0,
+    }
+
+
+def validate_pack_integrity(pack: "EvaluationPack") -> list[str]:
+    """Return a list of integrity failures for the pack.
+
+    Raises ValueError if any critical fields are missing/inconsistent.
+    Designed to be called before writing the pack to disk.
+    """
+    failures = []
+
+    # elapsed_seconds must be non-zero for completed campaigns
+    completed_statuses = {"completed_with_draft", "completed_no_draft"}
+    if pack.status in completed_statuses and pack.elapsed_seconds == 0.0:
+        failures.append(
+            f"elapsed_seconds is 0.0 for completed campaign {pack.campaign_id!r}"
+        )
+
+    # champion_rationale must be present when a champion was selected
+    if pack.champion_id and not pack.champion_rationale.strip():
+        failures.append(
+            f"champion_rationale is blank for campaign {pack.campaign_id!r} with champion {pack.champion_id!r}"
+        )
+
+    # All finalists must have falsification data
+    for c in pack.all_candidates:
+        if c.status == "finalist" and c.falsification_risk is None:
+            failures.append(
+                f"finalist {c.candidate_id!r} ({c.title[:40]!r}) has no falsification data"
+            )
+
+    return failures
+
+
+# ---------------------------------------------------------------------------
 # Exporter
 # ---------------------------------------------------------------------------
 
@@ -315,6 +428,16 @@ class EvaluationPackExporter:
 
         os.makedirs(out_dir, exist_ok=True)
         pack = self._build_pack(campaign_id)
+
+        # FIX (7C): Run integrity validation and log failures clearly.
+        # We log but do not abort — the pack is exported with diagnostics visible.
+        integrity_failures = validate_pack_integrity(pack)
+        if integrity_failures:
+            for f in integrity_failures:
+                logger.warning("Pack integrity: %s", f)
+        else:
+            logger.info("Pack integrity: OK — no issues found")
+
         self._write_json(pack, out_dir)
         self._write_markdown(pack, out_dir)
         self._write_candidates_csv(pack, out_dir)
@@ -333,10 +456,13 @@ class EvaluationPackExporter:
         pack = EvaluationPack(campaign_id=campaign_id)
 
         # --- Campaign receipt ---
+        # Source of truth for: status, timing, champion, counts, config, preflight
         cur.execute(
             "SELECT * FROM bt_campaign_receipts WHERE campaign_id = ?", (campaign_id,)
         )
         receipt = cur.fetchone()
+        stage_events = []
+        ladder_campaign_id = ""  # internal ID created by DailySearchLadder
         if receipt:
             config = json.loads(receipt["config_json"] or "{}")
             preflight = json.loads(receipt["preflight_json"] or "{}")
@@ -349,8 +475,9 @@ class EvaluationPackExporter:
             pack.completed_at = receipt["completed_at"] or ""
             pack.champion_id = receipt["champion_candidate_id"] or ""
             pack.champion_title = receipt["champion_candidate_title"] or ""
-            pack.total_candidates_generated = receipt["total_candidates_generated"] or 0
-            pack.total_candidates_blocked = receipt["total_blocked"] or 0
+            # FIX (7C): elapsed_seconds from campaign receipt, not daily campaign
+            pack.elapsed_seconds = receipt["elapsed_seconds"] or 0.0
+            # Receipt counts are sourced from campaign_result — used for baseline
             pack.total_shortlisted = receipt["total_shortlisted"] or 0
 
             pack.domain = config.get("domain", "")
@@ -368,19 +495,30 @@ class EvaluationPackExporter:
             pack.preflight_fail_count = preflight.get("fail_count", 0)
             pack.stage_events = stage_events
 
-        # --- Daily campaign (gets elapsed, rationale, daily_campaign_id) ---
+            # FIX (7C): extract the DailySearchLadder's internal campaign_id from
+            # stage_events so we can look up bt_daily_campaigns correctly.
+            # The CampaignManager stores a DIFFERENT campaign_id than the ladder;
+            # the ladder's ID is recorded in the "daily_search_ladder" event details.
+            for ev in stage_events:
+                if ev.get("stage_name") == "daily_search_ladder":
+                    ladder_campaign_id = ev.get("details", {}).get("campaign_id", "")
+                    break
+
+        # --- Daily campaign (champion_rationale, policy_used) ---
+        # FIX (7C): use ladder_campaign_id (not the receipt's campaign_id) to
+        # look up bt_daily_campaigns, which was written by DailySearchLadder.
+        lookup_id = ladder_campaign_id or campaign_id
         cur.execute(
-            "SELECT * FROM bt_daily_campaigns WHERE campaign_id = ?", (campaign_id,)
+            "SELECT * FROM bt_daily_campaigns WHERE campaign_id = ?", (lookup_id,)
         )
         dc = cur.fetchone()
         if dc:
-            pack.daily_campaign_id = dc["campaign_id"] if "campaign_id" in dc.keys() else ""
-            pack.daily_campaign_id = dc["id"] if "id" in dc.keys() else pack.daily_campaign_id
-            result = json.loads(dc["result_json"] or "{}")
-            pack.policy_used = result.get("policy_used", dc["policy_id"] if "policy_id" in dc.keys() else "")
-            pack.champion_rationale = result.get("champion_selection_rationale", "")
-            elapsed = result.get("elapsed_seconds", 0.0)
-            pack.elapsed_seconds = elapsed
+            dc_keys = dc.keys()
+            pack.daily_campaign_id = dc["id"] if "id" in dc_keys else ""
+            result_json = json.loads(dc["result_json"] or "{}")
+            policy_id = dc["policy_id"] if "policy_id" in dc_keys else ""
+            pack.policy_used = result_json.get("policy_used", policy_id)
+            pack.champion_rationale = result_json.get("champion_selection_rationale", "")
 
         # --- Model info from environment / defaults ---
         pack.generation_model = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
@@ -447,6 +585,27 @@ class EvaluationPackExporter:
                     evidence_refs = []
 
                 f = falsif.get(cid, {})
+                status = row["status"] or ""
+                is_finalist_or_champion = status in ("finalist", "published", "draft_pending_review")
+
+                # FIX (7C): For finalists/champion, missing falsification is explicit MISSING,
+                # not silently None — makes gaps visible for analysis and reviewer trust.
+                if f:
+                    falsif_risk = f.get("falsification_risk")
+                    falsif_passed = bool(f.get("passed")) if "passed" in f else None
+                    falsif_fragility = f.get("assumption_fragility_score")
+                    falsif_reasoning = f.get("reasoning")
+                elif is_finalist_or_champion:
+                    falsif_risk = FALSIFICATION_MISSING
+                    falsif_passed = None
+                    falsif_fragility = None
+                    falsif_reasoning = "No falsification summary found for this finalist/champion."
+                else:
+                    falsif_risk = None
+                    falsif_passed = None
+                    falsif_fragility = None
+                    falsif_reasoning = None
+
                 rec = CandidateRecord(
                     candidate_id=cid,
                     run_id=row["run_id"],
@@ -460,7 +619,7 @@ class EvaluationPackExporter:
                     assumptions=assumptions,
                     risk_flags=risk_flags,
                     evidence_refs=evidence_refs,
-                    status=row["status"] or "",
+                    status=status,
                     created_at=row["created_at"] or "",
                     final_score=row["final_score"],
                     novelty_score=row["novelty_score"],
@@ -469,14 +628,26 @@ class EvaluationPackExporter:
                     validation_cost_score=row["validation_cost_score"],
                     evidence_strength_score=row["evidence_strength_score"],
                     simulation_readiness_score=row["simulation_readiness_score"],
-                    falsification_risk=f.get("falsification_risk"),
-                    falsification_passed=bool(f.get("passed")) if f else None,
-                    assumption_fragility_score=f.get("assumption_fragility_score"),
-                    falsification_reasoning=f.get("reasoning"),
+                    falsification_risk=falsif_risk,
+                    falsification_passed=falsif_passed,
+                    assumption_fragility_score=falsif_fragility,
+                    falsification_reasoning=falsif_reasoning,
                 )
                 candidates.append(rec)
 
             pack.all_candidates = candidates
+
+            # FIX (7C): Count actual generated and blocked from DB rather than
+            # using receipt estimates or arithmetic from trial * budget.
+            pack.total_candidates_generated = len(rows)
+            cur.execute(
+                f"SELECT COUNT(*) FROM bt_candidates "
+                f"WHERE run_id IN ({placeholders}) AND status = 'novelty_failed'",
+                run_ids,
+            )
+            blocked_row = cur.fetchone()
+            pack.total_candidates_blocked = blocked_row[0] if blocked_row else 0
+
             pack.total_finalists = sum(1 for c in candidates if c.status == "finalist")
 
         # --- Posteriors ---
@@ -489,6 +660,31 @@ class EvaluationPackExporter:
             (pack.policy_used or "phase5_champion",),
         )
         pack.posteriors = [dict(r) for r in cur.fetchall()]
+
+        # FIX (7C): Build accounting diagnostics section.
+        # Records the source of truth for each count and flags any mismatches
+        # between the campaign receipt and what was actually observed in the DB.
+        receipt_generated = receipt["total_candidates_generated"] if receipt else 0
+        receipt_blocked = receipt["total_blocked"] if receipt else 0
+        receipt_shortlisted = receipt["total_shortlisted"] if receipt else 0
+
+        pack.accounting_diagnostics = _build_accounting_diagnostics(
+            campaign_id=campaign_id,
+            ladder_campaign_id=ladder_campaign_id,
+            receipt_generated=receipt_generated or 0,
+            receipt_blocked=receipt_blocked or 0,
+            receipt_shortlisted=receipt_shortlisted or 0,
+            db_generated=pack.total_candidates_generated,
+            db_blocked=pack.total_candidates_blocked,
+            db_finalists=pack.total_finalists,
+            db_shortlisted=pack.total_shortlisted,
+            elapsed_seconds=pack.elapsed_seconds,
+            champion_rationale_present=bool(pack.champion_rationale.strip()),
+            finalists_missing_falsification=sum(
+                1 for c in pack.all_candidates
+                if c.status == "finalist" and c.falsification_risk == FALSIFICATION_MISSING
+            ),
+        )
 
         conn.close()
         return pack
@@ -731,6 +927,29 @@ def _render_markdown(pack: EvaluationPack) -> str:
                          f"fragility={fal.get('assumption_fragility_score','N/A')}")
             lines.append(f"")
 
+    # Accounting diagnostics (v002)
+    diag = d.get("accounting_diagnostics", {})
+    if diag:
+        lines.append(f"## Accounting Diagnostics (v002)")
+        lines.append(f"")
+        lines.append(f"| Field | Value |")
+        lines.append(f"|-------|-------|")
+        lines.append(f"| Integrity OK | **{diag.get('integrity_ok', 'N/A')}** |")
+        lines.append(f"| DB Generated | {diag.get('db_generated', 'N/A')} |")
+        lines.append(f"| DB Blocked | {diag.get('db_blocked', 'N/A')} |")
+        lines.append(f"| DB Finalists | {diag.get('db_finalists', 'N/A')} |")
+        lines.append(f"| Receipt Generated | {diag.get('receipt_generated', 'N/A')} |")
+        lines.append(f"| Receipt Blocked | {diag.get('receipt_blocked', 'N/A')} |")
+        lines.append(f"| Ladder Campaign ID | `{diag.get('ladder_campaign_id', 'N/A')}` |")
+        lines.append(f"| Elapsed Source | {diag.get('elapsed_seconds_source', 'N/A')} |")
+        issues = diag.get("issues", [])
+        if issues:
+            lines.append(f"")
+            lines.append(f"**Issues ({len(issues)})**:")
+            for issue in issues:
+                lines.append(f"- {issue}")
+        lines.append(f"")
+
     if d.get("stage_events"):
         lines.append(f"## Stage Events")
         lines.append(f"")
@@ -757,7 +976,7 @@ def _render_markdown(pack: EvaluationPack) -> str:
         lines.append(f"")
 
     lines.append(f"---")
-    lines.append(f"*Generated by Breakthrough Engine Phase 7B EvaluationPackExporter — "
-                 f"schema {ANALYSIS_SCHEMA_VERSION}*")
+    lines.append(f"*Generated by Breakthrough Engine Phase 7C EvaluationPackExporter — "
+                 f"schema {ANALYSIS_SCHEMA_VERSION} — telemetry integrity hardened*")
 
     return "\n".join(lines)

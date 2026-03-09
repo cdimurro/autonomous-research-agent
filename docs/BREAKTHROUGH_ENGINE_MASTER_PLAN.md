@@ -124,9 +124,34 @@ A candidate must score >= 0.60 final_score to be eligible for publication. This 
 9. Updated docs explaining how to run it
 10. Final status report
 
+## Current Production State (Phase 7C, 2026-03-09)
+
+The system has evolved significantly from the v1 scope above. Current state:
+
+### Output model
+One validated champion candidate per campaign run (not "1–3 per day"). The champion is the top-ranked finalist after multi-stage scoring, falsification, and tiebreaking. All other finalists are archived with full scores and rankings.
+
+### Candidate labels
+The label `validated_breakthrough_candidate` (in `models.py`, `db.py`, `harnesses.py`) remains correct — it means "evaluated and validated by deterministic harnesses", not "confirmed scientific discovery". This terminology has not drifted.
+
+### Embeddings
+Production mode uses OllamaEmbeddingProvider(nomic-embed-text). Set `BT_EMBEDDING_MODEL=nomic-embed-text` for real embeddings. Without this env var, MockEmbeddingProvider is used (with a warning in production modes).
+
+### Evaluation packs
+Each completed campaign can be exported as a structured evaluation_pack (schema v002 as of Phase 7C). The pack contains the champion, all finalists, scores, falsification summaries, tiebreak rationale, and telemetry integrity diagnostics.
+
+### Campaign profiles
+Three profiles: `pilot_30m` (30 min), `smoke_10m` (10 min), `overnight_clean_energy` (480 min/8hr). Run with:
+```bash
+BT_EMBEDDING_MODEL=nomic-embed-text .venv/bin/python -m breakthrough_engine campaign run --profile overnight_clean_energy
+```
+
+### Current phase
+**Phase 7C**: Telemetry integrity hardening, scoring calibration, 5-campaign clean-energy evaluation batch.
+
 ## Future Backlog
 
-- Real LLM-powered candidate generation (Ollama integration)
+- Real LLM-powered candidate generation (Ollama integration) ✓ DONE
 - Omniverse simulator integration
 - Advanced novelty graph logic
 - Patent ingestion

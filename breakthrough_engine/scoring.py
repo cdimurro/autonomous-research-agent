@@ -48,12 +48,18 @@ def score_candidate(
     score.impact_score = min(1.0, outcome_len / 150.0)
 
     # Evidence strength: from evidence pack
+    # Phase 7C calibration: apply a count-based coverage penalty so that
+    # 2 refs cannot produce the same score as 8 refs at equal relevance.
+    # Penalty multipliers: 1 ref→0.70, 2→0.82, 3→0.91, 4→0.96, 5+→1.0
+    _EVIDENCE_COUNT_PENALTY = {1: 0.70, 2: 0.82, 3: 0.91, 4: 0.96}
     if evidence_pack and evidence_pack.items:
-        avg_relevance = sum(i.relevance_score for i in evidence_pack.items) / len(
-            evidence_pack.items
-        )
+        n_items = len(evidence_pack.items)
+        avg_relevance = sum(i.relevance_score for i in evidence_pack.items) / n_items
         diversity_bonus = min(0.2, evidence_pack.source_diversity_count * 0.05)
-        score.evidence_strength_score = min(1.0, avg_relevance + diversity_bonus)
+        raw_score = min(1.0, avg_relevance + diversity_bonus)
+        # Apply count penalty: saturates at 5+ refs
+        count_penalty = _EVIDENCE_COUNT_PENALTY.get(n_items, 1.0) if n_items <= 4 else 1.0
+        score.evidence_strength_score = round(raw_score * count_penalty, 6)
     else:
         score.evidence_strength_score = 0.1
 

@@ -328,7 +328,8 @@ class TestEvaluationPackExporter:
                 assert key in pack, f"Missing key: {key}"
 
             # Schema version
-            assert pack["schema_version"] == "v001"
+            from breakthrough_engine.evaluation_pack import ANALYSIS_SCHEMA_VERSION
+            assert pack["schema_version"] == ANALYSIS_SCHEMA_VERSION
 
             # Campaign section
             assert pack["campaign"]["campaign_id"] == campaign_id
