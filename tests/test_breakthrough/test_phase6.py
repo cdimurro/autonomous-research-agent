@@ -145,10 +145,10 @@ class TestSchemaV007Migration:
         for tbl in self.PHASE6_TABLES:
             assert tbl in tables, f"Missing Phase 6 table: {tbl}"
 
-    def test_schema_version_is_7(self, db):
+    def test_schema_version_at_least_7(self, db):
         row = db.execute("SELECT MAX(version) FROM bt_schema_version").fetchone()
         assert row is not None
-        assert row[0] == 7
+        assert row[0] >= 7
 
     def test_bt_policies_columns(self, db):
         cols = {r[1] for r in db.execute("PRAGMA table_info(bt_policies)").fetchall()}

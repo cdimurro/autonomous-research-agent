@@ -155,6 +155,27 @@ def main(argv: list[str] | None = None):
     falsify_p = sub.add_parser("falsify", help="Phase 6 run falsification on a candidate")
     falsify_p.add_argument("candidate_id", help="Candidate ID")
 
+    # Phase 7A: preflight
+    preflight_p = sub.add_parser("preflight", help="Phase 7A campaign preflight verification")
+    preflight_p.add_argument("--strict", action="store_true", help="Strict mode (fail on any FAIL check)")
+    preflight_p.add_argument("--profile", default="", help="Campaign profile name")
+
+    # Phase 7A: campaign
+    campaign_p = sub.add_parser("campaign", help="Phase 7A autonomous campaign management")
+    campaign_sub = campaign_p.add_subparsers(dest="campaign_command")
+    campaign_run_p = campaign_sub.add_parser("run", help="Launch an autonomous campaign")
+    campaign_run_p.add_argument("--profile", default="pilot_30m",
+                                help="Campaign profile (default: pilot_30m)")
+    campaign_run_p.add_argument("--strict", action="store_true", default=True,
+                                help="Strict preflight (default: yes)")
+    campaign_run_p.add_argument("--dry-run", action="store_true",
+                                help="Preflight only, do not execute")
+    campaign_list_p = campaign_sub.add_parser("list", help="List recent campaigns")
+    campaign_list_p.add_argument("--limit", type=int, default=20, help="Max results")
+    campaign_show_p = campaign_sub.add_parser("show", help="Show campaign receipt")
+    campaign_show_p.add_argument("campaign_id", help="Campaign ID")
+    campaign_sub.add_parser("profiles", help="List available campaign profiles")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -168,6 +189,10 @@ def main(argv: list[str] | None = None):
 
     if args.command == "doctor":
         _cmd_doctor(args)
+        return
+
+    if args.command == "preflight":
+        _cmd_preflight(args)
         return
 
     if args.command == "benchmark":
@@ -213,6 +238,8 @@ def main(argv: list[str] | None = None):
         _cmd_cockpit(repo, args)
     elif args.command == "falsify":
         _cmd_falsify(repo, args)
+    elif args.command == "campaign":
+        _cmd_campaign(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -801,3 +828,103 @@ def _cmd_falsify(repo: Repository, args):
         print(f"  Bridge weaknesses: {summary.bridge_weakness_flags}")
     falsifier.save_summary(repo, summary)
     print("Summary saved to database.")
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A CLI handlers
+# ---------------------------------------------------------------------------
+
+def _cmd_preflight(args):
+    """Run campaign preflight verification."""
+    from .preflight import PreflightEngine
+    engine = PreflightEngine()
+    report = engine.run(
+        db_path=getattr(args, "db", None),
+        strict=getattr(args, "strict", False),
+        campaign_profile=getattr(args, "profile", ""),
+    )
+    print(engine.format_report(report))
+    if report.has_failures:
+        sys.exit(1)
+
+
+def _cmd_campaign(repo: Repository, args):
+    """Manage autonomous campaigns."""
+    if not hasattr(args, "campaign_command") or not args.campaign_command:
+        print("Usage: python -m breakthrough_engine campaign [run|list|show|profiles]")
+        return
+
+    if args.campaign_command == "profiles":
+        import os
+        profiles_dir = "config/campaign_profiles"
+        if not os.path.exists(profiles_dir):
+            print("No campaign profiles directory found.")
+            return
+        profiles = [f.replace(".yaml", "") for f in os.listdir(profiles_dir) if f.endswith(".yaml")]
+        print(f"Available campaign profiles ({len(profiles)}):")
+        for p in sorted(profiles):
+            print(f"  {p}")
+        return
+
+    if args.campaign_command == "run":
+        from .campaign_manager import CampaignManager, load_campaign_profile
+        profile_name = getattr(args, "profile", "pilot_30m")
+        try:
+            profile = load_campaign_profile(profile_name)
+        except FileNotFoundError:
+            print(f"Campaign profile not found: {profile_name}", file=sys.stderr)
+            sys.exit(1)
+
+        strict = getattr(args, "strict", True)
+        dry_run = getattr(args, "dry_run", False)
+
+        manager = CampaignManager(repo=repo, db_path=getattr(args, "db", None))
+        print(f"Launching campaign: {profile.profile_name} ({profile.profile_type})")
+        if dry_run:
+            print("  (dry-run mode — preflight only)")
+
+        receipt = manager.run_campaign(profile, strict_preflight=strict, dry_run=dry_run)
+
+        print(f"\nCampaign {receipt.campaign_id[:12]}:")
+        print(f"  Status: {receipt.status}")
+        print(f"  Elapsed: {receipt.elapsed_seconds:.1f}s")
+        if receipt.champion_candidate_id:
+            print(f"  Champion: {receipt.champion_candidate_title or receipt.champion_candidate_id}")
+        if receipt.failure_reason:
+            print(f"  Failure: {receipt.failure_reason}")
+
+        health = receipt.health_summary
+        if health:
+            print(f"  Healthy: {health.get('healthy', False)}")
+            print(f"  Overnight ready: {health.get('overnight_ready', False)}")
+            for issue in health.get("issues", []):
+                print(f"    - {issue}")
+
+        if receipt.artifact_paths:
+            print(f"  Artifacts:")
+            for p in receipt.artifact_paths:
+                print(f"    {p}")
+
+    elif args.campaign_command == "list":
+        from .campaign_manager import CampaignManager
+        manager = CampaignManager(repo=repo)
+        campaigns = manager.list_campaigns(limit=getattr(args, "limit", 20))
+        if not campaigns:
+            print("No campaigns found.")
+            return
+        print(f"Recent campaigns ({len(campaigns)}):")
+        for c in campaigns:
+            print(
+                f"  {c['campaign_id'][:12]}  {c['profile_name']:20s}  "
+                f"{c['status']:25s}  {c.get('started_at', '')}"
+            )
+
+    elif args.campaign_command == "show":
+        from .campaign_manager import CampaignManager
+        manager = CampaignManager(repo=repo)
+        receipt = manager.get_receipt(args.campaign_id)
+        if not receipt:
+            print(f"Campaign not found: {args.campaign_id}", file=sys.stderr)
+            sys.exit(1)
+        import json
+        print(json.dumps(receipt, indent=2, default=str))

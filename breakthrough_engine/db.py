@@ -574,6 +574,58 @@ CREATE TABLE IF NOT EXISTS bt_synthesis_fit (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_sf_cand ON bt_synthesis_fit(candidate_id);
 """,
+    8: """
+-- Phase 7A: Campaign receipts (one row per autonomous campaign)
+CREATE TABLE IF NOT EXISTS bt_campaign_receipts (
+    campaign_id TEXT PRIMARY KEY,
+    profile_name TEXT NOT NULL DEFAULT '',
+    profile_type TEXT NOT NULL DEFAULT 'pilot',
+    status TEXT NOT NULL DEFAULT 'preflight',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    preflight_json TEXT NOT NULL DEFAULT '{}',
+    stage_events_json TEXT NOT NULL DEFAULT '[]',
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    completed_at TEXT,
+    elapsed_seconds REAL DEFAULT 0.0,
+    champion_candidate_id TEXT DEFAULT '',
+    champion_candidate_title TEXT DEFAULT '',
+    draft_id TEXT DEFAULT '',
+    failure_reason TEXT DEFAULT '',
+    total_candidates_generated INTEGER DEFAULT 0,
+    total_blocked INTEGER DEFAULT 0,
+    total_shortlisted INTEGER DEFAULT 0,
+    policy_trials_attempted INTEGER DEFAULT 0,
+    retries_used INTEGER DEFAULT 0,
+    artifact_paths_json TEXT NOT NULL DEFAULT '[]',
+    health_summary_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_bt_cr_status ON bt_campaign_receipts(status);
+CREATE INDEX IF NOT EXISTS idx_bt_cr_profile ON bt_campaign_receipts(profile_name);
+
+-- Phase 7A: Preflight check results (one set per campaign)
+CREATE TABLE IF NOT EXISTS bt_preflight_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id TEXT NOT NULL,
+    check_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PASS',
+    detail TEXT DEFAULT '',
+    remediation TEXT DEFAULT '',
+    elapsed_ms REAL DEFAULT 0.0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_pr_campaign ON bt_preflight_results(campaign_id);
+
+-- Phase 7A: Campaign heartbeats (watchdog telemetry)
+CREATE TABLE IF NOT EXISTS bt_campaign_heartbeats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id TEXT NOT NULL,
+    stage_name TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_ch_campaign ON bt_campaign_heartbeats(campaign_id);
+""",
 }
 
 
