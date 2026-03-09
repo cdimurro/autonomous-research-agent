@@ -116,6 +116,7 @@ class CampaignReceipt:
     retries_used: int = 0
     artifact_paths: list = field(default_factory=list)
     health_summary: dict = field(default_factory=dict)
+    embedding_provider: str = "MockEmbeddingProvider"
 
     def to_dict(self) -> dict:
         return {
@@ -140,6 +141,7 @@ class CampaignReceipt:
             "retries_used": self.retries_used,
             "artifact_paths": self.artifact_paths,
             "health_summary": self.health_summary,
+            "embedding_provider": self.embedding_provider,
         }
 
 
@@ -364,13 +366,20 @@ class CampaignManager:
         dry_run: bool = False,
     ) -> CampaignReceipt:
         """Execute a full campaign with preflight, execution, and export."""
+        import os as _os
         campaign_id = new_id()
+        # Detect embedding provider from environment
+        embed_model = _os.environ.get("BT_EMBEDDING_MODEL", "")
+        embedding_provider_name = (
+            f"OllamaEmbeddingProvider({embed_model})" if embed_model else "MockEmbeddingProvider"
+        )
         receipt = CampaignReceipt(
             campaign_id=campaign_id,
             profile_name=profile.profile_name,
             profile_type=profile.profile_type,
             started_at=_utcnow(),
             config_snapshot=self._profile_to_dict(profile),
+            embedding_provider=embedding_provider_name,
         )
 
         # Setup logging
@@ -822,8 +831,9 @@ class CampaignManager:
                     draft_id, failure_reason,
                     total_candidates_generated, total_blocked, total_shortlisted,
                     policy_trials_attempted, retries_used,
-                    artifact_paths_json, health_summary_json)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    artifact_paths_json, health_summary_json,
+                    embedding_provider)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     receipt.campaign_id,
                     receipt.profile_name,
@@ -846,6 +856,7 @@ class CampaignManager:
                     receipt.retries_used,
                     json.dumps(receipt.artifact_paths),
                     json.dumps(receipt.health_summary),
+                    receipt.embedding_provider,
                 ),
             )
             self.repo.db.commit()
@@ -867,6 +878,8 @@ class CampaignManager:
 
     def _profile_to_dict(self, profile: CampaignProfile) -> dict:
         """Serialize profile to dict for storage."""
+        import os as _os
+        embed_model = _os.environ.get("BT_EMBEDDING_MODEL", "")
         return {
             "profile_name": profile.profile_name,
             "profile_type": profile.profile_type,
@@ -879,6 +892,10 @@ class CampaignManager:
             "stage2_shortlist_size": profile.stage2_shortlist_size,
             "stage3_max_trials": profile.stage3_max_trials,
             "max_retries_per_stage": profile.max_retries_per_stage,
+            "embedding_provider": (
+                f"OllamaEmbeddingProvider({embed_model})" if embed_model else "MockEmbeddingProvider"
+            ),
+            "embedding_model": embed_model or "mock",
         }
 
     def get_receipt(self, campaign_id: str) -> Optional[dict]:

@@ -126,9 +126,31 @@ class BreakthroughOrchestrator:
         self.dispatcher = dispatcher or NotificationDispatcher()
 
         # Phase 4B: Embedding novelty engine
-        emb_provider = embedding_provider or MockEmbeddingProvider()
+        # Phase 7B: Wire real embeddings in production if BT_EMBEDDING_MODEL is set
+        import os as _os
+        if embedding_provider is not None:
+            emb_provider = embedding_provider
+        else:
+            _embed_model = _os.environ.get("BT_EMBEDDING_MODEL", "")
+            if _embed_model and program.mode in (
+                RunMode.PRODUCTION_LOCAL, RunMode.PRODUCTION_REVIEW, RunMode.PRODUCTION_SHADOW
+            ):
+                from .embeddings import OllamaEmbeddingProvider
+                emb_provider = OllamaEmbeddingProvider(model=_embed_model)
+                logger.info(
+                    "Embedding provider: OllamaEmbeddingProvider(model=%s)", _embed_model
+                )
+            else:
+                emb_provider = MockEmbeddingProvider()
+                if program.mode in (RunMode.PRODUCTION_LOCAL, RunMode.PRODUCTION_REVIEW,
+                                    RunMode.PRODUCTION_SHADOW):
+                    logger.warning(
+                        "Embedding provider: MockEmbeddingProvider (set BT_EMBEDDING_MODEL "
+                        "for real embeddings in production mode)"
+                    )
         self.embedding_novelty = EmbeddingNoveltyEngine(provider=emb_provider)
         self.embedding_monitor = EmbeddingMonitor(repo)
+        self._embedding_provider_name = type(emb_provider).__name__
 
         # Phase 4D: Diversity and corpus management
         self.diversity_engine = DiversityEngine(repo)

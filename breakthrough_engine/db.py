@@ -626,6 +626,25 @@ CREATE TABLE IF NOT EXISTS bt_campaign_heartbeats (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_ch_campaign ON bt_campaign_heartbeats(campaign_id);
 """,
+    9: """
+-- Phase 7B: Evaluation packs tracking table
+CREATE TABLE IF NOT EXISTS bt_evaluation_packs (
+    campaign_id TEXT PRIMARY KEY,
+    schema_version TEXT NOT NULL DEFAULT 'v001',
+    artifact_dir TEXT NOT NULL DEFAULT '',
+    champion_id TEXT DEFAULT '',
+    champion_title TEXT DEFAULT '',
+    champion_score REAL,
+    total_candidates INTEGER DEFAULT 0,
+    total_finalists INTEGER DEFAULT 0,
+    embedding_provider TEXT NOT NULL DEFAULT 'MockEmbeddingProvider',
+    policy_used TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+-- Phase 7B: Add embedding_provider column to campaign receipts
+ALTER TABLE bt_campaign_receipts ADD COLUMN embedding_provider TEXT NOT NULL DEFAULT 'MockEmbeddingProvider';
+""",
 }
 
 

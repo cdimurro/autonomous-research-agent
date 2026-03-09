@@ -1,0 +1,63 @@
+profile_name: smoke_10m
+description: "Short smoke/confirmation campaign — 10 minutes, verify pipeline end-to-end"
+profile_type: smoke
+
+# Domain and program
+domain: clean-energy
+program_name: clean_energy_shadow
+mode: production
+
+# Budget constraints (tight — this is a smoke test)
+wall_clock_budget_minutes: 10
+candidate_trial_budget: 8
+policy_trial_budget: 3
+
+# Stage overrides (minimal — just prove the path works)
+stage1:
+  max_trials: 2
+  min_score_to_advance: 0.35
+  max_wall_clock_seconds: 480
+  abandon_floor: 0.25
+  early_stop_margin: 0.20
+
+stage2_shortlist_size: 2
+
+stage3:
+  max_trials: 2
+  min_score_to_advance: 0.45
+  max_wall_clock_seconds: 120
+  abandon_floor: 0.35
+
+stage4_review_prep: true
+
+# Falsification (enabled, not strict — smoke test)
+falsification:
+  enabled: true
+  strict_mode: false
+
+# Artifacts
+review_packet_generation: true
+export_artifacts: true
+export_format: ["json", "markdown"]
+
+# Health thresholds (relaxed for smoke)
+health:
+  min_candidates_generated: 2
+  min_stages_completed: 3
+  max_stage_failure_rate: 0.5
+  max_retry_count: 5
+
+# Retry policy
+retry:
+  max_retries_per_stage: 2
+  retry_delay_seconds: 5
+  retryable_errors:
+    - "ollama_timeout"
+    - "db_lock"
+    - "file_write"
+
+# Smoke-specific
+diagnostic_rich: true
+verbose_logging: true
+quality_first: false
+sub_domain_rotation: false

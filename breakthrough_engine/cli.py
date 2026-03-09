@@ -176,6 +176,14 @@ def main(argv: list[str] | None = None):
     campaign_show_p.add_argument("campaign_id", help="Campaign ID")
     campaign_sub.add_parser("profiles", help="List available campaign profiles")
 
+    # Phase 7B: evaluation-pack
+    ep_p = sub.add_parser("evaluation-pack", help="Phase 7B evaluation pack management")
+    ep_sub = ep_p.add_subparsers(dest="ep_command")
+    ep_export_p = ep_sub.add_parser("export", help="Export evaluation pack for a campaign")
+    ep_export_p.add_argument("campaign_id", help="Campaign ID to export")
+    ep_export_p.add_argument("--overwrite", action="store_true", help="Overwrite existing pack")
+    ep_sub.add_parser("list", help="List existing evaluation packs")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -240,6 +248,8 @@ def main(argv: list[str] | None = None):
         _cmd_falsify(repo, args)
     elif args.command == "campaign":
         _cmd_campaign(repo, args)
+    elif args.command == "evaluation-pack":
+        _cmd_evaluation_pack(args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -928,3 +938,40 @@ def _cmd_campaign(repo: Repository, args):
             sys.exit(1)
         import json
         print(json.dumps(receipt, indent=2, default=str))
+
+
+def _cmd_evaluation_pack(args):
+    """Phase 7B: evaluation pack management commands."""
+    import os
+    ep_command = getattr(args, "ep_command", None)
+
+    if ep_command == "export":
+        from .evaluation_pack import EvaluationPackExporter
+        exporter = EvaluationPackExporter()
+        print(f"Exporting evaluation pack for campaign: {args.campaign_id}")
+        out_dir = exporter.export(args.campaign_id, overwrite=getattr(args, "overwrite", False))
+        print(f"Evaluation pack exported to: {out_dir}")
+        files = os.listdir(out_dir)
+        print(f"Files: {', '.join(files)}")
+
+    elif ep_command == "list":
+        runtime_root = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        packs_dir = os.path.join(runtime_root, "evaluation_packs")
+        if not os.path.exists(packs_dir):
+            print("No evaluation packs directory found.")
+            return
+        packs = [d for d in os.listdir(packs_dir)
+                 if os.path.isdir(os.path.join(packs_dir, d))]
+        if not packs:
+            print("No evaluation packs found.")
+            return
+        print(f"Evaluation packs ({len(packs)}):")
+        for p in sorted(packs):
+            pack_dir = os.path.join(packs_dir, p)
+            files = os.listdir(pack_dir)
+            print(f"  {p}  ({len(files)} files)")
+            for f in sorted(files):
+                size = os.path.getsize(os.path.join(pack_dir, f))
+                print(f"    {f} ({size:,} bytes)")
+    else:
+        print("Usage: python -m breakthrough_engine evaluation-pack [export|list]")

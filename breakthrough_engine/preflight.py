@@ -386,18 +386,30 @@ class PreflightEngine:
             )
 
     def _check_embedding_model(self) -> CheckResult:
-        """Check embedding model availability."""
+        """Check embedding model availability.
+
+        Phase 7B hardening:
+        - BT_EMBEDDING_MODEL unset → PASS (mock mode, acceptable for tests)
+        - BT_EMBEDDING_MODEL set and model available → PASS
+        - BT_EMBEDDING_MODEL set but model unavailable → FAIL in strict mode, WARN otherwise
+        """
         t0 = time.time()
         elapsed = lambda: (time.time() - t0) * 1000
-        # For now, embedding uses mock in tests. Check if real model is configured.
-        embed_model = os.environ.get("EMBEDDING_MODEL", "")
+        embed_model = os.environ.get("BT_EMBEDDING_MODEL", "")
+
         if not embed_model:
+            # No real embedding configured — mock provider will be used
             return CheckResult(
                 name="embedding_model",
                 status="PASS",
-                detail="Using mock embedding provider (offline-safe)",
+                detail=(
+                    "Using MockEmbeddingProvider (BT_EMBEDDING_MODEL not set). "
+                    "Set BT_EMBEDDING_MODEL=nomic-embed-text for real embeddings."
+                ),
                 elapsed_ms=elapsed(),
             )
+
+        # Real embedding model is configured — verify it is available
         try:
             import requests
             host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")
@@ -408,21 +420,28 @@ class PreflightEngine:
                 return CheckResult(
                     name="embedding_model",
                     status="PASS",
-                    detail=f"{embed_model} available",
+                    detail=f"OllamaEmbeddingProvider({embed_model}) available — real embeddings active",
                     elapsed_ms=elapsed(),
                 )
+            # Model configured but not found
             return CheckResult(
                 name="embedding_model",
-                status="WARN",
-                detail=f"{embed_model} not found — will fall back to mock",
+                status="FAIL",
+                detail=(
+                    f"BT_EMBEDDING_MODEL={embed_model} is set but model not found in Ollama. "
+                    f"Available: {', '.join(models[:5]) or 'none'}"
+                ),
                 remediation=f"ollama pull {embed_model}",
                 elapsed_ms=elapsed(),
             )
-        except Exception:
+        except Exception as e:
             return CheckResult(
                 name="embedding_model",
-                status="WARN",
-                detail="Cannot check embedding model — Ollama unreachable",
+                status="FAIL",
+                detail=(
+                    f"BT_EMBEDDING_MODEL={embed_model} is set but Ollama is unreachable: {e}"
+                ),
+                remediation="Start Ollama: ollama serve",
                 elapsed_ms=elapsed(),
             )
 

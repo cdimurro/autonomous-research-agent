@@ -46,9 +46,9 @@ class TestSchemaV008Migration(unittest.TestCase):
         ).fetchall()]
         self.assertIn("bt_campaign_heartbeats", tables)
 
-    def test_schema_version_is_8(self):
+    def test_schema_version_at_least_8(self):
         row = self.db.execute("SELECT MAX(version) FROM bt_schema_version").fetchone()
-        self.assertEqual(row[0], 8)
+        self.assertGreaterEqual(row[0], 8)
 
     def test_total_bt_tables_count(self):
         tables = [r[0] for r in self.db.execute(
