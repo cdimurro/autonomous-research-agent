@@ -555,24 +555,32 @@ class DailySearchLadder:
         # Apply policy-specific overrides
         trial_program = self._apply_policy(program, policy)
 
-        gen = BenchmarkCandidateGenerator([
-            golden_high_quality(),
-            golden_publishable_finalist(),
-            golden_overconfident(),
-            golden_evidence_poor(),
-        ]) if program.mode == RunMode.DETERMINISTIC_TEST else None
-
-        orch, _ = _make_deterministic_orchestrator(
-            program=trial_program,
-            generator=gen,
-        )
-        orch.repo = trial_repo
-        orch.memory = RunMemory(trial_repo.db)
-        orch.novelty_engine = NoveltyEngine(trial_repo.db)
-        orch.embedding_monitor = EmbeddingMonitor(trial_repo)
-        orch.diversity_engine = DiversityEngine(trial_repo)
-        orch.corpus_manager = CorpusManager(trial_repo)
-        orch.synthesis_engine = SynthesisEngine(trial_repo)
+        if program.mode == RunMode.DETERMINISTIC_TEST:
+            # Offline-safe benchmark: use fake generator and in-memory repo
+            gen = BenchmarkCandidateGenerator([
+                golden_high_quality(),
+                golden_publishable_finalist(),
+                golden_overconfident(),
+                golden_evidence_poor(),
+            ])
+            orch, _ = _make_deterministic_orchestrator(
+                program=trial_program,
+                generator=gen,
+            )
+            orch.repo = trial_repo
+            orch.memory = RunMemory(trial_repo.db)
+            orch.novelty_engine = NoveltyEngine(trial_repo.db)
+            orch.embedding_monitor = EmbeddingMonitor(trial_repo)
+            orch.diversity_engine = DiversityEngine(trial_repo)
+            orch.corpus_manager = CorpusManager(trial_repo)
+            orch.synthesis_engine = SynthesisEngine(trial_repo)
+        else:
+            # Production mode: use real Ollama generator and shared repo
+            from .orchestrator import BreakthroughOrchestrator
+            orch = BreakthroughOrchestrator(
+                program=trial_program,
+                repo=trial_repo,
+            )
 
         run_record = orch.run()
 
