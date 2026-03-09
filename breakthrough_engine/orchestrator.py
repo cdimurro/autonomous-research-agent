@@ -68,6 +68,13 @@ from .review import create_draft
 from .scoring import rank_candidates, score_candidate
 from .simulator import MockSimulatorAdapter, SimulatorAdapter, get_simulator
 
+# Phase 6: optional reward logging (lazy import to avoid hard dependency)
+try:
+    from .reward_logger import RewardLogger
+    _REWARD_LOGGER = RewardLogger()
+except Exception:
+    _REWARD_LOGGER = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Modes that auto-publish (no review gate)
@@ -108,9 +115,11 @@ class BreakthroughOrchestrator:
         simulator: Optional[SimulatorAdapter] = None,
         dispatcher: Optional[NotificationDispatcher] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
+        policy_id: Optional[str] = None,
     ):
         self.program = program
         self.repo = repo
+        self.policy_id = policy_id  # Phase 6: for reward logging
         self.memory = RunMemory(repo.db)
         self.novelty_engine = NoveltyEngine(repo.db)
         self.domain_fit_evaluator = DomainFitEvaluator()
@@ -479,6 +488,18 @@ class BreakthroughOrchestrator:
                 metrics.draft_created = True
                 logger.info("[%s] Draft created: %s (score=%.3f)",
                             run.id[:8], best.title, scores[best.id].final_score)
+                # Phase 6: log draft_created signal
+                if _REWARD_LOGGER:
+                    try:
+                        from .reward_logger import RewardSignal
+                        _REWARD_LOGGER.log_signal(self.repo, RewardSignal(
+                            run_id=run.id, candidate_id=best.id,
+                            policy_id=self.policy_id, observation_unit="run",
+                            signal_name="draft_created", signal_value=1.0, signal_type="binary",
+                            context={"domain": self.program.domain, "score": round(scores[best.id].final_score, 4)},
+                        ))
+                    except Exception:
+                        pass
 
                 # Mark remaining as finalists
                 for c in final_candidates:
@@ -520,6 +541,18 @@ class BreakthroughOrchestrator:
                 metrics.publication_created = True
                 logger.info("[%s] Published candidate: %s (score=%.3f)",
                             run.id[:8], best.title, scores[best.id].final_score)
+                # Phase 6: log draft_created signal (auto-publish also counts)
+                if _REWARD_LOGGER:
+                    try:
+                        from .reward_logger import RewardSignal
+                        _REWARD_LOGGER.log_signal(self.repo, RewardSignal(
+                            run_id=run.id, candidate_id=best.id,
+                            policy_id=self.policy_id, observation_unit="run",
+                            signal_name="draft_created", signal_value=1.0, signal_type="binary",
+                            context={"domain": self.program.domain, "score": round(scores[best.id].final_score, 4)},
+                        ))
+                    except Exception:
+                        pass
         else:
             run.status = RunStatus.COMPLETED_NO_PUBLICATION
             logger.info("[%s] No candidates passed publication gate", run.id[:8])
@@ -620,6 +653,18 @@ class BreakthroughOrchestrator:
             publication_id=run.publication_id,
             draft_created=metrics.draft_created,
         )
+
+        # Phase 6: log trajectory and per-candidate signals
+        if _REWARD_LOGGER:
+            try:
+                _REWARD_LOGGER.log_signals_from_run(
+                    self.repo, run, self.program.domain, self.policy_id
+                )
+                _REWARD_LOGGER.log_run_trajectory(
+                    self.repo, run, self.program.domain, self.policy_id
+                )
+            except Exception as e:
+                logger.debug("Phase 6 reward logging failed (non-fatal): %s", e)
 
         return run
 

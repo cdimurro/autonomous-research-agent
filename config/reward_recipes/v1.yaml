@@ -1,0 +1,22 @@
+recipe_version: "v1"
+description: "Phase 6 initial reward recipe — quality-first, draft-creation weighted"
+
+# Composite reward = sum(weight_i * component_i) for all components listed in weights.
+# All components are logged regardless of recipe; only weighted ones contribute to reward.
+weights:
+  draft_created: 0.50
+  mean_final_score: 0.30
+  synthesis_fit_pass_rate: 0.20
+
+# All loggable signal names (for reference and audit)
+all_signals:
+  - novelty_pass
+  - synthesis_fit_pass
+  - synthesis_fit_score
+  - final_score
+  - review_worthy
+  - evidence_balance
+  - draft_created
+  - review_approved
+  - review_rejected
+  - falsification_passed

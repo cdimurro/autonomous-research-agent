@@ -306,6 +306,92 @@ def get_novelty(candidate_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Phase 6: Policy, Posteriors, and Cockpit routes
+# ---------------------------------------------------------------------------
+
+@bp.route("/policies")
+def list_policies():
+    """List all registered policies (champion + challengers)."""
+    from .policy_registry import PolicyRegistry
+    repo = _get_repo()
+    registry = PolicyRegistry(repo)
+    all_policies = registry.list_all()
+    return jsonify([{
+        "id": p.id,
+        "name": p.name,
+        "version": p.version,
+        "generation_prompt_variant": p.generation_prompt_variant,
+        "diversity_steering_variant": p.diversity_steering_variant,
+        "negative_memory_strategy": p.negative_memory_strategy,
+        "created_at": p.created_at,
+    } for p in all_policies])
+
+
+@bp.route("/posteriors/<policy_id>")
+def get_posteriors(policy_id: str):
+    """Get posterior states for a given policy (all domains, all metrics)."""
+    from .bayesian_evaluator import BayesianEvaluator
+    repo = _get_repo()
+    evaluator = BayesianEvaluator()
+    rows = repo.db.execute(
+        "SELECT DISTINCT domain FROM bt_bayesian_posteriors WHERE policy_id=?",
+        (policy_id,)
+    ).fetchall()
+    result = {}
+    for row in rows:
+        domain = row["domain"] if hasattr(row, "keys") else row[0]
+        states = evaluator.load_posteriors(repo, policy_id, domain)
+        result[domain] = {
+            metric: evaluator.get_posterior_summary(state).to_dict()
+            for metric, state in states.items()
+        }
+    if not result:
+        return jsonify({"error": f"No posteriors found for policy {policy_id}"}), 404
+    return jsonify({"policy_id": policy_id, "posteriors": result})
+
+
+@bp.route("/cockpit/<run_id>")
+def get_cockpit(run_id: str):
+    """HTML review decision packet for a run's best candidate."""
+    from .review_cockpit import ReviewCockpit
+    from .models import CandidateHypothesis
+    repo = _get_repo()
+    cockpit = ReviewCockpit()
+
+    rows = repo.db.execute(
+        "SELECT id, title, statement, domain FROM bt_candidates WHERE run_id=? ORDER BY created_at DESC",
+        (run_id,)
+    ).fetchall()
+    if not rows:
+        return jsonify({"error": f"No candidates found for run {run_id}"}), 404
+
+    # Find highest-scoring candidate
+    best_row = None
+    best_score = -1.0
+    for row in rows:
+        d = dict(row) if hasattr(row, "keys") else {"id": row[0], "title": row[1], "statement": row[2], "domain": row[3]}
+        score_row = repo.get_score(d["id"])
+        if score_row and score_row.get("final_score", 0) > best_score:
+            best_score = score_row.get("final_score", 0)
+            best_row = d
+
+    if not best_row:
+        d = dict(rows[0]) if hasattr(rows[0], "keys") else {"id": rows[0][0], "title": rows[0][1], "statement": rows[0][2], "domain": rows[0][3]}
+        best_row = d
+
+    cand = CandidateHypothesis(
+        id=best_row["id"], run_id=run_id,
+        title=best_row.get("title", ""), statement=best_row.get("statement", ""),
+        domain=best_row.get("domain", ""),
+    )
+    packet = cockpit.build_packet(
+        candidate=cand, evidence_pack=None, synthesis_fit=None,
+        novelty_result=None, final_score=best_score,
+    )
+    return cockpit.format_as_html(packet)
+
+
+# ---------------------------------------------------------------------------
 # Minimal HTML views
 # ---------------------------------------------------------------------------
 

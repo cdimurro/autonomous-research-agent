@@ -401,6 +401,147 @@ CREATE TABLE IF NOT EXISTS bt_corpus_archive (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_ca_domain ON bt_corpus_archive(domain);
 """,
+    7: """
+-- Phase 6: Policy registry
+CREATE TABLE IF NOT EXISTS bt_policies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL DEFAULT '1.0',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    is_champion INTEGER NOT NULL DEFAULT 0,
+    is_probation INTEGER NOT NULL DEFAULT 0,
+    previous_champion_id TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_pol_champion ON bt_policies(is_champion);
+
+-- Phase 6: Policy trials
+CREATE TABLE IF NOT EXISTS bt_policy_trials (
+    id TEXT PRIMARY KEY,
+    policy_id TEXT NOT NULL,
+    trial_type TEXT NOT NULL DEFAULT 'benchmark',
+    benchmark_metrics_json TEXT DEFAULT '{}',
+    posterior_summary_json TEXT DEFAULT '{}',
+    outcome TEXT DEFAULT '',
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_pt_policy ON bt_policy_trials(policy_id);
+
+-- Phase 6: Bayesian posteriors (one row per policy+domain+metric combo, updated in-place)
+CREATE TABLE IF NOT EXISTS bt_bayesian_posteriors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    policy_id TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
+    observation_unit TEXT NOT NULL DEFAULT 'candidate',
+    distribution_type TEXT NOT NULL DEFAULT 'beta_binomial',
+    alpha REAL NOT NULL DEFAULT 1.0,
+    beta REAL NOT NULL DEFAULT 1.0,
+    mu REAL NOT NULL DEFAULT 0.0,
+    M2 REAL NOT NULL DEFAULT 0.0,
+    n INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    update_history_json TEXT NOT NULL DEFAULT '[]',
+    UNIQUE(policy_id, domain, metric_name)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_bp_policy ON bt_bayesian_posteriors(policy_id);
+CREATE INDEX IF NOT EXISTS idx_bt_bp_domain ON bt_bayesian_posteriors(domain);
+
+-- Phase 6: Reward logs (atomic signal events)
+CREATE TABLE IF NOT EXISTS bt_reward_logs (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    candidate_id TEXT DEFAULT '',
+    policy_id TEXT DEFAULT '',
+    observation_unit TEXT NOT NULL DEFAULT 'candidate',
+    signal_name TEXT NOT NULL,
+    signal_value REAL NOT NULL DEFAULT 0.0,
+    signal_type TEXT NOT NULL DEFAULT 'binary',
+    context_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_run ON bt_reward_logs(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_policy ON bt_reward_logs(policy_id);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_signal ON bt_reward_logs(signal_name);
+
+-- Phase 6: Trajectories (episode-level RL-ready summaries, one per run)
+CREATE TABLE IF NOT EXISTS bt_trajectories (
+    id TEXT PRIMARY KEY,
+    trajectory_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    policy_id TEXT DEFAULT '',
+    reward_recipe_version TEXT NOT NULL DEFAULT 'v1',
+    state_json TEXT NOT NULL DEFAULT '{}',
+    action_json TEXT NOT NULL DEFAULT '{}',
+    reward REAL NOT NULL DEFAULT 0.0,
+    reward_components_json TEXT NOT NULL DEFAULT '{}',
+    outcome TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_traj_run ON bt_trajectories(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_traj_policy ON bt_trajectories(policy_id);
+
+-- Phase 6: Baseline comparisons (comparison artifacts, not raw data)
+CREATE TABLE IF NOT EXISTS bt_baseline_comparisons (
+    id TEXT PRIMARY KEY,
+    baseline_tag TEXT NOT NULL,
+    baseline_commit TEXT DEFAULT '',
+    current_branch TEXT DEFAULT '',
+    current_commit TEXT DEFAULT '',
+    comparison_report_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_bc_tag ON bt_baseline_comparisons(baseline_tag);
+
+-- Phase 6: Falsification summaries (per candidate)
+CREATE TABLE IF NOT EXISTS bt_falsification_summaries (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    contradictions_json TEXT NOT NULL DEFAULT '[]',
+    missing_evidence_json TEXT NOT NULL DEFAULT '[]',
+    assumption_fragility_score REAL NOT NULL DEFAULT 0.5,
+    bridge_weakness_json TEXT NOT NULL DEFAULT '[]',
+    falsification_risk TEXT NOT NULL DEFAULT 'medium',
+    passed INTEGER NOT NULL DEFAULT 1,
+    reasoning TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_fs_cand ON bt_falsification_summaries(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_fs_run ON bt_falsification_summaries(run_id);
+
+-- Phase 6: Daily search campaigns
+CREATE TABLE IF NOT EXISTS bt_daily_campaigns (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'benchmark',
+    policy_id TEXT DEFAULT '',
+    champion_candidate_id TEXT DEFAULT '',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_mode ON bt_daily_campaigns(mode);
+
+-- Phase 6: Ladder stage events (one row per stage per campaign)
+CREATE TABLE IF NOT EXISTS bt_ladder_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id TEXT NOT NULL,
+    stage_name TEXT NOT NULL,
+    trials_attempted INTEGER NOT NULL DEFAULT 0,
+    candidates_advanced INTEGER NOT NULL DEFAULT 0,
+    candidates_abandoned INTEGER NOT NULL DEFAULT 0,
+    best_score REAL NOT NULL DEFAULT 0.0,
+    best_candidate_id TEXT DEFAULT '',
+    stop_reason TEXT NOT NULL DEFAULT 'completed',
+    elapsed_seconds REAL NOT NULL DEFAULT 0.0,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_ls_campaign ON bt_ladder_stages(campaign_id);
+""",
     6: """
 -- Phase 5: Synthesis context per run
 CREATE TABLE IF NOT EXISTS bt_synthesis_context (

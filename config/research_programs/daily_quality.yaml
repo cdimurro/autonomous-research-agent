@@ -1,0 +1,35 @@
+name: daily_quality
+domain: cross-domain
+goal: "Quality-first daily search for breakthrough candidates across clean-energy and materials science domains."
+candidate_budget: 20
+simulation_budget: 5
+scoring_weights:
+  novelty: 0.20
+  plausibility: 0.25
+  impact: 0.25
+  evidence_strength: 0.15
+  simulation_readiness: 0.10
+  inverse_validation_cost: 0.05
+novelty_threshold: 0.35
+evidence_minimum: 3
+allowed_simulators:
+  - mock
+# Higher publication threshold for daily quality mode
+publication_threshold: 0.70
+banned_claims:
+  - "perpetual motion"
+  - "over-unity device"
+  - "cold fusion at room temperature without nuclear signatures"
+  - "free energy"
+safety_constraints:
+  - "Must not violate thermodynamic limits"
+  - "Must not claim efficiencies above Shockley-Queisser limit without multi-junction justification"
+  - "Energy balance must be positive"
+runtime_budget_minutes: 120
+mode: production_shadow
+sub_domains:
+  - electrocatalysts
+  - photovoltaics
+  - battery-materials
+  - hydrogen-storage
+  - thermoelectrics

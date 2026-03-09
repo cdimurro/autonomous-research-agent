@@ -118,6 +118,43 @@ def main(argv: list[str] | None = None):
     # doctor
     sub.add_parser("doctor", help="Check system readiness (Ollama, DB, models)")
 
+    # Phase 6: baseline
+    baseline_p = sub.add_parser("baseline", help="Phase 6 baseline comparison commands")
+    baseline_sub = baseline_p.add_subparsers(dest="baseline_command")
+    baseline_sub.add_parser("compare", help="Run benchmark and compare against Phase 5 baseline")
+
+    # Phase 6: policy
+    policy_p = sub.add_parser("policy", help="Phase 6 policy management commands")
+    policy_sub = policy_p.add_subparsers(dest="policy_command")
+    policy_sub.add_parser("list", help="List champion and challengers")
+    policy_show_p = policy_sub.add_parser("show", help="Show policy config + trial history")
+    policy_show_p.add_argument("policy_id", help="Policy ID")
+    policy_promote_p = policy_sub.add_parser("promote", help="Promote challenger to probation/champion")
+    policy_promote_p.add_argument("policy_id", help="Challenger policy ID")
+    policy_promote_p.add_argument("--reason", default="", help="Promotion reason")
+    policy_rollback_p = policy_sub.add_parser("rollback", help="Roll back champion to previous")
+    policy_rollback_p.add_argument("--reason", default="", help="Rollback reason")
+
+    # Phase 6: daily-search
+    ds_p = sub.add_parser("daily-search", help="Phase 6 quality-first daily search ladder")
+    ds_sub = ds_p.add_subparsers(dest="ds_command")
+    ds_run_p = ds_sub.add_parser("run", help="Run a daily search campaign")
+    ds_run_p.add_argument("--mode", default="benchmark", choices=["benchmark", "production"],
+                          help="Campaign mode (default: benchmark)")
+    ds_run_p.add_argument("--budget", type=int, default=30,
+                          help="Wall-clock budget in minutes (production mode only, default: 30)")
+    ds_run_p.add_argument("--policy", default=None, help="Policy ID to use (default: champion)")
+
+    # Phase 6: cockpit
+    cockpit_p = sub.add_parser("cockpit", help="Phase 6 review cockpit commands")
+    cockpit_sub = cockpit_p.add_subparsers(dest="cockpit_command")
+    cockpit_show_p = cockpit_sub.add_parser("show", help="Show review decision packet for a run")
+    cockpit_show_p.add_argument("run_id", help="Run ID")
+
+    # Phase 6: falsify
+    falsify_p = sub.add_parser("falsify", help="Phase 6 run falsification on a candidate")
+    falsify_p.add_argument("candidate_id", help="Candidate ID")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -166,6 +203,16 @@ def main(argv: list[str] | None = None):
         _cmd_review(repo, args)
     elif args.command == "metrics":
         _cmd_metrics(repo, args)
+    elif args.command == "baseline":
+        _cmd_baseline(repo, args)
+    elif args.command == "policy":
+        _cmd_policy(repo, args)
+    elif args.command == "daily-search":
+        _cmd_daily_search(repo, args)
+    elif args.command == "cockpit":
+        _cmd_cockpit(repo, args)
+    elif args.command == "falsify":
+        _cmd_falsify(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -551,3 +598,206 @@ def _cmd_metrics(repo: Repository, args):
                   f"novelty_fail={m['novelty_fail_count']} "
                   f"draft={bool(m['draft_created'])} "
                   f"pub={bool(m['publication_created'])}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 CLI handlers
+# ---------------------------------------------------------------------------
+
+def _cmd_baseline(repo: Repository, args):
+    if not hasattr(args, "baseline_command") or not args.baseline_command:
+        print("Usage: python -m breakthrough_engine baseline compare")
+        return
+    if args.baseline_command == "compare":
+        from .baseline_comparator import BaselineComparator, BenchmarkConfig
+        print("Running Phase 5 baseline comparison (offline-safe, DETERMINISTIC_TEST mode)...")
+        comp = BaselineComparator()
+        try:
+            baseline = comp.load_phase5_baseline()
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        config = BenchmarkConfig()
+        current = comp.run_benchmark(config, repo)
+        report = comp.compare(baseline, current)
+        print(comp.format_report(report))
+        comp.save_comparison(repo, report)
+        if report.has_regression:
+            print("\nWARNING: Regression detected vs Phase 5 baseline.")
+            sys.exit(1)
+        else:
+            print("\nNo regressions. System is at or above Phase 5 baseline.")
+
+
+def _cmd_policy(repo: Repository, args):
+    if not hasattr(args, "policy_command") or not args.policy_command:
+        print("Usage: python -m breakthrough_engine policy [list|show|promote|rollback]")
+        return
+    from .policy_registry import PolicyRegistry
+    registry = PolicyRegistry(repo)
+
+    if args.policy_command == "list":
+        champion = registry.get_champion()
+        challengers = registry.get_challengers()
+        probations = registry.get_probation_policies()
+        print(f"Champion: {champion.name} (id={champion.id}) version={champion.version}")
+        if probations:
+            print(f"Probation ({len(probations)}):")
+            for p in probations:
+                print(f"  {p.name} (id={p.id})")
+        if challengers:
+            print(f"Challengers ({len(challengers)}):")
+            for c in challengers:
+                print(f"  {c.name} (id={c.id})")
+        else:
+            print("No challengers registered.")
+
+    elif args.policy_command == "show":
+        all_policies = registry.list_all()
+        pol = next((p for p in all_policies if p.id == args.policy_id), None)
+        if not pol:
+            print(f"Policy not found: {args.policy_id}", file=sys.stderr)
+            sys.exit(1)
+        import json
+        print(f"Policy: {pol.name} (id={pol.id})")
+        print(f"  Version: {pol.version}")
+        print(f"  generation_prompt_variant: {pol.generation_prompt_variant}")
+        print(f"  diversity_steering_variant: {pol.diversity_steering_variant}")
+        print(f"  negative_memory_strategy: {pol.negative_memory_strategy}")
+        history = registry.get_trial_history(policy_id=args.policy_id)
+        print(f"  Trials: {len(history)}")
+        for t in history[-5:]:
+            print(f"    [{t.trial_type}] {t.outcome}")
+
+    elif args.policy_command == "promote":
+        ok = registry.promote_to_probation(args.policy_id, evidence={"reason": args.reason})
+        if ok:
+            print(f"Policy {args.policy_id} promoted to probation.")
+        else:
+            print(f"Promotion failed: criteria not met or insufficient trials.")
+            sys.exit(1)
+
+    elif args.policy_command == "rollback":
+        ok = registry.rollback_champion(reason=args.reason or "operator rollback")
+        if ok:
+            print("Champion rolled back to previous.")
+        else:
+            print("Rollback failed: no previous champion found.")
+            sys.exit(1)
+
+
+def _cmd_daily_search(repo: Repository, args):
+    if not hasattr(args, "ds_command") or not args.ds_command:
+        print("Usage: python -m breakthrough_engine daily-search run [--mode MODE] [--budget MINUTES]")
+        return
+    if args.ds_command == "run":
+        from .daily_search import DailySearchLadder, LadderConfig
+        from .policy_registry import PolicyRegistry
+        from .bayesian_evaluator import BayesianEvaluator
+        from .falsification import FalsificationEngine
+        from .config_loader import load_program
+
+        mode = args.mode
+        policy_id = getattr(args, "policy", None)
+
+        config = LadderConfig(mode=mode)
+        if mode == "production":
+            config.production_wall_clock_budget_minutes = getattr(args, "budget", 30)
+        if policy_id:
+            config.policy_variants = [policy_id]
+
+        try:
+            program = load_program("benchmark_p6" if mode == "benchmark" else "daily_quality")
+        except FileNotFoundError:
+            program = load_program("general_fast_loop")
+
+        registry = PolicyRegistry(repo)
+
+        ladder = DailySearchLadder()
+        print(f"Starting daily search campaign (mode={mode})...")
+        result = ladder.run_campaign(repo, config, registry, program)
+
+        print(f"\nCampaign {result.campaign_id[:12]}:")
+        print(f"  Mode: {result.mode}")
+        print(f"  Policy: {result.policy_used}")
+        print(f"  Champion: {result.daily_champion_id or 'none'}")
+        if result.daily_champion_title:
+            print(f"  Title: {result.daily_champion_title}")
+        print(f"  Rationale: {result.champion_selection_rationale}")
+        print(f"  Candidates: {result.total_candidates_generated} generated, "
+              f"{result.total_blocked} blocked, {result.total_shortlisted} shortlisted")
+        print(f"  Elapsed: {result.elapsed_seconds:.1f}s")
+        print(f"\nStages:")
+        for stage in result.ladder_stages:
+            print(f"  {stage.stage_name}: {stage.stop_reason} "
+                  f"(trials={stage.trials_attempted}, advanced={stage.candidates_advanced}, "
+                  f"best_score={stage.best_score:.3f})")
+
+
+def _cmd_cockpit(repo: Repository, args):
+    if not hasattr(args, "cockpit_command") or not args.cockpit_command:
+        print("Usage: python -m breakthrough_engine cockpit show RUN_ID")
+        return
+    if args.cockpit_command == "show":
+        from .review_cockpit import ReviewCockpit
+        cockpit = ReviewCockpit()
+        # Find best candidate from run
+        rows = repo.db.execute(
+            "SELECT id, title, statement, domain FROM bt_candidates WHERE run_id=? ORDER BY created_at DESC",
+            (args.run_id,)
+        ).fetchall()
+        if not rows:
+            print(f"No candidates found for run {args.run_id}", file=sys.stderr)
+            sys.exit(1)
+        # Find highest-scoring candidate
+        best_row = None
+        best_score = -1.0
+        for row in rows:
+            score_row = repo.get_score(row["id"])
+            if score_row and score_row.get("final_score", 0) > best_score:
+                best_score = score_row.get("final_score", 0)
+                best_row = row
+        if not best_row:
+            best_row = rows[0]
+            best_score = 0.0
+
+        # Build minimal candidate object for packet
+        from .models import CandidateHypothesis
+        cand = CandidateHypothesis(
+            id=best_row["id"], run_id=args.run_id,
+            title=best_row["title"] or "", statement=best_row["statement"] or "",
+            domain=best_row["domain"] or "",
+        )
+        packet = cockpit.build_packet(
+            candidate=cand, evidence_pack=None, synthesis_fit=None,
+            novelty_result=None, final_score=best_score,
+        )
+        print(cockpit.format_as_text(packet))
+
+
+def _cmd_falsify(repo: Repository, args):
+    from .falsification import FalsificationEngine
+    falsifier = FalsificationEngine()
+    row = repo.get_candidate(args.candidate_id)
+    if not row:
+        print(f"Candidate not found: {args.candidate_id}", file=sys.stderr)
+        sys.exit(1)
+    from .models import CandidateHypothesis
+    cand = CandidateHypothesis(
+        id=row["id"], run_id=row.get("run_id", ""),
+        title=row.get("title", ""), statement=row.get("statement", ""),
+        domain=row.get("domain", ""),
+    )
+    summary = falsifier.evaluate(cand, evidence_pack=None)
+    print(f"Falsification result for {args.candidate_id[:12]}:")
+    print(f"  Risk: {summary.overall_falsification_risk}")
+    print(f"  Passed: {summary.falsification_passed}")
+    print(f"  Reasoning: {summary.reasoning}")
+    if summary.contradictions_found:
+        print(f"  Contradictions: {summary.contradictions_found}")
+    if summary.missing_evidence_gaps:
+        print(f"  Missing evidence: {summary.missing_evidence_gaps}")
+    if summary.bridge_weakness_flags:
+        print(f"  Bridge weaknesses: {summary.bridge_weakness_flags}")
+    falsifier.save_summary(repo, summary)
+    print("Summary saved to database.")
