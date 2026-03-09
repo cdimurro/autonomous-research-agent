@@ -4,7 +4,7 @@ profile_type: overnight
 
 # Domain and program
 domain: clean-energy
-program_name: daily_quality
+program_name: clean_energy_shadow
 mode: production
 
 # Budget constraints
