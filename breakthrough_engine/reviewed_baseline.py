@@ -27,6 +27,7 @@ BASELINES_DIR = os.path.join(
 KNOWN_BASELINES = {
     "phase5_validated": "phase5_validated_benchmark.json",
     "phase7d_reviewed": "phase7d_reviewed_baseline.json",
+    "phase8_reviewed": "phase8_reviewed_baseline.json",
 }
 
 

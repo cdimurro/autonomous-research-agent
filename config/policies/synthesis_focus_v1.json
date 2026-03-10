@@ -1,0 +1,34 @@
+{
+  "name": "synthesis_focus_v1",
+  "version": "1.0",
+  "description": "Challenger policy emphasizing synthesis feasibility in candidate scoring. Single-surface change: plausibility weight increased from 0.20 to 0.25 (+25%), simulation_readiness from 0.10 to 0.12 (+20%), novelty from 0.20 to 0.18 (-10%), inverse_validation_cost from 0.10 to 0.05 (-50%). Hypothesis: candidates that score higher on plausibility and simulation_readiness produce more immediately actionable research leads and better reviewer approval rates.",
+  "generation_prompt_variant": "synthesis_focus",
+  "diversity_steering_variant": "standard",
+  "sub_domain_rotation_policy": "auto",
+  "bridge_selection_policy": "auto",
+  "evidence_ranking_weights": null,
+  "negative_memory_strategy": "standard",
+  "review_gating_heuristics": [],
+  "scoring_weights": {
+    "novelty": 0.18,
+    "plausibility": 0.25,
+    "impact": 0.20,
+    "evidence_strength": 0.20,
+    "simulation_readiness": 0.12,
+    "inverse_validation_cost": 0.05
+  },
+  "metadata": {
+    "phase": "8b",
+    "challenger_vs": "phase5_champion",
+    "config_diff": {
+      "plausibility": "0.20 -> 0.25 (+25%)",
+      "simulation_readiness": "0.10 -> 0.12 (+20%)",
+      "novelty": "0.20 -> 0.18 (-10%)",
+      "inverse_validation_cost": "0.10 -> 0.05 (-50%)"
+    },
+    "unchanged": ["impact", "evidence_strength", "diversity_steering_variant", "negative_memory_strategy"],
+    "hypothesis": "Higher plausibility/simulation_readiness weights produce candidates with better reviewer technical plausibility scores and higher approval rates",
+    "rollback_trigger": "champion_score_mean regression > 0.05 vs Phase 8 reviewed baseline",
+    "registered": "2026-03-10"
+  }
+}

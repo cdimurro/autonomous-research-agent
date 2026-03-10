@@ -137,6 +137,22 @@ def main(argv: list[str] | None = None):
     policy_promote_p.add_argument("--reason", default="", help="Promotion reason")
     policy_rollback_p = policy_sub.add_parser("rollback", help="Roll back champion to previous")
     policy_rollback_p.add_argument("--reason", default="", help="Rollback reason")
+    # Phase 8B: register a challenger
+    policy_register_p = policy_sub.add_parser("register", help="Register a challenger policy")
+    policy_register_p.add_argument("--name", required=True, help="Policy name")
+    policy_register_p.add_argument("--description", default="", help="Human-readable description")
+    policy_register_p.add_argument("--config-path", default="", help="Path to policy JSON config file")
+    policy_register_p.add_argument("--generation-prompt-variant", default="standard",
+                                   choices=["standard", "synthesis_focus", "evidence_heavy"],
+                                   help="Generation prompt variant (default: standard)")
+    policy_register_p.add_argument("--diversity-steering-variant", default="standard",
+                                   choices=["standard", "aggressive", "conservative"],
+                                   help="Diversity steering variant (default: standard)")
+    policy_register_p.add_argument("--negative-memory-strategy", default="standard",
+                                   choices=["standard", "strict", "permissive"],
+                                   help="Negative memory strategy (default: standard)")
+    policy_register_p.add_argument("--scoring-weights-json", default="",
+                                   help="JSON string of scoring weight overrides")
 
     # Phase 6: daily-search
     ds_p = sub.add_parser("daily-search", help="Phase 6 quality-first daily search ladder")
@@ -229,6 +245,33 @@ def main(argv: list[str] | None = None):
     baseline_compare_reviewed_p.add_argument("--batch", required=True, help="Batch summary JSON path")
     baseline_compare_reviewed_p.add_argument("--baseline", default="phase7d_reviewed",
                                              help="Baseline ID (default: phase7d_reviewed)")
+    # Phase 8B: freeze a new reviewed baseline
+    baseline_freeze_p = baseline_sub.add_parser(
+        "freeze", help="Freeze a reviewed batch as a new trusted baseline"
+    )
+    baseline_freeze_p.add_argument("--name", required=True,
+                                   help="Baseline name (e.g. phase8_reviewed)")
+    baseline_freeze_p.add_argument("--batch-id", required=True,
+                                   help="Batch ID (e.g. phase8_batch_20260309)")
+    baseline_freeze_p.add_argument("--batch-dir", default="",
+                                   help="Batch artifact directory (default: runtime/evaluation_batches/<batch-id>)")
+    baseline_freeze_p.add_argument("--note", default="", help="Note to attach to frozen baseline")
+
+    # Phase 8B: challenger-trial
+    ct_p = sub.add_parser("challenger-trial", help="Phase 8B bounded challenger-vs-champion trial")
+    ct_sub = ct_p.add_subparsers(dest="ct_command")
+    ct_show_p = ct_sub.add_parser("show", help="Show a challenger trial summary")
+    ct_show_p.add_argument("trial_dir", help="Path to trial directory")
+    ct_build_p = ct_sub.add_parser("build", help="Build trial summary from campaign IDs")
+    ct_build_p.add_argument("--champion-campaigns", nargs="+", required=True,
+                            help="Champion arm campaign IDs")
+    ct_build_p.add_argument("--challenger-campaigns", nargs="+", required=True,
+                            help="Challenger arm campaign IDs")
+    ct_build_p.add_argument("--challenger-id", required=True, help="Challenger policy ID")
+    ct_build_p.add_argument("--output-dir", required=True, help="Directory to write trial artifacts")
+    ct_build_p.add_argument("--profile", default="eval_clean_energy_30m", help="Profile used")
+    ct_build_p.add_argument("--baseline", default="phase8_reviewed",
+                            help="Reviewed baseline ID for regression guard")
 
     # Phase 8: daily
     daily_p = sub.add_parser("daily", help="Phase 8 bounded daily automation")
@@ -326,6 +369,8 @@ def main(argv: list[str] | None = None):
         _cmd_daily(repo, args)
     elif args.command == "review-queue":
         _cmd_review_queue(repo, args)
+    elif args.command == "challenger-trial":
+        _cmd_challenger_trial(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -810,6 +855,105 @@ def _cmd_baseline(repo: Repository, args):
         else:
             print("No regressions vs Phase 7D reviewed baseline.")
 
+    elif args.baseline_command == "freeze":
+        import json as _json
+        from datetime import datetime, timezone
+
+        batch_id = args.batch_id
+        batch_dir = args.batch_dir or os.path.join("runtime", "evaluation_batches", batch_id)
+        batch_json_path = os.path.join(batch_dir, "batch_summary.json")
+
+        if not os.path.exists(batch_json_path):
+            print(f"Error: batch_summary.json not found at {batch_json_path}", file=sys.stderr)
+            sys.exit(1)
+
+        with open(batch_json_path) as f:
+            batch = _json.load(f)
+
+        stats = batch.get("summary_statistics", {})
+        campaigns = batch.get("campaigns", [])
+
+        # Build baseline artifact
+        baseline_name = args.name
+        baseline_id = baseline_name.replace(" ", "_").lower()
+        frozen_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Determine branch and commit from git
+        try:
+            import subprocess
+            branch = subprocess.check_output(
+                ["git", "branch", "--show-current"], text=True
+            ).strip()
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], text=True
+            ).strip()
+        except Exception:
+            branch = ""
+            commit = ""
+
+        summary_stats = {
+            "champion_score_mean": stats.get("champion_score_mean"),
+            "champion_score_min": stats.get("champion_score_min"),
+            "champion_score_max": stats.get("champion_score_max"),
+            "integrity_ok_rate": stats.get("integrity_ok_rate", 1.0),
+            "falsification_complete_rate": stats.get("falsification_complete_rate", 1.0),
+            "overall_block_rate": stats.get("overall_block_rate"),
+            "total_candidates_generated": stats.get("total_candidates_generated"),
+            "total_finalists": stats.get("total_finalists"),
+        }
+        note_text = args.note or f"Frozen from batch {batch_id} on {frozen_at[:10]}"
+        campaign_id_list = [c.get("campaign_id", "") for c in campaigns]
+        campaign_count = batch.get("campaign_count", len(campaigns))
+
+        # Write JSON using keys compatible with ReviewedBaseline.from_dict()
+        runtime_root = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        out_path = os.path.join(runtime_root, "baselines", f"{baseline_id}_baseline.json")
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+        baseline_dict = {
+            "baseline_id": baseline_id,
+            "baseline_name": baseline_name,
+            "baseline_type": "reviewed_batch",
+            "frozen_at": frozen_at,
+            "branch": branch,
+            "commit": commit,
+            "commit_hash": commit,
+            "profile": batch.get("profile", ""),
+            "domain": "clean-energy",
+            "schema_version": batch.get("schema_version", "v003"),
+            "generation_model": "",
+            "embedding_model": "",
+            "champion_policy": batch.get("policy_used", "phase5_champion"),
+            "batch_id": batch_id,
+            "campaign_ids": campaign_id_list,
+            "campaign_count": campaign_count,
+            "all_integrity_ok": batch.get("all_integrity_ok", True),
+            "all_falsification_complete": batch.get("all_falsification_complete", True),
+            "summary_statistics": summary_stats,
+            "regression_thresholds": {
+                "champion_score_mean_regression": -0.05,
+                "integrity_ok_rate_min": 1.0,
+                "falsification_complete_rate_min": 1.0,
+                "block_rate_max_regression": 0.10,
+            },
+            "review_label_status": {},
+            "best_champion": batch.get("best_champion", {}),
+            "weakest_champion": batch.get("weakest_champion", {}),
+            "note": note_text,
+            "is_read_only": True,
+        }
+
+        with open(out_path, "w") as f:
+            _json.dump(baseline_dict, f, indent=2)
+
+        print(f"Frozen baseline: {baseline_id}")
+        print(f"  File: {out_path}")
+        print(f"  Campaigns: {campaign_count}")
+        print(f"  Champion score mean: {stats.get('champion_score_mean', 'N/A')}")
+        print(f"  Integrity OK rate: {stats.get('integrity_ok_rate', 'N/A')}")
+        print(f"  Branch: {branch}  Commit: {commit}")
+        print(f"  Note: {note_text}")
+
 
 def _cmd_policy(repo: Repository, args):
     if not hasattr(args, "policy_command") or not args.policy_command:
@@ -866,6 +1010,66 @@ def _cmd_policy(repo: Repository, args):
         else:
             print("Rollback failed: no previous champion found.")
             sys.exit(1)
+
+    elif args.policy_command == "register":
+        import json as _json
+        from .policy_registry import PolicyConfig, MAX_ACTIVE_CHALLENGERS
+
+        # Enforce single-challenger limit for Phase 8B
+        challengers = registry.get_challengers()
+        if len(challengers) >= MAX_ACTIVE_CHALLENGERS:
+            print(
+                f"Error: max challengers ({MAX_ACTIVE_CHALLENGERS}) already registered. "
+                "Rollback or remove an existing challenger before registering a new one.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Load from config file if provided
+        scoring_weights = None
+        gen_variant = getattr(args, "generation_prompt_variant", "standard")
+        div_variant = getattr(args, "diversity_steering_variant", "standard")
+        neg_strategy = getattr(args, "negative_memory_strategy", "standard")
+        description = getattr(args, "description", "")
+
+        config_path = getattr(args, "config_path", "")
+        if config_path and os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    file_config = _json.load(f)
+                gen_variant = file_config.get("generation_prompt_variant", gen_variant)
+                div_variant = file_config.get("diversity_steering_variant", div_variant)
+                neg_strategy = file_config.get("negative_memory_strategy", neg_strategy)
+                scoring_weights = file_config.get("scoring_weights")
+                description = description or file_config.get("description", "")
+            except Exception as e:
+                print(f"Warning: could not read config file {config_path}: {e}", file=sys.stderr)
+
+        scoring_weights_json = getattr(args, "scoring_weights_json", "")
+        if scoring_weights_json:
+            try:
+                scoring_weights = _json.loads(scoring_weights_json)
+            except Exception as e:
+                print(f"Error: invalid --scoring-weights-json: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        config = PolicyConfig(
+            name=args.name,
+            version="1.0",
+            description=description,
+            generation_prompt_variant=gen_variant,
+            diversity_steering_variant=div_variant,
+            negative_memory_strategy=neg_strategy,
+            scoring_weights=scoring_weights,
+        )
+        registered = registry.register(config)
+        print(f"Registered challenger: {registered.name} (id={registered.id})")
+        print(f"  generation_prompt_variant: {registered.generation_prompt_variant}")
+        print(f"  diversity_steering_variant: {registered.diversity_steering_variant}")
+        print(f"  negative_memory_strategy: {registered.negative_memory_strategy}")
+        if registered.scoring_weights:
+            print(f"  scoring_weights: {registered.scoring_weights}")
+        print(f"  Promotion: manual only (automatic promotion is OFF)")
 
 
 def _cmd_daily_search(repo: Repository, args):
@@ -1423,3 +1627,112 @@ def _cmd_review_queue(repo: Repository, args):
 
     else:
         print("Usage: python -m breakthrough_engine review-queue [list|inspect|mark-reviewed]")
+
+
+def _cmd_challenger_trial(repo: Repository, args):
+    """Phase 8B challenger-vs-champion trial commands."""
+    if not hasattr(args, "ct_command") or not args.ct_command:
+        print("Usage: python -m breakthrough_engine challenger-trial [build|show]")
+        return
+
+    if args.ct_command == "show":
+        import json as _json
+        trial_dir = args.trial_dir
+        summary_path = os.path.join(trial_dir, "challenger_vs_champion_summary.json")
+        if not os.path.exists(summary_path):
+            print(f"Trial summary not found: {summary_path}", file=sys.stderr)
+            sys.exit(1)
+        with open(summary_path) as f:
+            summary = _json.load(f)
+        print(_json.dumps(summary, indent=2))
+
+    elif args.ct_command == "build":
+        from .challenger_trial import (
+            build_arm_from_campaign_ids,
+            compare_arms,
+            export_trial_csv,
+            export_trial_summary_json,
+            export_trial_summary_md,
+            ChallengerTrialResult,
+        )
+        from .policy_registry import PolicyRegistry
+        from .models import new_id
+        from .reviewed_baseline import get_registry as get_baseline_registry
+        from datetime import datetime, timezone
+
+        registry = PolicyRegistry(repo)
+        challenger_id = args.challenger_id
+        challenger = registry.get_policy(challenger_id)
+        if challenger is None:
+            print(f"Error: challenger policy not found: {challenger_id}", file=sys.stderr)
+            sys.exit(1)
+
+        champion = registry.get_champion()
+
+        output_dir = args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(f"Building challenger trial summary...")
+        print(f"  Champion: {champion.name} ({champion.id})")
+        print(f"  Challenger: {challenger.name} ({challenger.id})")
+        print(f"  Champion campaigns: {args.champion_campaigns}")
+        print(f"  Challenger campaigns: {args.challenger_campaigns}")
+
+        champion_arm = build_arm_from_campaign_ids(
+            repo.db, args.champion_campaigns, champion.id, champion.name
+        )
+        challenger_arm = build_arm_from_campaign_ids(
+            repo.db, args.challenger_campaigns, challenger.id, challenger.name
+        )
+
+        # Get baseline mean score for regression guard
+        baseline_mean = None
+        baseline_id = getattr(args, "baseline", "phase8_reviewed")
+        try:
+            baseline_reg = get_baseline_registry()
+            b = baseline_reg.load(baseline_id)
+            if b and b.summary_statistics:
+                baseline_mean = b.summary_statistics.get("champion_score_mean")
+        except Exception as e:
+            logger.debug("Could not load baseline for regression guard: %s", e)
+
+        comparison = compare_arms(champion_arm, challenger_arm, baseline_mean_score=baseline_mean)
+
+        trial_id = f"phase8b_trial_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+        result = ChallengerTrialResult(
+            trial_id=trial_id,
+            trial_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            champion_arm=champion_arm,
+            challenger_arm=challenger_arm,
+            comparison=comparison,
+            profile_used=getattr(args, "profile", "eval_clean_energy_30m"),
+            total_campaigns=champion_arm.campaign_count + challenger_arm.campaign_count,
+            started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            completed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+
+        csv_path = os.path.join(output_dir, "policy_trials.csv")
+        json_path = os.path.join(output_dir, "challenger_vs_champion_summary.json")
+        md_path = os.path.join(output_dir, "challenger_vs_champion_summary.md")
+
+        export_trial_csv(result, csv_path)
+        export_trial_summary_json(result, json_path)
+        export_trial_summary_md(result, md_path)
+
+        print(f"\nTrial summary exported to {output_dir}")
+        print(f"  {csv_path}")
+        print(f"  {json_path}")
+        print(f"  {md_path}")
+        print()
+        print(f"Champion mean score:   {champion_arm.mean_champion_score:.5f}" if champion_arm.mean_champion_score else "Champion mean: N/A")
+        print(f"Challenger mean score: {challenger_arm.mean_champion_score:.5f}" if challenger_arm.mean_champion_score else "Challenger mean: N/A")
+        if comparison.champion_score_delta is not None:
+            print(f"Score delta (chal-champ): {comparison.champion_score_delta:+.5f}")
+        print()
+        print(f"Promotion assessment: {comparison.promotion_assessment.upper()}")
+        print(f"  (Automatic promotion is OFF — operator must manually promote if recommended)")
+        for note in comparison.promotion_notes:
+            print(f"  - {note}")
+
+    else:
+        print("Usage: python -m breakthrough_engine challenger-trial [build|show]")
