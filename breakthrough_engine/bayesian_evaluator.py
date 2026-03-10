@@ -45,6 +45,23 @@ CONTINUOUS_METRICS: dict[str, str] = {
     "synthesis_fit_score": "candidate",
 }
 
+# Phase 8: Reviewed metrics — posteriors from human review labels
+# Binary: Beta(2, 2) prior (weakly informative, 50% with 4 pseudo-observations)
+REVIEWED_BINARY_METRICS: dict[str, str] = {
+    "review_label_approval": "label",    # P(approve) per labeled candidate
+}
+
+# Continuous: Normal(0.5, 0.25) prior — centered at neutral
+REVIEWED_CONTINUOUS_METRICS: dict[str, str] = {
+    "review_novelty_confidence": "label",
+    "review_technical_plausibility": "label",
+    "review_commercialization_relevance": "label",
+}
+
+# Prior parameters for reviewed metrics (weakly informative)
+REVIEWED_BINARY_PRIOR = {"alpha": 2.0, "beta": 2.0}        # Beta(2,2): 50% with 4 pseudo-obs
+REVIEWED_CONTINUOUS_PRIOR = {"mu": 0.5, "M2": 0.0, "n": 0}  # Starts at N(0.5, ?) uninformative
+
 # Uncertainty labels by sample count
 def _uncertainty_label(n: int) -> str:
     if n < 5:
@@ -447,6 +464,148 @@ class BayesianEvaluator:
             f"({new_summary.uncertainty_label} uncertainty, n={new_summary.sample_size})\n"
             f"Change: {direction}{abs(delta):.3f} in mean"
         )
+
+    # ---------------------
+    # Phase 8: Review-label posterior updates
+    # ---------------------
+
+    def new_reviewed_state(
+        self,
+        policy_id: str,
+        domain: str,
+        metric_name: str,
+    ) -> PosteriorState:
+        """Create a weakly informative prior state for a reviewed metric.
+
+        Review metrics use Beta(2,2) for binary (50% prior with 4 pseudo-obs)
+        to prevent sparse labels from dominating too aggressively.
+        """
+        if metric_name in REVIEWED_BINARY_METRICS:
+            prior = REVIEWED_BINARY_PRIOR
+            return PosteriorState(
+                policy_id=policy_id,
+                domain=domain,
+                metric_name=metric_name,
+                observation_unit=REVIEWED_BINARY_METRICS[metric_name],
+                distribution_type="beta_binomial",
+                alpha=prior["alpha"],
+                beta=prior["beta"],
+            )
+        elif metric_name in REVIEWED_CONTINUOUS_METRICS:
+            prior = REVIEWED_CONTINUOUS_PRIOR
+            return PosteriorState(
+                policy_id=policy_id,
+                domain=domain,
+                metric_name=metric_name,
+                observation_unit=REVIEWED_CONTINUOUS_METRICS[metric_name],
+                distribution_type="normal_approx",
+                mu=prior["mu"],
+                M2=prior["M2"],
+                n=prior["n"],
+            )
+        else:
+            raise ValueError(f"Unknown reviewed metric: {metric_name}")
+
+    def update_from_review_label(
+        self,
+        states: dict[str, PosteriorState],
+        policy_id: str,
+        domain: str,
+        label: dict,
+    ) -> dict[str, PosteriorState]:
+        """Update reviewed posteriors from a single review label dict.
+
+        Args:
+            states: Current {metric_name: PosteriorState} for this policy/domain
+            policy_id: Policy this label is attributed to
+            domain: Domain (e.g. "clean-energy")
+            label: Review label dict with keys:
+                - decision: "approve" | "reject" | "defer"
+                - novelty_confidence: float 0-1
+                - technical_plausibility: float 0-1
+                - commercialization_relevance: float 0-1
+
+        Returns:
+            Updated {metric_name: PosteriorState}
+        """
+        updated = dict(states)
+
+        # Update review_label_approval (binary)
+        decision = label.get("decision", "defer")
+        if decision in ("approve", "reject"):
+            metric = "review_label_approval"
+            state = updated.get(metric) or self.new_reviewed_state(policy_id, domain, metric)
+            success = decision == "approve"
+            updated[metric] = self.update_binary(state, success)
+
+        # Update continuous reviewed metrics (always, regardless of decision)
+        for metric, key in [
+            ("review_novelty_confidence", "novelty_confidence"),
+            ("review_technical_plausibility", "technical_plausibility"),
+            ("review_commercialization_relevance", "commercialization_relevance"),
+        ]:
+            if key in label and label[key] is not None:
+                state = updated.get(metric) or self.new_reviewed_state(policy_id, domain, metric)
+                try:
+                    value = float(label[key])
+                    updated[metric] = self.update_continuous(state, value)
+                except (TypeError, ValueError):
+                    pass
+
+        return updated
+
+    def get_reviewed_posterior_means(
+        self, states: dict[str, PosteriorState]
+    ) -> dict[str, Optional[float]]:
+        """Return mean estimates for all reviewed metrics.
+
+        Returns None for metrics with no real observations (only prior).
+        """
+        result: dict[str, Optional[float]] = {}
+        for metric in list(REVIEWED_BINARY_METRICS) + list(REVIEWED_CONTINUOUS_METRICS):
+            state = states.get(metric)
+            if state is None:
+                result[metric] = None
+                continue
+            summary = self.get_posterior_summary(state)
+            # Report None if only prior pseudo-observations exist
+            if summary.sample_size == 0:
+                result[metric] = None
+            else:
+                result[metric] = summary.mean
+        return result
+
+    def summarize_reviewed_posteriors(
+        self,
+        states: dict[str, PosteriorState],
+    ) -> dict:
+        """Return a full summary dict of all reviewed posteriors."""
+        summary = {}
+        all_metrics = list(REVIEWED_BINARY_METRICS) + list(REVIEWED_CONTINUOUS_METRICS)
+        for metric in all_metrics:
+            state = states.get(metric)
+            if state is None:
+                summary[metric] = {
+                    "mean": None,
+                    "sample_size": 0,
+                    "uncertainty_label": "high",
+                    "note": "no observations",
+                }
+            else:
+                ps = self.get_posterior_summary(state)
+                summary[metric] = ps.to_dict()
+        return summary
+
+    def get_or_create_reviewed_posterior(
+        self, repo, policy_id: str, domain: str, metric_name: str
+    ) -> PosteriorState:
+        """Load reviewed posterior if exists, otherwise create new weakly informative prior."""
+        states = self.load_posteriors(repo, policy_id, domain)
+        if metric_name in states:
+            return states[metric_name]
+        if metric_name in REVIEWED_BINARY_METRICS or metric_name in REVIEWED_CONTINUOUS_METRICS:
+            return self.new_reviewed_state(policy_id, domain, metric_name)
+        return self.new_state(policy_id, domain, metric_name)
 
     # ---------------------
     # Helpers

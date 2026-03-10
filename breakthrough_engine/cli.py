@@ -25,12 +25,15 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 
 from .config_loader import list_programs, load_program, validate_program
 from .db import Repository, init_db
 from .orchestrator import BreakthroughOrchestrator
 from .reporting import generate_markdown_report, save_reports
+
+logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None):
@@ -204,6 +207,51 @@ def main(argv: list[str] | None = None):
     rl_export_p = rl_sub.add_parser("export", help="Export all review labels as CSV")
     rl_export_p.add_argument("--output", default="review_labels.csv", help="Output CSV path")
 
+    # Phase 8: label-completeness
+    lc_p = sub.add_parser("label-completeness", help="Phase 8 review-label completeness tooling")
+    lc_sub = lc_p.add_subparsers(dest="lc_command")
+    lc_check_p = lc_sub.add_parser("check", help="Check label completeness for campaigns")
+    lc_check_p.add_argument("--campaign-ids", nargs="+", required=True,
+                             help="Campaign IDs to check (space-separated)")
+    lc_export_p = lc_sub.add_parser("export-targets", help="Export label targets CSV")
+    lc_export_p.add_argument("--campaign-ids", nargs="+", required=True,
+                              help="Campaign IDs to check")
+    lc_export_p.add_argument("--output", default="label_targets.csv", help="Output CSV path")
+
+    # Phase 8: baseline (extended)
+    baseline_p.add_argument("--name", default="", help="Baseline name (for show command)")
+    baseline_sub.add_parser("list", help="List all known frozen baselines")
+    baseline_show_p = baseline_sub.add_parser("show", help="Show a specific baseline")
+    baseline_show_p.add_argument("baseline_id", help="Baseline ID (e.g. phase5_validated, phase7d_reviewed)")
+    baseline_compare_reviewed_p = baseline_sub.add_parser(
+        "compare-reviewed", help="Compare a batch to the Phase 7D reviewed baseline"
+    )
+    baseline_compare_reviewed_p.add_argument("--batch", required=True, help="Batch summary JSON path")
+    baseline_compare_reviewed_p.add_argument("--baseline", default="phase7d_reviewed",
+                                             help="Baseline ID (default: phase7d_reviewed)")
+
+    # Phase 8: daily
+    daily_p = sub.add_parser("daily", help="Phase 8 bounded daily automation")
+    daily_sub = daily_p.add_subparsers(dest="daily_command")
+    daily_run_p = daily_sub.add_parser("run", help="Run a daily automation profile")
+    daily_run_p.add_argument("profile_name", help="Profile name (e.g. evaluation_daily_clean_energy)")
+    daily_dryrun_p = daily_sub.add_parser("dry-run", help="Dry run a daily automation profile")
+    daily_dryrun_p.add_argument("profile_name", help="Profile name")
+    daily_sub.add_parser("status", help="Show status of today's daily automation runs")
+    daily_sub.add_parser("list-profiles", help="List available daily automation profiles")
+
+    # Phase 8: review-queue
+    rq_p = sub.add_parser("review-queue", help="Phase 8 review queue commands")
+    rq_sub = rq_p.add_subparsers(dest="rq_command")
+    rq_list_p = rq_sub.add_parser("list", help="List review queue items")
+    rq_list_p.add_argument("--status", default="pending",
+                           choices=["pending", "reviewed", "all"], help="Filter by status")
+    rq_inspect_p = rq_sub.add_parser("inspect", help="Inspect a review queue item")
+    rq_inspect_p.add_argument("item_id", help="Review queue item ID")
+    rq_mark_p = rq_sub.add_parser("mark-reviewed", help="Mark a review queue item as reviewed")
+    rq_mark_p.add_argument("item_id", help="Review queue item ID")
+    rq_mark_p.add_argument("--reviewer", default="operator", help="Reviewer identifier")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -272,6 +320,12 @@ def main(argv: list[str] | None = None):
         _cmd_evaluation_pack(args)
     elif args.command == "review-label":
         _cmd_review_label(repo, args)
+    elif args.command == "label-completeness":
+        _cmd_label_completeness(repo, args)
+    elif args.command == "daily":
+        _cmd_daily(repo, args)
+    elif args.command == "review-queue":
+        _cmd_review_queue(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -665,7 +719,7 @@ def _cmd_metrics(repo: Repository, args):
 
 def _cmd_baseline(repo: Repository, args):
     if not hasattr(args, "baseline_command") or not args.baseline_command:
-        print("Usage: python -m breakthrough_engine baseline compare")
+        print("Usage: python -m breakthrough_engine baseline [compare|list|show|compare-reviewed]")
         return
     if args.baseline_command == "compare":
         from .baseline_comparator import BaselineComparator, BenchmarkConfig
@@ -686,6 +740,75 @@ def _cmd_baseline(repo: Repository, args):
             sys.exit(1)
         else:
             print("\nNo regressions. System is at or above Phase 5 baseline.")
+    elif args.baseline_command == "list":
+        from .reviewed_baseline import get_registry
+        reg = get_registry()
+        baselines = reg.list_baselines()
+        print(f"{'ID':<25} {'Type':<25} {'Exists':<8} {'Frozen At':<25} {'Campaigns'}")
+        print("-" * 90)
+        for b in baselines:
+            exists = "YES" if b["exists"] else "NO"
+            frozen = b.get("frozen_at", "")[:10]
+            campaigns = b.get("campaign_count", "?")
+            btype = b.get("baseline_type", "")
+            print(f"{b['baseline_id']:<25} {btype:<25} {exists:<8} {frozen:<25} {campaigns}")
+    elif args.baseline_command == "show":
+        from .reviewed_baseline import get_registry
+        import json
+        baseline_id = args.baseline_id
+        reg = get_registry()
+        b = reg.load(baseline_id)
+        if b is None:
+            print(f"Baseline not found: {baseline_id}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Baseline: {b.baseline_name}")
+        print(f"  ID: {b.baseline_id}")
+        print(f"  Type: {b.baseline_type}")
+        print(f"  Frozen at: {b.frozen_at}")
+        print(f"  Branch: {b.branch}")
+        print(f"  Commit: {b.commit}")
+        print(f"  Profile: {b.profile}")
+        print(f"  Domain: {b.domain}")
+        print(f"  Campaigns: {b.campaign_count}")
+        if b.summary_statistics:
+            print(f"  Summary statistics:")
+            for k, v in b.summary_statistics.items():
+                if isinstance(v, float):
+                    print(f"    {k}: {v:.4f}")
+                else:
+                    print(f"    {k}: {v}")
+        print(f"  Note: {b.note}")
+    elif args.baseline_command == "compare-reviewed":
+        import json
+        from .reviewed_baseline import get_registry
+        batch_path = args.batch
+        baseline_id = args.baseline
+        if not os.path.exists(batch_path):
+            print(f"Batch summary not found: {batch_path}", file=sys.stderr)
+            sys.exit(1)
+        with open(batch_path) as f:
+            batch_summary = json.load(f)
+        reg = get_registry()
+        result = reg.compare_batch_to_reviewed_baseline(batch_summary, baseline_id)
+        if "error" in result:
+            print(f"Error: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Reviewed Baseline Comparison: {baseline_id}")
+        print(f"  Baseline campaigns: {result['baseline_campaign_count']}")
+        print(f"  Current campaigns: {result['current_campaign_count']}")
+        print()
+        print(f"{'Metric':<35} {'Baseline':<12} {'Current':<12} {'Delta':<10} {'Status'}")
+        print("-" * 85)
+        for c in result["comparisons"]:
+            status = "✓ OK" if c["status"] == "OK" else "✗ REGRESSION"
+            delta = f"{c['delta']:+.4f}" if c["delta"] is not None else "N/A"
+            print(f"{c['metric']:<35} {str(c.get('baseline', 'N/A')):<12} {str(c.get('current', 'N/A')):<12} {delta:<10} {status}")
+        print()
+        if result["regression_found"]:
+            print("REGRESSION FOUND vs Phase 7D reviewed baseline.")
+            sys.exit(1)
+        else:
+            print("No regressions vs Phase 7D reviewed baseline.")
 
 
 def _cmd_policy(repo: Repository, args):
@@ -1056,3 +1179,247 @@ def _cmd_review_label(repo: Repository, args):
 
     else:
         print("Usage: python -m breakthrough_engine review-label [add|list|export]")
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 CLI handlers
+# ---------------------------------------------------------------------------
+
+def _cmd_label_completeness(repo: Repository, args):
+    """Phase 8: review-label completeness tooling."""
+    from .label_completeness import (
+        check_label_completeness, export_label_targets_csv, summarize_label_completeness
+    )
+    lc_command = getattr(args, "lc_command", None)
+    if not lc_command:
+        print("Usage: python -m breakthrough_engine label-completeness [check|export-targets]")
+        return
+
+    campaign_ids = args.campaign_ids
+
+    if lc_command == "check":
+        completeness = check_label_completeness(repo.db, campaign_ids)
+        print(summarize_label_completeness(completeness))
+
+    elif lc_command == "export-targets":
+        completeness = check_label_completeness(repo.db, campaign_ids)
+        output_path = getattr(args, "output", "label_targets.csv")
+        export_label_targets_csv(completeness, output_path=output_path)
+        print(summarize_label_completeness(completeness))
+        print(f"\nLabel targets exported to: {output_path}")
+
+    else:
+        print("Usage: python -m breakthrough_engine label-completeness [check|export-targets]")
+
+
+def _cmd_daily(repo: Repository, args):
+    """Phase 8: bounded daily automation."""
+    from .daily_automation import (
+        load_daily_profile, dry_run_profile, list_available_profiles,
+        get_daily_status, format_operator_summary
+    )
+    daily_command = getattr(args, "daily_command", None)
+
+    if not daily_command or daily_command == "list-profiles":
+        profiles = list_available_profiles()
+        if not profiles:
+            print("No daily automation profiles found.")
+        else:
+            print(f"Available daily automation profiles ({len(profiles)}):")
+            for p in profiles:
+                print(f"  {p}")
+        return
+
+    if daily_command == "status":
+        status = get_daily_status(repo)
+        print(f"Daily automation status — {status['date']}")
+        for profile_name, info in status.get("profiles", {}).items():
+            ran = "YES" if info.get("ran_today") else "NO"
+            outcome = info.get("last_outcome") or "(not run)"
+            print(f"  {profile_name}: ran_today={ran}  last_outcome={outcome}")
+        return
+
+    if daily_command == "dry-run":
+        profile_name = args.profile_name
+        try:
+            profile = load_daily_profile(profile_name)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        result = dry_run_profile(profile, repo)
+        print(result.operator_summary)
+        return
+
+    if daily_command == "run":
+        profile_name = args.profile_name
+        try:
+            profile = load_daily_profile(profile_name)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        from .daily_automation import _today, OUTCOME_ALREADY_RAN_TODAY
+        from .models import new_id
+        today = _today()
+
+        # Enforce max-runs-per-day
+        if repo.has_daily_run_today(profile_name, today):
+            result_dict = {
+                "run_id": new_id(),
+                "profile_name": profile_name,
+                "campaign_id": "",
+                "policy_id": "",
+                "outcome": OUTCOME_ALREADY_RAN_TODAY,
+                "dry_run": False,
+                "run_date": today,
+                "operator_summary": f"Profile '{profile_name}' already ran today ({today}). Skipping.",
+            }
+            print(result_dict["operator_summary"])
+            return
+
+        print(f"Running daily profile: {profile_name}")
+        print(f"  Campaign profile: {profile.campaign_profile}")
+        print(f"  Domain: {profile.domain}")
+        print(f"  (Use dry-run to preview without executing)")
+        print()
+
+        # Run the campaign via campaign manager
+        from .campaign_manager import CampaignManager, CampaignProfile
+        from .policy_registry import PolicyRegistry
+        from .daily_automation import (
+            OUTCOME_COMPLETED_WITH_DRAFT, OUTCOME_COMPLETED_NO_DRAFT,
+            OUTCOME_ABORTED_PREFLIGHT, OUTCOME_ABORTED_RUNTIME,
+            build_review_queue_item, format_operator_summary, DailyRunResult
+        )
+        from datetime import datetime, timezone
+
+        reg = PolicyRegistry(repo)
+        champion = reg.get_champion()
+        policy_id = champion.id
+
+        run_id = new_id()
+        started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        campaign_id = ""
+        outcome = OUTCOME_ABORTED_RUNTIME
+        error_msg = ""
+        review_queue_item_id = ""
+
+        try:
+            mgr = CampaignManager(repo)
+            campaign_result = mgr.run(profile_name=profile.campaign_profile)
+            campaign_id = campaign_result.get("campaign_id", "")
+            has_draft = bool(campaign_result.get("has_draft", False))
+            outcome = OUTCOME_COMPLETED_WITH_DRAFT if has_draft else OUTCOME_COMPLETED_NO_DRAFT
+
+            # Insert into review queue if draft found and profile requests it
+            if profile.insert_review_queue and has_draft:
+                item = build_review_queue_item(
+                    daily_run_id=run_id,
+                    profile=profile,
+                    campaign_result=campaign_result,
+                    policy_id=policy_id,
+                )
+                review_queue_item_id = repo.insert_review_queue_item(item)
+
+        except Exception as e:
+            outcome = OUTCOME_ABORTED_RUNTIME
+            error_msg = str(e)
+            logger.error("Daily run failed: %s", e)
+
+        completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Log the run
+        repo.insert_daily_run({
+            "id": run_id,
+            "profile_name": profile_name,
+            "campaign_id": campaign_id,
+            "policy_id": policy_id,
+            "outcome": outcome,
+            "dry_run": False,
+            "error_message": error_msg,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "run_date": today,
+        })
+
+        from .daily_automation import DailyRunResult
+        result = DailyRunResult(
+            run_id=run_id,
+            profile_name=profile_name,
+            campaign_id=campaign_id,
+            policy_id=policy_id,
+            outcome=outcome,
+            dry_run=False,
+            error_message=error_msg,
+            started_at=started_at,
+            completed_at=completed_at,
+            run_date=today,
+            review_queue_item_id=review_queue_item_id,
+        )
+        print(format_operator_summary(result, profile))
+        return
+
+    print("Usage: python -m breakthrough_engine daily [run|dry-run|status|list-profiles]")
+
+
+def _cmd_review_queue(repo: Repository, args):
+    """Phase 8: review queue management."""
+    rq_command = getattr(args, "rq_command", None)
+
+    if not rq_command:
+        print("Usage: python -m breakthrough_engine review-queue [list|inspect|mark-reviewed]")
+        return
+
+    if rq_command == "list":
+        status = getattr(args, "status", "pending")
+        items = repo.list_review_queue(review_status=status)
+        if not items:
+            print(f"No review queue items with status='{status}'.")
+            return
+        print(f"Review queue — {status} ({len(items)} items):")
+        print(f"{'ID[:8]':<10} {'Campaign':<20} {'Profile':<35} {'Score':<8} {'Champion Title'}")
+        print("-" * 100)
+        for item in items:
+            print(
+                f"{item['id'][:8]:<10} {item['campaign_id'][:18]:<20} "
+                f"{item['profile_name']:<35} {item.get('champion_score', 0.0):.3f}  "
+                f"{item.get('champion_title', '')[:40]}"
+            )
+
+    elif rq_command == "inspect":
+        item_id = args.item_id
+        items = repo.list_review_queue(review_status="all")
+        item = next((i for i in items if i["id"].startswith(item_id)), None)
+        if item is None:
+            print(f"Review queue item not found: {item_id}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Review Queue Item: {item['id']}")
+        print(f"  Campaign: {item['campaign_id']}")
+        print(f"  Profile: {item['profile_name']}")
+        print(f"  Policy: {item['policy_id']}")
+        print(f"  Champion: {item['champion_title']}")
+        print(f"  Score: {item.get('champion_score', 0.0):.4f}")
+        print(f"  Falsification: {item.get('falsification_summary', '')}")
+        print(f"  Rationale: {item.get('rationale', '')[:200]}")
+        print(f"  Outcome: {item['outcome']}")
+        print(f"  Review status: {item['review_status']}")
+        print(f"  Inserted at: {item.get('inserted_at', '')}")
+        if item.get("reviewed_at"):
+            print(f"  Reviewed at: {item['reviewed_at']} by {item.get('reviewer', '?')}")
+        print()
+        print(f"To add review label:")
+        print(f"  python -m breakthrough_engine review-label add \\")
+        print(f"    --campaign-id {item['campaign_id']} \\")
+        print(f"    --candidate-id {item.get('champion_candidate_id', '(unknown)')} \\")
+        print(f"    --role champion --decision approve \\")
+        print(f"    --novelty-confidence 0.8 --technical-plausibility 0.8 \\")
+        print(f"    --commercialization-relevance 0.7")
+
+    elif rq_command == "mark-reviewed":
+        item_id = args.item_id
+        reviewer = getattr(args, "reviewer", "operator")
+        repo.mark_review_queue_item_reviewed(item_id, reviewer=reviewer)
+        print(f"Marked review queue item {item_id[:12]} as reviewed (reviewer={reviewer})")
+
+    else:
+        print("Usage: python -m breakthrough_engine review-queue [list|inspect|mark-reviewed]")

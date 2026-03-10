@@ -1,0 +1,36 @@
+# Production Daily Clean Energy Profile
+# Phase 8: Bounded daily automation for production-quality search
+#
+# Purpose: Run one production-quality clean-energy search campaign per day
+#          to generate publication-ready drafts for operator review.
+#
+# Safety: Max 1 run per calendar day. Dry-run mode always available.
+
+profile_name: production_daily_clean_energy
+profile_type: production_daily
+campaign_profile: overnight_clean_energy
+domain: clean-energy
+max_runs_per_day: 1
+dry_run_default: false
+
+# Output requirements
+require_integrity_ok: false       # Best-effort; not hard-fail for production
+require_falsification_complete: false
+export_evaluation_pack: false     # Production mode: export campaign receipt only
+insert_review_queue: true         # Always insert if a draft was produced
+
+# Review label expectations
+review_labels_required:
+  champion: false                 # Optional for production campaigns
+  runner_up: false
+  other_finalists: false
+
+# Automation bounds
+review_queue_on_draft: true
+log_posterior_snapshot: false    # Posteriors updated from evaluation campaigns
+
+# Description for operator logs
+description: >
+  Daily production campaign using overnight_clean_energy profile.
+  Used to generate publication-ready drafts for operator review.
+  Run one per day. Insert any draft into review queue for morning review.

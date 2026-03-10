@@ -1,0 +1,36 @@
+# Evaluation Daily Clean Energy Profile
+# Phase 8: Bounded daily automation for policy evaluation
+#
+# Purpose: Run one evaluation-grade clean-energy campaign per day for
+#          Bayesian posterior updates and policy learning comparison.
+#
+# Safety: Max 1 run per calendar day. Dry-run mode always available.
+
+profile_name: evaluation_daily_clean_energy
+profile_type: evaluation_daily
+campaign_profile: eval_clean_energy_30m
+domain: clean-energy
+max_runs_per_day: 1
+dry_run_default: false
+
+# Output requirements
+require_integrity_ok: true
+require_falsification_complete: true
+export_evaluation_pack: true
+insert_review_queue: true
+
+# Review label expectations
+review_labels_required:
+  champion: true
+  runner_up: true
+  other_finalists: false
+
+# Automation bounds
+review_queue_on_draft: true
+log_posterior_snapshot: true
+
+# Description for operator logs
+description: >
+  Daily evaluation campaign using eval_clean_energy_30m profile.
+  Used for Bayesian posterior updates and reviewed policy learning.
+  Run one per day. Insert champion into review queue for morning review.

@@ -667,6 +667,78 @@ CREATE INDEX IF NOT EXISTS idx_bt_rl_campaign ON bt_review_labels(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_bt_rl_candidate ON bt_review_labels(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_bt_rl_decision ON bt_review_labels(decision);
 """,
+    11: """
+-- Phase 8: Reviewed baselines, review queue, daily automation runs, policy promotion log.
+-- NOTE: ALTER TABLE bt_policies ADD COLUMN is_rolled_back is handled separately in init_db.
+
+-- Frozen baseline references (Phase 5, Phase 7D, future).
+CREATE TABLE IF NOT EXISTS bt_reviewed_baselines (
+    baseline_id TEXT PRIMARY KEY,
+    baseline_name TEXT NOT NULL,
+    baseline_type TEXT NOT NULL DEFAULT 'reviewed_evaluation',
+    frozen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    branch TEXT NOT NULL DEFAULT '',
+    commit_hash TEXT NOT NULL DEFAULT '',
+    schema_version TEXT NOT NULL DEFAULT '',
+    profile TEXT NOT NULL DEFAULT '',
+    domain TEXT NOT NULL DEFAULT '',
+    baseline_json TEXT NOT NULL DEFAULT '{}',
+    is_read_only INTEGER NOT NULL DEFAULT 1
+);
+
+-- Review queue: items awaiting human review after daily automation.
+CREATE TABLE IF NOT EXISTS bt_review_queue (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    daily_run_id TEXT NOT NULL DEFAULT '',
+    profile_name TEXT NOT NULL DEFAULT '',
+    policy_id TEXT NOT NULL DEFAULT '',
+    champion_title TEXT NOT NULL DEFAULT '',
+    champion_score REAL DEFAULT 0.0,
+    champion_candidate_id TEXT NOT NULL DEFAULT '',
+    falsification_summary TEXT NOT NULL DEFAULT '',
+    rationale TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT 'completed_with_draft',
+    review_status TEXT NOT NULL DEFAULT 'pending',
+    inserted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    reviewed_at TEXT DEFAULT NULL,
+    reviewer TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bt_rq_campaign ON bt_review_queue(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_bt_rq_status ON bt_review_queue(review_status);
+CREATE INDEX IF NOT EXISTS idx_bt_rq_inserted ON bt_review_queue(inserted_at);
+
+-- Daily automation run records.
+CREATE TABLE IF NOT EXISTS bt_daily_automation_runs (
+    id TEXT PRIMARY KEY,
+    profile_name TEXT NOT NULL,
+    campaign_id TEXT NOT NULL DEFAULT '',
+    policy_id TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT 'unknown',
+    dry_run INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT DEFAULT '',
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    completed_at TEXT DEFAULT NULL,
+    run_date TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_dar_profile ON bt_daily_automation_runs(profile_name);
+CREATE INDEX IF NOT EXISTS idx_bt_dar_date ON bt_daily_automation_runs(run_date);
+
+-- Policy promotion audit log.
+CREATE TABLE IF NOT EXISTS bt_policy_promotion_log (
+    id TEXT PRIMARY KEY,
+    policy_id TEXT NOT NULL,
+    policy_name TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL,
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_ppl_policy ON bt_policy_promotion_log(policy_id);
+CREATE INDEX IF NOT EXISTS idx_bt_ppl_event ON bt_policy_promotion_log(event_type);
+""",
 }
 
 
@@ -702,6 +774,14 @@ def init_db(db_path: Optional[str] = None, in_memory: bool = False) -> sqlite3.C
                 "INSERT INTO bt_schema_version (version) VALUES (?)", (version,)
             )
             db.commit()
+
+    # Phase 8: add is_rolled_back column to bt_policies if not present (ALTER TABLE cannot
+    # run inside executescript safely, so we apply it here with best-effort).
+    try:
+        db.execute("ALTER TABLE bt_policies ADD COLUMN is_rolled_back INTEGER NOT NULL DEFAULT 0")
+        db.commit()
+    except Exception:
+        pass  # Column already exists — idempotent
 
     return db
 
@@ -1476,4 +1556,152 @@ class Repository:
         rows = self.db.execute(
             "SELECT * FROM bt_review_labels ORDER BY created_at DESC"
         ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 8: Review queue --
+
+    def insert_review_queue_item(self, item: dict) -> str:
+        """Insert a review queue item. Returns the item id."""
+        from .models import new_id as _new_id
+        item_id = item.get("id") or _new_id()
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_review_queue
+               (id, campaign_id, daily_run_id, profile_name, policy_id,
+                champion_title, champion_score, champion_candidate_id,
+                falsification_summary, rationale, outcome, review_status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                item_id,
+                item.get("campaign_id", ""),
+                item.get("daily_run_id", ""),
+                item.get("profile_name", ""),
+                item.get("policy_id", ""),
+                item.get("champion_title", ""),
+                item.get("champion_score", 0.0),
+                item.get("champion_candidate_id", ""),
+                item.get("falsification_summary", ""),
+                item.get("rationale", ""),
+                item.get("outcome", "completed_with_draft"),
+                item.get("review_status", "pending"),
+            ),
+        )
+        self.db.commit()
+        return item_id
+
+    def list_review_queue(self, review_status: str = "pending") -> list[dict]:
+        """Return review queue items, optionally filtered by status."""
+        if review_status == "all":
+            rows = self.db.execute(
+                "SELECT * FROM bt_review_queue ORDER BY inserted_at DESC"
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM bt_review_queue WHERE review_status=? ORDER BY inserted_at DESC",
+                (review_status,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_review_queue_item_reviewed(
+        self, item_id: str, reviewer: str = "operator"
+    ) -> None:
+        """Mark a review queue item as reviewed."""
+        self.db.execute(
+            """UPDATE bt_review_queue
+               SET review_status='reviewed', reviewed_at=(strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                   reviewer=?
+               WHERE id=?""",
+            (reviewer, item_id),
+        )
+        self.db.commit()
+
+    # -- Phase 8: Daily automation runs --
+
+    def insert_daily_run(self, run: dict) -> str:
+        """Record a daily automation run. Returns the run id."""
+        from .models import new_id as _new_id
+        run_id = run.get("id") or _new_id()
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_daily_automation_runs
+               (id, profile_name, campaign_id, policy_id, outcome,
+                dry_run, error_message, started_at, completed_at, run_date)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                run_id,
+                run.get("profile_name", ""),
+                run.get("campaign_id", ""),
+                run.get("policy_id", ""),
+                run.get("outcome", "unknown"),
+                1 if run.get("dry_run") else 0,
+                run.get("error_message", ""),
+                run.get("started_at", ""),
+                run.get("completed_at"),
+                run.get("run_date", ""),
+            ),
+        )
+        self.db.commit()
+        return run_id
+
+    def list_daily_runs(self, run_date: str = "", profile_name: str = "") -> list[dict]:
+        """Return daily automation run records."""
+        if run_date and profile_name:
+            rows = self.db.execute(
+                "SELECT * FROM bt_daily_automation_runs WHERE run_date=? AND profile_name=? ORDER BY started_at DESC",
+                (run_date, profile_name),
+            ).fetchall()
+        elif run_date:
+            rows = self.db.execute(
+                "SELECT * FROM bt_daily_automation_runs WHERE run_date=? ORDER BY started_at DESC",
+                (run_date,),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM bt_daily_automation_runs ORDER BY started_at DESC LIMIT 50"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_daily_run_today(self, profile_name: str, run_date: str) -> bool:
+        """Check if a daily profile has already run today (non-dry-run)."""
+        row = self.db.execute(
+            """SELECT COUNT(*) as cnt FROM bt_daily_automation_runs
+               WHERE profile_name=? AND run_date=? AND dry_run=0""",
+            (profile_name, run_date),
+        ).fetchone()
+        return (row["cnt"] if row else 0) > 0
+
+    # -- Phase 8: Policy promotion log --
+
+    def log_policy_promotion(self, entry: dict) -> str:
+        """Insert a policy promotion/rollback audit log entry."""
+        from .models import new_id as _new_id
+        entry_id = entry.get("id") or _new_id()
+        self.db.execute(
+            """INSERT INTO bt_policy_promotion_log
+               (id, policy_id, policy_name, event_type, from_state, to_state,
+                reason, evidence_json)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                entry_id,
+                entry.get("policy_id", ""),
+                entry.get("policy_name", ""),
+                entry.get("event_type", ""),
+                entry.get("from_state", ""),
+                entry.get("to_state", ""),
+                entry.get("reason", ""),
+                entry.get("evidence_json", "{}"),
+            ),
+        )
+        self.db.commit()
+        return entry_id
+
+    def get_policy_promotion_log(self, policy_id: str = "") -> list[dict]:
+        """Return promotion log entries, optionally filtered by policy_id."""
+        if policy_id:
+            rows = self.db.execute(
+                "SELECT * FROM bt_policy_promotion_log WHERE policy_id=? ORDER BY created_at DESC",
+                (policy_id,),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT * FROM bt_policy_promotion_log ORDER BY created_at DESC LIMIT 100"
+            ).fetchall()
         return [dict(r) for r in rows]

@@ -42,6 +42,22 @@ PROMOTION_MIN_TRIALS = 5
 FULL_CHAMPION_MIN_PROBATION_RUNS = 3
 REGRESSION_THRESHOLD = 0.05
 
+# Phase 8: Review-signal promotion thresholds (applied when labels are available)
+REVIEWED_PROMOTION_THRESHOLDS = {
+    "review_approval_rate": -0.05,       # challenger >= champion - 0.05
+    "review_novelty_confidence": -0.05,
+    "review_technical_plausibility": -0.05,
+    "review_reject_rate": +0.05,         # challenger <= champion + 0.05 (lower rejection is better)
+}
+# Max active challengers at any time
+MAX_ACTIVE_CHALLENGERS = 2
+
+# Policy states
+POLICY_STATE_CHALLENGER = "challenger"
+POLICY_STATE_PROBATIONARY_CHAMPION = "probationary_champion"
+POLICY_STATE_CHAMPION = "champion"
+POLICY_STATE_ROLLED_BACK = "rolled_back"
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -318,11 +334,20 @@ class PolicyRegistry:
         if prev_row is None:
             return False, f"Previous champion {prev_id} not found"
 
-        # Demote current champion to challenger
-        self.repo.db.execute(
-            "UPDATE bt_policies SET is_champion=0, is_probation=0 WHERE id=?",
-            (champ_row["id"],),
-        )
+        demoted_id = champ_row["id"]
+        demoted_name = dict(champ_row).get("name", demoted_id)
+
+        # Mark demoted champion as rolled_back (best-effort — column may not exist in old DBs)
+        try:
+            self.repo.db.execute(
+                "UPDATE bt_policies SET is_champion=0, is_probation=0, is_rolled_back=1 WHERE id=?",
+                (demoted_id,),
+            )
+        except Exception:
+            self.repo.db.execute(
+                "UPDATE bt_policies SET is_champion=0, is_probation=0 WHERE id=?",
+                (demoted_id,),
+            )
         # Restore previous champion
         self.repo.db.execute(
             "UPDATE bt_policies SET is_champion=1, is_probation=0 WHERE id=?",
@@ -331,9 +356,174 @@ class PolicyRegistry:
         self.repo.db.commit()
         logger.info(
             "PolicyRegistry: rolled back to '%s' from '%s', reason=%r",
-            prev_id, champ_row["id"], reason,
+            prev_id, demoted_id, reason,
+        )
+
+        # Log the rollback event
+        self._log_promotion_event(
+            policy_id=demoted_id,
+            policy_name=demoted_name,
+            event_type="rollback",
+            from_state=POLICY_STATE_CHAMPION,
+            to_state=POLICY_STATE_ROLLED_BACK,
+            reason=reason,
+            evidence={},
         )
         return True, f"Rolled back to {prev_id}"
+
+    # -- Phase 8: Review-signal promotion gate --
+
+    def check_reviewed_promotion_criteria(
+        self,
+        policy_id: str,
+        review_signal: dict,
+        champion_review_signal: dict,
+    ) -> tuple[bool, str, list[str]]:
+        """Check whether a challenger meets review-signal promotion criteria.
+
+        Args:
+            policy_id: Challenger policy ID
+            review_signal: {metric: value} for the challenger's reviewed posteriors
+            champion_review_signal: {metric: value} for the champion's reviewed posteriors
+
+        Returns:
+            (passed, summary, failures) — failures is empty if passed
+        """
+        if not review_signal or not champion_review_signal:
+            return True, "review-signal gate skipped (no labels available)", []
+
+        failures = []
+        for metric, delta_threshold in REVIEWED_PROMOTION_THRESHOLDS.items():
+            challenger_val = review_signal.get(metric)
+            champion_val = champion_review_signal.get(metric)
+            if challenger_val is None or champion_val is None:
+                continue
+
+            if metric == "review_reject_rate":
+                # Lower is better — challenger must be <= champion + threshold
+                if challenger_val > champion_val + abs(delta_threshold):
+                    failures.append(
+                        f"{metric}: challenger={challenger_val:.3f} > champion+threshold={champion_val + abs(delta_threshold):.3f}"
+                    )
+            else:
+                # Higher is better
+                if challenger_val < champion_val + delta_threshold:
+                    failures.append(
+                        f"{metric}: challenger={challenger_val:.3f} < champion+threshold={champion_val + delta_threshold:.3f}"
+                    )
+
+        if failures:
+            return False, "Review-signal gate failed: " + "; ".join(failures), failures
+        return True, "Review-signal gate passed", []
+
+    def promote_to_champion_reviewed(
+        self,
+        policy_id: str,
+        evidence: dict,
+        review_signal: Optional[dict] = None,
+        champion_review_signal: Optional[dict] = None,
+        reason: str = "",
+    ) -> tuple[bool, str]:
+        """Promote a probation policy to full champion with review-signal check.
+
+        This is the Phase 8 promoted-to-champion method that also applies
+        the review-signal gate when reviewer labels are available.
+
+        Args:
+            policy_id: Policy to promote
+            evidence: benchmark + posterior evidence dict
+            review_signal: Challenger's reviewed posterior means
+            champion_review_signal: Champion's reviewed posterior means
+            reason: Human-readable reason for promotion
+        """
+        # First apply review-signal gate
+        if review_signal and champion_review_signal:
+            passed, gate_msg, failures = self.check_reviewed_promotion_criteria(
+                policy_id, review_signal, champion_review_signal
+            )
+            if not passed:
+                logger.info(
+                    "PolicyRegistry: reviewed promotion denied for '%s': %s",
+                    policy_id, gate_msg,
+                )
+                return False, gate_msg
+
+        # Delegate to standard promote_to_champion
+        success, msg = self.promote_to_champion(policy_id, reason=reason)
+        if success:
+            # Log the promotion event with evidence
+            row = self.repo.db.execute(
+                "SELECT * FROM bt_policies WHERE id=?", (policy_id,)
+            ).fetchone()
+            self._log_promotion_event(
+                policy_id=policy_id,
+                policy_name=dict(row).get("name", policy_id) if row else policy_id,
+                event_type="promoted_to_champion",
+                from_state=POLICY_STATE_PROBATIONARY_CHAMPION,
+                to_state=POLICY_STATE_CHAMPION,
+                reason=reason or msg,
+                evidence=evidence,
+            )
+        return success, msg
+
+    def get_policy_status(self, policy_id: str) -> str:
+        """Return the status string for a policy ID."""
+        row = self.repo.db.execute(
+            "SELECT * FROM bt_policies WHERE id=?", (policy_id,)
+        ).fetchone()
+        if row is None:
+            return "not_found"
+        d = dict(row)
+        if d.get("is_champion"):
+            return POLICY_STATE_CHAMPION
+        if d.get("is_probation"):
+            return POLICY_STATE_PROBATIONARY_CHAMPION
+        if d.get("is_rolled_back"):
+            return POLICY_STATE_ROLLED_BACK
+        return POLICY_STATE_CHALLENGER
+
+    def count_active_challengers(self) -> int:
+        """Return the count of non-champion, non-probation, non-rolled-back policies."""
+        try:
+            row = self.repo.db.execute(
+                "SELECT COUNT(*) as cnt FROM bt_policies WHERE is_champion=0 AND is_probation=0 AND is_rolled_back=0"
+            ).fetchone()
+        except Exception:
+            row = self.repo.db.execute(
+                "SELECT COUNT(*) as cnt FROM bt_policies WHERE is_champion=0 AND is_probation=0"
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+    def can_register_challenger(self) -> tuple[bool, str]:
+        """Check whether a new challenger can be registered (bounded by MAX_ACTIVE_CHALLENGERS)."""
+        count = self.count_active_challengers()
+        if count >= MAX_ACTIVE_CHALLENGERS:
+            return False, f"Max active challengers ({MAX_ACTIVE_CHALLENGERS}) reached; retire one first"
+        return True, f"OK ({count}/{MAX_ACTIVE_CHALLENGERS} challengers active)"
+
+    def _log_promotion_event(
+        self,
+        policy_id: str,
+        policy_name: str,
+        event_type: str,
+        from_state: str,
+        to_state: str,
+        reason: str,
+        evidence: dict,
+    ) -> None:
+        """Log a promotion/rollback event to bt_policy_promotion_log (best-effort)."""
+        try:
+            self.repo.log_policy_promotion({
+                "policy_id": policy_id,
+                "policy_name": policy_name,
+                "event_type": event_type,
+                "from_state": from_state,
+                "to_state": to_state,
+                "reason": reason,
+                "evidence_json": json.dumps(evidence),
+            })
+        except Exception as e:
+            logger.debug("Could not log promotion event: %s", e)
 
     def record_trial(self, trial: PolicyTrial) -> str:
         """Save a policy trial record."""
