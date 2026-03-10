@@ -310,6 +310,138 @@ class CrossrefRetrievalSource(EvidenceSource):
 
 
 # ---------------------------------------------------------------------------
+# AlphaXiv Retrieval Source
+# ---------------------------------------------------------------------------
+
+ALPHAXIV_PAPER_API = "https://api.alphaxiv.org/papers/v3"
+
+
+class AlphaXivRetrievalSource(EvidenceSource):
+    """Retrieves structured AI-generated overviews of arXiv papers via alphaxiv.org.
+
+    For each arXiv paper in the local DB that matches the domain, fetches a
+    machine-readable summary (intermediateReport) from the AlphaXiv API instead
+    of requiring a full PDF download and parse cycle.
+
+    API flow (no auth required):
+      1. GET /papers/v3/{arxiv_id}           → resolve versionId UUID
+      2. GET /papers/v3/{versionId}/overview/en → structured overview
+    """
+
+    def __init__(
+        self,
+        db: sqlite3.Connection,
+        cache: Optional[RetrievalCache] = None,
+        timeout: int = 15,
+    ):
+        self.db = db
+        self.cache = cache
+        self.timeout = timeout
+
+    def gather(self, domain: str, limit: int = 20) -> list[EvidenceItem]:
+        arxiv_papers = self._query_arxiv_papers(domain, limit)
+        results: list[EvidenceItem] = []
+        for paper in arxiv_papers:
+            item = self._fetch_overview(paper)
+            if item:
+                results.append(item)
+        logger.info(
+            "AlphaXivRetrievalSource: fetched=%d/%d overviews, domain=%s",
+            len(results), len(arxiv_papers), domain,
+        )
+        return results
+
+    def _query_arxiv_papers(self, domain: str, limit: int) -> list[sqlite3.Row]:
+        """Query DB for arXiv papers matching the domain keyword."""
+        like = f"%{domain}%"
+        try:
+            return self.db.execute(
+                """
+                SELECT paper_id, arxiv_id, title, authors, doi
+                FROM papers
+                WHERE arxiv_id IS NOT NULL
+                  AND (subjects LIKE ? OR title LIKE ?)
+                ORDER BY relevance_score DESC
+                LIMIT ?
+                """,
+                (like, like, limit),
+            ).fetchall()
+        except Exception as e:
+            logger.warning("AlphaXivRetrievalSource: DB query failed: %s", e)
+            return []
+
+    def _fetch_overview(self, paper: sqlite3.Row) -> Optional[EvidenceItem]:
+        arxiv_id = paper["arxiv_id"]
+
+        # Check cache first
+        if self.cache:
+            cached = self.cache.get("alphaxiv", arxiv_id)
+            if cached and cached:
+                return self._map_overview(paper, cached[0] if cached else {})
+
+        # Step 1: resolve versionId
+        meta = _http_get(f"{ALPHAXIV_PAPER_API}/{arxiv_id}", timeout=self.timeout)
+        if not meta:
+            logger.debug("AlphaXiv: no metadata for %s (paper may not be indexed)", arxiv_id)
+            return None
+
+        version_id = meta.get("versionId")
+        if not version_id:
+            return None
+
+        # Step 2: fetch overview
+        overview = _http_get(
+            f"{ALPHAXIV_PAPER_API}/{version_id}/overview/en", timeout=self.timeout
+        )
+        if not overview:
+            logger.debug("AlphaXiv: no overview for %s (versionId=%s)", arxiv_id, version_id)
+            return None
+
+        if self.cache:
+            self.cache.put("alphaxiv", arxiv_id, [overview])
+
+        return self._map_overview(paper, overview)
+
+    def _map_overview(self, paper: sqlite3.Row, overview: dict) -> Optional[EvidenceItem]:
+        arxiv_id = paper["arxiv_id"]
+        title = paper["title"] or "Unknown Paper"
+
+        # Prefer intermediateReport (LLM-optimised), fall back to summary fields
+        quote = overview.get("intermediateReport") or ""
+        if not quote:
+            summary = overview.get("summary") or {}
+            if isinstance(summary, dict):
+                parts = []
+                for field in ("problem", "solution", "results", "insights"):
+                    val = summary.get(field)
+                    if val:
+                        parts.append(str(val))
+                quote = " ".join(parts)
+            elif isinstance(summary, str):
+                quote = summary
+
+        if not quote or len(quote.strip()) < 10:
+            return None
+
+        citation_parts = []
+        authors_raw = paper["authors"] if "authors" in paper.keys() else ""
+        if authors_raw:
+            citation_parts.append(str(authors_raw)[:60])
+        citation_parts.append(f"arXiv:{arxiv_id}")
+        citation = " ".join(citation_parts)
+
+        return EvidenceItem(
+            id=new_id(),
+            source_type="paper",
+            source_id=f"arxiv:{arxiv_id}",
+            title=title[:200],
+            quote=quote[:1000],
+            citation=citation,
+            relevance_score=0.72,  # alphaxiv preprint tier (above 0.65 baseline, structured summary bonus)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Composite Retrieval Source
 # ---------------------------------------------------------------------------
 
