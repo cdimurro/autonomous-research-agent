@@ -524,13 +524,19 @@ class EvaluationPackExporter:
         pack.generation_model = os.environ.get("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
 
         # --- Runs for this campaign ---
-        # We match by started_at window using campaign timestamps
+        # We match by started_at window using campaign timestamps.
+        # FIX (7C-B): Normalize timestamps to 19-char prefix (seconds precision)
+        # before comparison to avoid string-sort artifacts when one timestamp has
+        # fractional seconds (.318316) and the other ends with 'Z'. In SQLite
+        # string comparison '.' < 'Z', so a run starting at exactly the same
+        # second as the campaign can be incorrectly excluded.
         if pack.started_at:
             cur.execute(
                 """SELECT id, program_name, mode, status, candidates_generated,
                           candidates_rejected, started_at, completed_at
                    FROM bt_runs
-                   WHERE started_at >= ? AND started_at <= ?
+                   WHERE substr(started_at, 1, 19) >= substr(?, 1, 19)
+                     AND substr(started_at, 1, 19) <= substr(?, 1, 19)
                    ORDER BY started_at""",
                 (pack.started_at, pack.completed_at or "9999"),
             )

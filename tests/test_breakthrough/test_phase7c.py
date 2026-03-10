@@ -880,3 +880,150 @@ class TestEvidenceStrengthCalibration:
         assert abs(score_5 - score_10) < 0.05, (
             f"5-ref ({score_5:.3f}) and 10-ref ({score_10:.3f}) should be similar (both uncapped)"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Run-matching timestamp normalization (7C-B blocker fix)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestRunTimestampNormalization:
+    """Verify that runs starting at the exact same second as the campaign are found
+    even when the run's started_at has fractional seconds (e.g., .318316) while
+    the campaign receipt's started_at ends with Z.
+
+    Root cause: SQLite string comparison '.' < 'Z', so a run timestamp like
+    '2026-03-09T23:57:47.318316' is lexicographically LESS than the campaign
+    start '2026-03-09T23:57:47Z', causing it to be excluded by the >= filter.
+    Fix: normalize both timestamps to 19-char prefix (seconds resolution) before
+    comparing, using substr(started_at, 1, 19) >= substr(?, 1, 19).
+    """
+
+    def test_run_with_fractional_seconds_included_in_window(self, tmp_path):
+        """A run starting at campaign_start + fractional milliseconds must be found."""
+        import sqlite3
+        db = _make_in_memory_db()
+        campaign_id = "test_ts_norm_001"
+        run_id = "run_ts_frac_001"
+
+        # Campaign receipt uses Z-suffix timestamp
+        campaign_start = "2026-03-09T23:57:47Z"
+        campaign_end   = "2026-03-10T00:06:47Z"
+
+        # Insert receipt with Z-suffix timestamps
+        db.execute(
+            """INSERT OR REPLACE INTO bt_campaign_receipts
+               (campaign_id, profile_name, profile_type, status,
+                started_at, completed_at, elapsed_seconds,
+                champion_candidate_id, champion_candidate_title,
+                total_candidates_generated, total_blocked, total_shortlisted,
+                policy_trials_attempted, retries_used,
+                stage_events_json, artifact_paths_json, health_summary_json,
+                embedding_provider)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (campaign_id, "smoke_10m", "smoke", "completed_with_draft",
+             campaign_start, campaign_end, 540.0,
+             "cand_champ_001", "Champion Title",
+             16, 0, 2, 9, 0, "[]", "[]",
+             '{"healthy": true}', "OllamaEmbeddingProvider(nomic-embed-text)"),
+        )
+
+        # Run uses fractional-seconds timestamp (same second, no Z)
+        # This is the format produced by DailySearchLadder stage timing
+        run_start_fractional = "2026-03-09T23:57:47.318316"
+        db.execute(
+            """INSERT OR REPLACE INTO bt_runs
+               (id, program_name, mode, status, candidates_generated,
+                candidates_rejected, started_at, completed_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (run_id, "clean_energy_shadow", "production", "completed", 7, 3,
+             run_start_fractional, "2026-03-10T00:01:57Z"),
+        )
+
+        _insert_candidate(db, "cand_champ_001", run_id, "Champion Candidate", status="finalist")
+        _insert_falsification(db, "cand_champ_001", run_id=run_id)
+
+        db.commit()
+
+        db_path = str(tmp_path / "test.db")
+        conn2 = sqlite3.connect(db_path)
+        for line in db.iterdump():
+            conn2.execute(line)
+        conn2.commit()
+        conn2.close()
+
+        from breakthrough_engine.evaluation_pack import EvaluationPackExporter
+        exporter = EvaluationPackExporter(db_path=db_path)
+        pack = exporter._build_pack(campaign_id)
+
+        # The run must be found despite fractional-seconds timestamp
+        assert pack.total_runs >= 1, (
+            "Run with fractional-second timestamp should be found in campaign window"
+        )
+        assert pack.total_candidates_generated >= 1, (
+            "Candidates from fractional-timestamp run should be included"
+        )
+
+        # Champion must be found in finalists (champion run was the fractional-timestamp run)
+        finalists = [c for c in pack.all_candidates if c.status == "finalist"]
+        finalist_ids = {c.candidate_id for c in finalists}
+        assert "cand_champ_001" in finalist_ids, (
+            f"Champion from fractional-timestamp run must appear in finalists; got {finalist_ids}"
+        )
+
+    def test_run_with_z_suffix_still_works(self, tmp_path):
+        """Runs with normal Z-suffix timestamps continue to be matched."""
+        import sqlite3
+        db = _make_in_memory_db()
+        campaign_id = "test_ts_norm_002"
+        run_id = "run_ts_z_001"
+
+        campaign_start = "2026-03-09T23:57:47Z"
+        campaign_end   = "2026-03-10T00:06:47Z"
+
+        db.execute(
+            """INSERT OR REPLACE INTO bt_campaign_receipts
+               (campaign_id, profile_name, profile_type, status,
+                started_at, completed_at, elapsed_seconds,
+                champion_candidate_id, champion_candidate_title,
+                total_candidates_generated, total_blocked, total_shortlisted,
+                policy_trials_attempted, retries_used,
+                stage_events_json, artifact_paths_json, health_summary_json,
+                embedding_provider)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (campaign_id, "smoke_10m", "smoke", "completed_with_draft",
+             campaign_start, campaign_end, 540.0,
+             "cand_z_001", "Z-Suffix Champion",
+             10, 0, 1, 9, 0, "[]", "[]",
+             '{"healthy": true}', "OllamaEmbeddingProvider(nomic-embed-text)"),
+        )
+
+        # Run uses standard Z-suffix (normal case)
+        db.execute(
+            """INSERT OR REPLACE INTO bt_runs
+               (id, program_name, mode, status, candidates_generated,
+                candidates_rejected, started_at, completed_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (run_id, "clean_energy_shadow", "production", "completed", 5, 1,
+             campaign_start,  # exactly the same as campaign start
+             "2026-03-10T00:06:47Z"),
+        )
+
+        _insert_candidate(db, "cand_z_001", run_id, "Z-Suffix Champion Candidate", status="finalist")
+        _insert_falsification(db, "cand_z_001", run_id=run_id)
+        db.commit()
+
+        db_path = str(tmp_path / "test.db")
+        conn2 = sqlite3.connect(db_path)
+        for line in db.iterdump():
+            conn2.execute(line)
+        conn2.commit()
+        conn2.close()
+
+        from breakthrough_engine.evaluation_pack import EvaluationPackExporter
+        exporter = EvaluationPackExporter(db_path=db_path)
+        pack = exporter._build_pack(campaign_id)
+
+        assert pack.total_runs >= 1, "Normal Z-suffix run should still be found"
+        finalists = [c for c in pack.all_candidates if c.status == "finalist"]
+        finalist_ids = {c.candidate_id for c in finalists}
+        assert "cand_z_001" in finalist_ids, "Champion from Z-suffix run must appear in finalists"
