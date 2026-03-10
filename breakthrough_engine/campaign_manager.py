@@ -80,6 +80,8 @@ class CampaignProfile:
     stage4_review_prep: bool = True
     falsification_enabled: bool = True
     falsification_strict: bool = False
+    # FIX (7D): When True, all finalists are falsified (not just shortlisted top-K)
+    falsify_all_finalists: bool = False
     review_packet_generation: bool = True
     export_artifacts: bool = True
     max_retries_per_stage: int = 2
@@ -312,6 +314,9 @@ def load_campaign_profile(profile_name: str) -> CampaignProfile:
     fals = data.get("falsification", {})
     profile.falsification_enabled = fals.get("enabled", True)
     profile.falsification_strict = fals.get("strict_mode", False)
+
+    # FIX (7D): load falsify_all_finalists from YAML (evaluation profile sets this True)
+    profile.falsify_all_finalists = data.get("falsify_all_finalists", False)
 
     profile.review_packet_generation = data.get("review_packet_generation", True)
     profile.export_artifacts = data.get("export_artifacts", True)
@@ -568,6 +573,8 @@ class CampaignManager:
                 abandon_floor=profile.stage3_abandon_floor,
             ),
             stage4_review_prep=profile.stage4_review_prep,
+            # FIX (7D): evaluation profile sets this True for full finalist falsification
+            falsify_all_finalists=profile.falsify_all_finalists,
             production_wall_clock_budget_minutes=profile.wall_clock_budget_minutes,
         )
 

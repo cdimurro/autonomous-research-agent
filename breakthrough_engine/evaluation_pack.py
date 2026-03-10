@@ -14,13 +14,20 @@ Phase 7C: Hardened telemetry integrity:
 - falsification coverage: finalist/champion with None falsification marked explicitly
 - evidence_strength calibration: count penalty applied (v002 pack standard)
 
+Phase 7D: Evaluation-grade integrity gating:
+- Schema v003 for evaluation-grade (profile_type="evaluation") campaigns
+- Hard integrity gate for evaluation profiles: raises ValueError on any integrity failure
+- review_labels section included in pack JSON for evaluation-grade campaigns
+- falsification_complete flag added to accounting_diagnostics
+
 Output structure:
   runtime/evaluation_packs/<campaign_id>/
-    evaluation_pack.json       # Complete structured pack (schema v002)
+    evaluation_pack.json       # Complete structured pack (schema v002/v003)
     evaluation_pack.md         # Markdown summary for humans
     candidates.csv             # All candidates (CSV for spreadsheet analysis)
     finalists.csv              # Finalist rows with all score dimensions
     posteriors.csv             # Bayesian posteriors snapshot (if available)
+    review_labels.csv          # Human review labels (evaluation-grade only)
 """
 
 from __future__ import annotations
@@ -41,9 +48,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ANALYSIS_SCHEMA_VERSION = "v002"
+ANALYSIS_SCHEMA_VERSION_EVAL = "v003"  # Used for evaluation-grade (profile_type="evaluation") packs
 
 # Falsification status for candidates missing falsification data
 FALSIFICATION_MISSING = "MISSING"
+
+# Profile types that require strict integrity gating
+EVALUATION_GRADE_PROFILE_TYPES = {"evaluation"}
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +207,9 @@ class EvaluationPack:
     # Runs
     runs: list[dict] = field(default_factory=list)
 
+    # Review labels (v003 / evaluation-grade only)
+    review_labels: list[dict] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         finalists = [c for c in self.all_candidates if c.status == "finalist"]
         champion = next((c for c in finalists if c.candidate_id == self.champion_id), None)
@@ -250,6 +264,7 @@ class EvaluationPack:
             "all_candidates": [c.to_dict() for c in self.all_candidates],
             "runs": self.runs,
             "posteriors": self.posteriors,
+            "review_labels": self.review_labels,
         }
 
 
@@ -371,6 +386,8 @@ def _build_accounting_diagnostics(
         "db_finalists": db_finalists,
         "db_shortlisted": db_shortlisted,
         "elapsed_seconds_source": "bt_campaign_receipts",
+        # FIX (7D): explicit completeness flag
+        "falsification_complete": finalists_missing_falsification == 0,
         "issues": issues,
         "integrity_ok": len(issues) == 0,
     }
@@ -429,12 +446,34 @@ class EvaluationPackExporter:
         os.makedirs(out_dir, exist_ok=True)
         pack = self._build_pack(campaign_id)
 
-        # FIX (7C): Run integrity validation and log failures clearly.
-        # We log but do not abort — the pack is exported with diagnostics visible.
+        # FIX (7D): Use schema v003 for evaluation-grade profiles.
+        is_evaluation_grade = pack.profile_type in EVALUATION_GRADE_PROFILE_TYPES
+        if is_evaluation_grade:
+            pack.schema_version = ANALYSIS_SCHEMA_VERSION_EVAL
+
+        # Load review labels from DB (evaluation-grade campaigns)
+        pack.review_labels = self._load_review_labels(campaign_id)
+
+        # Run integrity validation.
+        # FIX (7C): Log failures clearly.
+        # FIX (7D): For evaluation-grade profiles, RAISE on any integrity failure
+        # including accounting_diagnostics issues (count mismatches, falsification gaps).
         integrity_failures = validate_pack_integrity(pack)
+
+        # Also surface accounting_diagnostics issues as integrity failures
+        acct_issues = pack.accounting_diagnostics.get("issues", [])
+        for issue in acct_issues:
+            if issue not in integrity_failures:
+                integrity_failures.append(issue)
+
         if integrity_failures:
             for f in integrity_failures:
                 logger.warning("Pack integrity: %s", f)
+            if is_evaluation_grade:
+                raise ValueError(
+                    f"Evaluation-grade pack integrity failed for campaign {campaign_id!r}: "
+                    + "; ".join(integrity_failures)
+                )
         else:
             logger.info("Pack integrity: OK — no issues found")
 
@@ -443,9 +482,11 @@ class EvaluationPackExporter:
         self._write_candidates_csv(pack, out_dir)
         self._write_finalists_csv(pack, out_dir)
         self._write_posteriors_csv(pack, out_dir)
+        if pack.review_labels:
+            self._write_review_labels_csv(pack, out_dir)
         self._record_in_db(campaign_id, out_dir, pack)
 
-        logger.info("Evaluation pack exported to %s", out_dir)
+        logger.info("Evaluation pack exported to %s (schema=%s)", out_dir, pack.schema_version)
         return out_dir
 
     def _build_pack(self, campaign_id: str) -> EvaluationPack:
@@ -530,13 +571,18 @@ class EvaluationPackExporter:
         # fractional seconds (.318316) and the other ends with 'Z'. In SQLite
         # string comparison '.' < 'Z', so a run starting at exactly the same
         # second as the campaign can be incorrectly excluded.
+        # FIX (7D): Use STRICT LESS THAN for the end boundary (< completed_at, not <=).
+        # When campaigns run back-to-back, the next campaign's first run can start in
+        # the exact same second that the previous campaign's completed_at records.
+        # Using <= picks up those runs, inflating the db_generated count and
+        # creating a spurious generated_count_mismatch. Using < avoids this.
         if pack.started_at:
             cur.execute(
                 """SELECT id, program_name, mode, status, candidates_generated,
                           candidates_rejected, started_at, completed_at
                    FROM bt_runs
                    WHERE substr(started_at, 1, 19) >= substr(?, 1, 19)
-                     AND substr(started_at, 1, 19) <= substr(?, 1, 19)
+                     AND substr(started_at, 1, 19) < substr(?, 1, 19)
                    ORDER BY started_at""",
                 (pack.started_at, pack.completed_at or "9999"),
             )
@@ -735,6 +781,44 @@ class EvaluationPackExporter:
                 row["mechanism"] = c.mechanism
                 writer.writerow(row)
         logger.info("Wrote %s (%d finalists)", path, len(finalists))
+
+    def _load_review_labels(self, campaign_id: str) -> list[dict]:
+        """Load review labels from bt_review_labels for this campaign."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='bt_review_labels'"
+            )
+            if not cur.fetchone():
+                conn.close()
+                return []
+            cur.execute(
+                "SELECT * FROM bt_review_labels WHERE campaign_id = ? ORDER BY created_at",
+                (campaign_id,),
+            )
+            labels = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return labels
+        except Exception as e:
+            logger.warning("Could not load review labels: %s", e)
+            return []
+
+    def _write_review_labels_csv(self, pack: EvaluationPack, out_dir: str) -> None:
+        if not pack.review_labels:
+            return
+        path = os.path.join(out_dir, "review_labels.csv")
+        fieldnames = [
+            "id", "campaign_id", "candidate_id", "candidate_title", "candidate_role",
+            "decision", "novelty_confidence", "technical_plausibility",
+            "commercialization_relevance", "key_flaw", "reviewer_note", "reviewer", "created_at",
+        ]
+        with open(path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(pack.review_labels)
+        logger.info("Wrote %s (%d labels)", path, len(pack.review_labels))
 
     def _write_posteriors_csv(self, pack: EvaluationPack, out_dir: str) -> None:
         if not pack.posteriors:
@@ -981,8 +1065,24 @@ def _render_markdown(pack: EvaluationPack) -> str:
             )
         lines.append(f"")
 
+    # Review labels (v003 evaluation-grade packs)
+    review_labels = d.get("review_labels", [])
+    if review_labels:
+        lines.append(f"## Human Review Labels")
+        lines.append(f"")
+        lines.append(f"| Role | Title | Decision | Novelty Conf | Tech Plausibility | Key Flaw |")
+        lines.append(f"|------|-------|----------|-------------|-------------------|---------|")
+        for lbl in review_labels:
+            lines.append(
+                f"| {lbl.get('candidate_role','?')} | {lbl.get('candidate_title','')[:50]} | "
+                f"**{lbl.get('decision','?')}** | {lbl.get('novelty_confidence','?')} | "
+                f"{lbl.get('technical_plausibility','?')} | {lbl.get('key_flaw','')[:50]} |"
+            )
+        lines.append(f"")
+
     lines.append(f"---")
-    lines.append(f"*Generated by Breakthrough Engine Phase 7C EvaluationPackExporter — "
-                 f"schema {ANALYSIS_SCHEMA_VERSION} — telemetry integrity hardened*")
+    schema_ver = d.get("schema_version", ANALYSIS_SCHEMA_VERSION)
+    lines.append(f"*Generated by Breakthrough Engine Phase 7D EvaluationPackExporter — "
+                 f"schema {schema_ver} — telemetry integrity hardened*")
 
     return "\n".join(lines)

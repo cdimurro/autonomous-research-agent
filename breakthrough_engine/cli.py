@@ -184,6 +184,26 @@ def main(argv: list[str] | None = None):
     ep_export_p.add_argument("--overwrite", action="store_true", help="Overwrite existing pack")
     ep_sub.add_parser("list", help="List existing evaluation packs")
 
+    # Phase 7D: review-label
+    rl_p = sub.add_parser("review-label", help="Phase 7D structured human review labels")
+    rl_sub = rl_p.add_subparsers(dest="rl_command")
+    rl_add_p = rl_sub.add_parser("add", help="Add a review label for a candidate")
+    rl_add_p.add_argument("--campaign-id", required=True, help="Campaign ID")
+    rl_add_p.add_argument("--candidate-id", required=True, help="Candidate ID")
+    rl_add_p.add_argument("--candidate-title", default="", help="Candidate title (optional)")
+    rl_add_p.add_argument("--role", default="finalist", choices=["champion", "runner_up", "finalist"], help="Candidate role")
+    rl_add_p.add_argument("--decision", required=True, choices=["approve", "reject", "defer"], help="Review decision")
+    rl_add_p.add_argument("--novelty-confidence", type=float, default=0.5, help="Novelty confidence 0.0-1.0")
+    rl_add_p.add_argument("--technical-plausibility", type=float, default=0.5, help="Technical plausibility 0.0-1.0")
+    rl_add_p.add_argument("--commercialization-relevance", type=float, default=0.5, help="Commercialization relevance 0.0-1.0")
+    rl_add_p.add_argument("--key-flaw", default="", help="Primary weakness")
+    rl_add_p.add_argument("--note", default="", help="Free-form reviewer note")
+    rl_add_p.add_argument("--reviewer", default="operator", help="Reviewer identifier")
+    rl_list_p = rl_sub.add_parser("list", help="List review labels for a campaign")
+    rl_list_p.add_argument("--campaign-id", required=True, help="Campaign ID")
+    rl_export_p = rl_sub.add_parser("export", help="Export all review labels as CSV")
+    rl_export_p.add_argument("--output", default="review_labels.csv", help="Output CSV path")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -250,6 +270,8 @@ def main(argv: list[str] | None = None):
         _cmd_campaign(repo, args)
     elif args.command == "evaluation-pack":
         _cmd_evaluation_pack(args)
+    elif args.command == "review-label":
+        _cmd_review_label(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -975,3 +997,62 @@ def _cmd_evaluation_pack(args):
                 print(f"    {f} ({size:,} bytes)")
     else:
         print("Usage: python -m breakthrough_engine evaluation-pack [export|list]")
+
+
+def _cmd_review_label(repo: Repository, args):
+    """Phase 7D: structured human review label management."""
+    import csv as _csv
+    import os
+    rl_command = getattr(args, "rl_command", None)
+
+    if rl_command == "add":
+        label = {
+            "campaign_id": args.campaign_id,
+            "candidate_id": args.candidate_id,
+            "candidate_title": getattr(args, "candidate_title", ""),
+            "candidate_role": getattr(args, "role", "finalist"),
+            "decision": args.decision,
+            "novelty_confidence": getattr(args, "novelty_confidence", 0.5),
+            "technical_plausibility": getattr(args, "technical_plausibility", 0.5),
+            "commercialization_relevance": getattr(args, "commercialization_relevance", 0.5),
+            "key_flaw": getattr(args, "key_flaw", ""),
+            "reviewer_note": getattr(args, "note", ""),
+            "reviewer": getattr(args, "reviewer", "operator"),
+        }
+        repo.save_review_label(label)
+        print(f"Review label saved: campaign={args.campaign_id[:12]} "
+              f"candidate={args.candidate_id[:12]} decision={args.decision}")
+
+    elif rl_command == "list":
+        labels = repo.get_review_labels_for_campaign(args.campaign_id)
+        if not labels:
+            print(f"No review labels found for campaign {args.campaign_id}")
+            return
+        print(f"Review labels for campaign {args.campaign_id} ({len(labels)}):")
+        for lbl in labels:
+            print(
+                f"  {lbl['candidate_role']:12s}  {lbl['decision']:8s}  "
+                f"novelty={lbl.get('novelty_confidence', '?'):.2f}  "
+                f"tech={lbl.get('technical_plausibility', '?'):.2f}  "
+                f"{lbl.get('candidate_title', '')[:50]}"
+            )
+
+    elif rl_command == "export":
+        labels = repo.list_all_review_labels()
+        if not labels:
+            print("No review labels found.")
+            return
+        output_path = getattr(args, "output", "review_labels.csv")
+        fieldnames = [
+            "id", "campaign_id", "candidate_id", "candidate_title", "candidate_role",
+            "decision", "novelty_confidence", "technical_plausibility",
+            "commercialization_relevance", "key_flaw", "reviewer_note", "reviewer", "created_at",
+        ]
+        with open(output_path, "w", newline="") as f:
+            writer = _csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(labels)
+        print(f"Exported {len(labels)} review labels to {output_path}")
+
+    else:
+        print("Usage: python -m breakthrough_engine review-label [add|list|export]")

@@ -86,6 +86,10 @@ class LadderConfig:
     ))
     stage4_review_prep: bool = True
 
+    # FIX (7D): When True, all finalists (not just shortlisted top-K) are
+    # passed to stage 3 falsification. Required for evaluation-grade profiles.
+    falsify_all_finalists: bool = False
+
     # Production override (wall clock for whole campaign)
     production_wall_clock_budget_minutes: int = 120
 
@@ -192,8 +196,11 @@ class DailySearchLadder:
             repo, program, champion_policy, config
         )
         result.ladder_stages.append(stage1_result)
-        result.total_candidates_generated = stage1_result.trials_attempted * max(
-            program.candidate_budget, 1
+        # FIX (7D): use actual DB candidate count from stage 1 details,
+        # fall back to arithmetic estimate only if count is unavailable.
+        result.total_candidates_generated = stage1_result.details.get(
+            "actual_candidates_generated",
+            stage1_result.trials_attempted * max(program.candidate_budget, 1),
         )
         result.policy_trials_attempted = stage1_result.trials_attempted
 
@@ -225,7 +232,15 @@ class DailySearchLadder:
             return result
 
         # ---- Stage 3: Falsification ----
-        stage3_result, falsified = self._stage3_falsification(repo, shortlisted, config)
+        # FIX (7D): When falsify_all_finalists=True (evaluation profile), falsify
+        # ALL finalists from stage 1, not just the shortlisted top-K. This ensures
+        # no finalist shows falsification_risk="MISSING" in the evaluation pack.
+        candidates_for_falsification = (
+            all_finalists if config.falsify_all_finalists else shortlisted
+        )
+        stage3_result, falsified = self._stage3_falsification(
+            repo, candidates_for_falsification, config
+        )
         result.ladder_stages.append(stage3_result)
 
         if not falsified:
@@ -285,6 +300,7 @@ class DailySearchLadder:
         all_finalists: list = []   # list of (CandidateHypothesis, final_score)
         trials_attempted = 0
 
+        actual_candidates_total = 0  # FIX (7D): accumulate actual DB count
         for trial_idx in range(stage.max_trials):
             elapsed = time.time() - t0
             if elapsed > stage.max_wall_clock_seconds:
@@ -293,8 +309,10 @@ class DailySearchLadder:
                 break
 
             logger.info("Stage 1: trial %d / %d", trial_idx + 1, stage.max_trials)
-            run_record, finalists = self._run_single_trial(repo, program, policy)
+            # FIX (7D): _run_single_trial now returns actual candidate count
+            run_record, finalists, trial_candidate_count = self._run_single_trial(repo, program, policy)
             trials_attempted += 1
+            actual_candidates_total += trial_candidate_count
 
             all_finalists.extend(finalists)
 
@@ -336,7 +354,11 @@ class DailySearchLadder:
             best_candidate_id=best_cid,
             stop_reason=stop_reason,
             elapsed_seconds=elapsed,
-            details={"total_collected": len(all_finalists)},
+            details={
+                "total_collected": len(all_finalists),
+                # FIX (7D): actual DB count replaces arithmetic estimate
+                "actual_candidates_generated": actual_candidates_total,
+            },
         )
         return stage_result, advanced
 
@@ -584,9 +606,13 @@ class DailySearchLadder:
 
         run_record = orch.run()
 
-        # Collect finalists with scores
+        # FIX (7D): Collect ALL candidates for this run to get actual count.
+        # We iterate once and track both the total count and the finalists.
         finalists = []
-        for c in trial_repo.list_candidates_for_run(run_record.id):
+        all_run_candidates = list(trial_repo.list_candidates_for_run(run_record.id))
+        actual_candidate_count = len(all_run_candidates)  # actual DB count, not estimate
+
+        for c in all_run_candidates:
             status = c.get("status", "")
             if status in (
                 CandidateStatus.FINALIST.value,
@@ -625,7 +651,7 @@ class DailySearchLadder:
                     except Exception:
                         pass
 
-        return run_record, finalists
+        return run_record, finalists, actual_candidate_count
 
     def _should_early_stop(
         self,

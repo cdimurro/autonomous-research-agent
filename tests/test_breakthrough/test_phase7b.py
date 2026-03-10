@@ -151,10 +151,11 @@ def _insert_minimal_candidate(db, candidate_id: str, run_id: str, title: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestSchemaV009Migration:
-    def test_schema_version_is_9(self):
+    def test_schema_version_is_at_least_9(self):
+        # Phase 7D added migration 10 (bt_review_labels); version is now >= 9
         db = _make_in_memory_db()
         row = db.execute("SELECT MAX(version) FROM bt_schema_version").fetchone()
-        assert row[0] == 9
+        assert row[0] >= 9
 
     def test_bt_evaluation_packs_table_exists(self):
         db = _make_in_memory_db()

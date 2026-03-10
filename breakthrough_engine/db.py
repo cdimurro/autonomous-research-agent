@@ -645,6 +645,28 @@ CREATE TABLE IF NOT EXISTS bt_evaluation_packs (
 -- Phase 7B: Add embedding_provider column to campaign receipts
 ALTER TABLE bt_campaign_receipts ADD COLUMN embedding_provider TEXT NOT NULL DEFAULT 'MockEmbeddingProvider';
 """,
+    10: """
+-- Phase 7D: Structured human review labels for champion and runner-up finalists.
+-- Ground-truth signal for Bayesian policy optimization.
+CREATE TABLE IF NOT EXISTS bt_review_labels (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    candidate_title TEXT NOT NULL DEFAULT '',
+    candidate_role TEXT NOT NULL DEFAULT 'finalist',
+    decision TEXT NOT NULL DEFAULT 'defer',
+    novelty_confidence REAL DEFAULT 0.5,
+    technical_plausibility REAL DEFAULT 0.5,
+    commercialization_relevance REAL DEFAULT 0.5,
+    key_flaw TEXT DEFAULT '',
+    reviewer_note TEXT DEFAULT '',
+    reviewer TEXT NOT NULL DEFAULT 'operator',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_campaign ON bt_review_labels(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_candidate ON bt_review_labels(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_rl_decision ON bt_review_labels(decision);
+""",
 }
 
 
@@ -1405,3 +1427,53 @@ class Repository:
             (candidate_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    # -- Phase 7D: Review labels --
+
+    def save_review_label(self, label: dict) -> None:
+        """Insert or replace a structured human review label for a candidate."""
+        from .models import new_id as _new_id
+        label_id = label.get("id") or _new_id()
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_review_labels
+               (id, campaign_id, candidate_id, candidate_title, candidate_role,
+                decision, novelty_confidence, technical_plausibility,
+                commercialization_relevance, key_flaw, reviewer_note, reviewer)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                label_id,
+                label["campaign_id"],
+                label["candidate_id"],
+                label.get("candidate_title", ""),
+                label.get("candidate_role", "finalist"),
+                label.get("decision", "defer"),
+                label.get("novelty_confidence", 0.5),
+                label.get("technical_plausibility", 0.5),
+                label.get("commercialization_relevance", 0.5),
+                label.get("key_flaw", ""),
+                label.get("reviewer_note", ""),
+                label.get("reviewer", "operator"),
+            ),
+        )
+        self.db.commit()
+
+    def get_review_labels_for_campaign(self, campaign_id: str) -> list[dict]:
+        """Return all review labels for a campaign, ordered by candidate_role."""
+        rows = self.db.execute(
+            """SELECT * FROM bt_review_labels
+               WHERE campaign_id = ?
+               ORDER BY CASE candidate_role
+                 WHEN 'champion' THEN 0
+                 WHEN 'runner_up' THEN 1
+                 ELSE 2
+               END, created_at""",
+            (campaign_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_all_review_labels(self) -> list[dict]:
+        """Return all review labels across all campaigns."""
+        rows = self.db.execute(
+            "SELECT * FROM bt_review_labels ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]

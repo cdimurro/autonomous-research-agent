@@ -1,0 +1,74 @@
+profile_name: eval_clean_energy_30m
+description: "Full-fidelity evaluation-grade clean-energy campaign — 30 minutes, full finalist falsification, integrity required"
+profile_type: evaluation
+
+# Domain and program
+domain: clean-energy
+program_name: clean_energy_shadow
+mode: production
+
+# Stable budget for cross-batch scientific comparison
+# These values MUST NOT change between batches unless policy is being intentionally updated.
+wall_clock_budget_minutes: 30
+candidate_trial_budget: 10
+policy_trial_budget: 3
+
+# Stage 1: broad exploration (2 trials to gather diverse finalists)
+stage1:
+  max_trials: 2
+  min_score_to_advance: 0.35
+  max_wall_clock_seconds: 900
+  abandon_floor: 0.25
+  early_stop_margin: 0.20
+
+# Stage 2: large shortlist to pass enough candidates to stage 3
+# Set higher than typical finalist count to avoid artificial filtering
+stage2_shortlist_size: 8
+
+# Stage 3: falsification (all finalists in eval mode — see falsify_all_finalists below)
+stage3:
+  max_trials: 10
+  min_score_to_advance: 0.45
+  max_wall_clock_seconds: 600
+  abandon_floor: 0.35
+
+stage4_review_prep: true
+
+# FIX (7D): Falsify ALL finalists (not just shortlisted top-K).
+# This is the critical flag that eliminates falsification_missing integrity failures.
+falsify_all_finalists: true
+
+# Falsification: strict mode for evaluation-grade runs
+falsification:
+  enabled: true
+  strict_mode: true
+
+# Artifacts
+review_packet_generation: true
+export_artifacts: true
+export_format: ["json", "markdown"]
+
+# Health thresholds (standard for evaluation)
+health:
+  min_candidates_generated: 5
+  min_stages_completed: 4
+  max_stage_failure_rate: 0.3
+  max_retry_count: 3
+
+# Retry policy
+retry:
+  max_retries_per_stage: 2
+  retry_delay_seconds: 5
+  retryable_errors:
+    - "ollama_timeout"
+    - "db_lock"
+    - "file_write"
+
+# Evaluation-specific
+diagnostic_rich: true
+verbose_logging: true
+quality_first: true
+sub_domain_rotation: false
+
+# NOTE: This profile requires real embeddings (BT_EMBEDDING_MODEL=nomic-embed-text).
+# Runs under MockEmbeddingProvider will NOT reach integrity_ok=True.
