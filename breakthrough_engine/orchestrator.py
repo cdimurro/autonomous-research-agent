@@ -164,7 +164,18 @@ class BreakthroughOrchestrator:
         if evidence_source:
             self.evidence_source = evidence_source
         elif program.mode in (RunMode.PRODUCTION_LOCAL, RunMode.PRODUCTION_REVIEW, RunMode.PRODUCTION_SHADOW):
-            self.evidence_source = ExistingFindingsSource(repo.db)
+            # Phase 7D+: If SEMANTIC_SCHOLAR_API_KEY is set, compose S2 alongside
+            # the existing findings source for richer, fresher evidence.
+            _s2_key = _os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+            if _s2_key:
+                from .retrieval import CompositeRetrievalSource, SemanticScholarRetrievalSource
+                self.evidence_source = CompositeRetrievalSource([
+                    ExistingFindingsSource(repo.db),
+                    SemanticScholarRetrievalSource(api_key=_s2_key),
+                ])
+                logger.info("Evidence source: CompositeRetrievalSource [ExistingFindings + SemanticScholar]")
+            else:
+                self.evidence_source = ExistingFindingsSource(repo.db)
         else:
             self.evidence_source = DemoFixtureSource()
 

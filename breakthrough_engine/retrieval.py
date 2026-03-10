@@ -1,7 +1,7 @@
 """External retrieval sources for fresh evidence.
 
-Adapters for OpenAlex and Crossref APIs with local caching,
-retry/backoff, and normalization to EvidenceItem.
+Adapters for OpenAlex, Crossref, AlphaXiv, and Semantic Scholar APIs with
+local caching, retry/backoff, and normalization to EvidenceItem.
 """
 
 from __future__ import annotations
@@ -438,6 +438,145 @@ class AlphaXivRetrievalSource(EvidenceSource):
             quote=quote[:1000],
             citation=citation,
             relevance_score=0.72,  # alphaxiv preprint tier (above 0.65 baseline, structured summary bonus)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Semantic Scholar Retrieval Source
+# ---------------------------------------------------------------------------
+
+S2_PAPER_SEARCH_API = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+# Fields to request from the S2 API in a single call
+_S2_FIELDS = (
+    "paperId,title,abstract,tldr,citationCount,influentialCitationCount,"
+    "year,authors,externalIds,openAccessPdf"
+)
+
+# Baseline relevance score for S2 results (above OpenAlex 0.5 baseline due to
+# TLDR quality and influential-citation signal)
+_S2_BASE_RELEVANCE = 0.70
+
+
+class SemanticScholarRetrievalSource(EvidenceSource):
+    """Retrieves evidence from Semantic Scholar (https://api.semanticscholar.org).
+
+    Fetches papers via /paper/search with the following enhancements over
+    OpenAlex/Crossref:
+
+    - **TLDR**: AI-generated one-sentence summary. Used as the quote when
+      available — higher signal density than reconstructed abstracts.
+    - **influentialCitationCount**: Citations where S2 classifies the citing
+      paper as methodologically building on this work. Used to boost the
+      relevance score, rewarding highly-cited foundational results.
+
+    Authentication:
+        Set ``SEMANTIC_SCHOLAR_API_KEY`` in the environment to use the
+        authenticated tier (higher rate limits). If unset, falls back to the
+        public (unauthenticated) tier — still functional but limited to
+        ~100 req / 5 min.
+
+    Usage:
+        source = SemanticScholarRetrievalSource(api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY"))
+        items = source.gather("perovskite solar cells", limit=20)
+    """
+
+    def __init__(
+        self,
+        api_key: str = "",
+        cache: Optional[RetrievalCache] = None,
+        timeout: int = 15,
+    ):
+        self.api_key = api_key
+        self.cache = cache
+        self.timeout = timeout
+
+    def gather(self, domain: str, limit: int = 20) -> list[EvidenceItem]:
+        query = domain.replace("-", " ").replace("_", " ")
+        cache_key_query = f"s2:{query}:{limit}"
+
+        if self.cache:
+            cached = self.cache.get("semantic_scholar", cache_key_query)
+            if cached is not None:
+                logger.info("Semantic Scholar cache hit for '%s' (%d results)", query, len(cached))
+                return [EvidenceItem(**item) for item in cached]
+
+        headers: dict[str, str] = {}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+
+        params = {
+            "query": query,
+            "fields": _S2_FIELDS,
+            "limit": min(limit, 100),
+        }
+
+        data = _http_get(S2_PAPER_SEARCH_API, params=params, headers=headers, timeout=self.timeout)
+        if not data or "data" not in data:
+            logger.warning("Semantic Scholar returned no results for '%s'", query)
+            return []
+
+        items = []
+        for paper in data["data"][:limit]:
+            item = self._parse_paper(paper)
+            if item:
+                items.append(item)
+
+        if self.cache and items:
+            self.cache.put("semantic_scholar", cache_key_query,
+                           [item.model_dump() for item in items])
+
+        logger.info("Semantic Scholar: retrieved %d items for '%s'", len(items), query)
+        return items
+
+    def _parse_paper(self, paper: dict) -> Optional[EvidenceItem]:
+        title = (paper.get("title") or "").strip()
+        if not title or len(title) < 5:
+            return None
+
+        # Prefer TLDR over abstract: more concise and already distilled
+        tldr_obj = paper.get("tldr") or {}
+        tldr_text = (tldr_obj.get("text") or "").strip() if tldr_obj else ""
+        abstract = (paper.get("abstract") or "").strip()
+        quote = tldr_text or abstract[:500] or title
+
+        # Authors: up to 3, then "et al."
+        authors_list = paper.get("authors") or []
+        author_names = [a.get("name", "") for a in authors_list[:3] if a.get("name")]
+        authors_str = ", ".join(author_names)
+        if len(authors_list) > 3:
+            authors_str += " et al."
+
+        year = paper.get("year") or ""
+        citation = f"{authors_str} ({year})" if authors_str else f"S2 {year}"
+
+        # Resolve a stable source_id: prefer DOI, then arXiv, then S2 paper ID
+        external_ids = paper.get("externalIds") or {}
+        doi = external_ids.get("DOI", "")
+        arxiv_id = external_ids.get("ArXiv", "")
+        s2_id = paper.get("paperId", "")
+        if doi:
+            source_id = f"doi:{doi}"
+        elif arxiv_id:
+            source_id = f"arxiv:{arxiv_id}"
+        else:
+            source_id = f"s2:{s2_id}"
+
+        # Relevance score: base + influential-citation bonus (capped at 1.0)
+        influential = paper.get("influentialCitationCount") or 0
+        # Log scale so that 1 → +0.02, 10 → +0.06, 100 → +0.10, 1000 → +0.14
+        import math
+        influential_bonus = min(0.15, math.log1p(influential) * 0.03)
+        relevance = min(1.0, _S2_BASE_RELEVANCE + influential_bonus)
+
+        return EvidenceItem(
+            id=new_id(),
+            source_type="semantic_scholar",
+            source_id=source_id,
+            title=title[:200],
+            quote=quote[:500],
+            citation=citation,
+            relevance_score=round(relevance, 4),
         )
 
 

@@ -211,6 +211,159 @@ class TestCompositeRetrieval:
         assert "crossref" in source_types
 
 
+MOCK_S2_RESPONSE = {
+    "data": [
+        {
+            "paperId": "abc123",
+            "title": "Carrier Extraction in Perovskite Solar Cells",
+            "abstract": "We demonstrate improved carrier extraction via quantum dot sensitization.",
+            "tldr": {"model": "tldr@v2.0.0", "text": "Quantum dot sensitization improves carrier extraction in perovskite cells by 18%."},
+            "citationCount": 142,
+            "influentialCitationCount": 31,
+            "year": 2024,
+            "authors": [{"authorId": "1", "name": "Zhang Wei"}, {"authorId": "2", "name": "Kim Soo"}],
+            "externalIds": {"DOI": "10.1234/perov.2024.001", "ArXiv": "2401.00101"},
+            "openAccessPdf": None,
+        },
+        {
+            "paperId": "def456",
+            "title": "MOF-Derived Carbon Scaffolds for Membrane Reinforcement",
+            "abstract": "Metal-organic framework derived carbon enhances proton exchange membrane durability.",
+            "tldr": None,
+            "citationCount": 7,
+            "influentialCitationCount": 0,
+            "year": 2023,
+            "authors": [{"authorId": "3", "name": "Patel Raj"}],
+            "externalIds": {"DOI": "10.5678/mof.2023.042"},
+            "openAccessPdf": None,
+        },
+    ],
+    "total": 2,
+    "offset": 0,
+    "next": None,
+}
+
+
+class TestSemanticScholarRetrieval:
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_returns_evidence_items(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("perovskite solar", limit=10)
+        assert len(items) == 2
+        assert all(i.source_type == "semantic_scholar" for i in items)
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_uses_tldr_as_quote(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("perovskite", limit=10)
+        # First paper has a TLDR — should be used as quote
+        assert "Quantum dot sensitization" in items[0].quote
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_falls_back_to_abstract_when_no_tldr(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("mof", limit=10)
+        # Second paper has no TLDR — should use abstract
+        assert "Metal-organic framework" in items[1].quote
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_prefers_doi_source_id(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("test", limit=10)
+        assert items[0].source_id == "doi:10.1234/perov.2024.001"
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_influential_citation_boosts_relevance(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource, _S2_BASE_RELEVANCE
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("test", limit=10)
+        # Paper with 31 influential citations should score above base
+        assert items[0].relevance_score > _S2_BASE_RELEVANCE
+        # Paper with 0 influential citations should be at base
+        assert items[1].relevance_score == _S2_BASE_RELEVANCE
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_handles_empty_response(self, mock_get):
+        mock_get.return_value = {"data": []}
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("nonexistent", limit=10)
+        assert items == []
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_handles_network_failure(self, mock_get):
+        mock_get.return_value = None
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="test-key")
+        items = source.gather("test", limit=10)
+        assert items == []
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_passes_api_key_in_headers(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="my-secret-key")
+        source.gather("test", limit=5)
+        call_kwargs = mock_get.call_args
+        headers = call_kwargs[1].get("headers") or call_kwargs[0][2] if len(call_kwargs[0]) > 2 else {}
+        # Extract headers from keyword args
+        _, kwargs = mock_get.call_args
+        assert kwargs.get("headers", {}).get("x-api-key") == "my-secret-key"
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_no_api_key_omits_header(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        from breakthrough_engine.retrieval import SemanticScholarRetrievalSource
+        source = SemanticScholarRetrievalSource(api_key="")
+        source.gather("test", limit=5)
+        _, kwargs = mock_get.call_args
+        assert "x-api-key" not in kwargs.get("headers", {})
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_cache_hit(self, mock_get):
+        mock_get.return_value = MOCK_S2_RESPONSE
+        db = _make_db()
+        repo = Repository(db)
+        from breakthrough_engine.retrieval import RetrievalCache, SemanticScholarRetrievalSource
+        cache = RetrievalCache(repo)
+        source = SemanticScholarRetrievalSource(api_key="test-key", cache=cache)
+        items1 = source.gather("perovskite", limit=10)
+        assert mock_get.call_count == 1
+        items2 = source.gather("perovskite", limit=10)
+        assert mock_get.call_count == 1  # No additional HTTP call on cache hit
+        assert len(items2) == len(items1)
+
+    @patch("breakthrough_engine.retrieval._http_get")
+    def test_composite_includes_s2(self, mock_get):
+        def side_effect(url, **kwargs):
+            if "openalex" in url:
+                return MOCK_OPENALEX_RESPONSE
+            elif "semanticscholar" in url:
+                return MOCK_S2_RESPONSE
+            return None
+        mock_get.side_effect = side_effect
+        from breakthrough_engine.retrieval import (
+            CompositeRetrievalSource, OpenAlexRetrievalSource, SemanticScholarRetrievalSource,
+        )
+        source = CompositeRetrievalSource([
+            OpenAlexRetrievalSource(),
+            SemanticScholarRetrievalSource(api_key="test-key"),
+        ])
+        items = source.gather("perovskite solar", limit=20)
+        source_types = {i.source_type for i in items}
+        assert "openalex" in source_types
+        assert "semantic_scholar" in source_types
+
+
 class TestRetrievalCache:
     def test_cache_roundtrip(self):
         db = _make_db()

@@ -66,6 +66,25 @@ feeds:
 # ─────────────────────────────────────────
 
 
+# === Semantic Scholar (live retrieval — configured via env, not feeds) ===
+# SemanticScholarRetrievalSource is activated automatically when
+# SEMANTIC_SCHOLAR_API_KEY is set in the environment. It runs alongside
+# ExistingFindingsSource in all production campaign modes.
+#
+# It is NOT a feed-based source (no polling/ingestion cycle). Instead it is
+# called live during each campaign run via CompositeRetrievalSource.
+#
+# What it provides:
+#   - TLDR: AI-generated one-sentence paper summaries (higher signal density
+#     than reconstructed abstracts from OpenAlex inverted index)
+#   - influentialCitationCount: S2-classified methodological citations, used
+#     to boost relevance_score for foundational results
+#   - ExternalIds: DOI + arXiv ID for stable deduplication
+#
+# To activate: export SEMANTIC_SCHOLAR_API_KEY=<your-key>
+# Key management: https://www.semanticscholar.org/product/api
+
+
 settings:
   max_papers_per_poll: 50
   dedup_window_days: 90

@@ -140,6 +140,7 @@ class PreflightEngine:
         report.checks.append(self._check_ollama_server())
         report.checks.append(self._check_generation_model())
         report.checks.append(self._check_embedding_model())
+        report.checks.append(self._check_semantic_scholar_api_key())
         report.checks.append(self._check_write_access())
         report.checks.append(self._check_disk_space())
         report.checks.append(self._check_config_files())
@@ -442,6 +443,71 @@ class PreflightEngine:
                     f"BT_EMBEDDING_MODEL={embed_model} is set but Ollama is unreachable: {e}"
                 ),
                 remediation="Start Ollama: ollama serve",
+                elapsed_ms=elapsed(),
+            )
+
+    def _check_semantic_scholar_api_key(self) -> CheckResult:
+        """Check Semantic Scholar API key availability.
+
+        - SEMANTIC_SCHOLAR_API_KEY unset → WARN (public tier used, lower rate limits)
+        - SEMANTIC_SCHOLAR_API_KEY set → verify reachability of S2 API
+        - S2 API unreachable with key set → WARN (campaigns continue with ExistingFindingsSource)
+        """
+        t0 = time.time()
+        elapsed = lambda: (time.time() - t0) * 1000
+        api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+
+        if not api_key:
+            return CheckResult(
+                name="semantic_scholar_api_key",
+                status="WARN",
+                detail=(
+                    "SEMANTIC_SCHOLAR_API_KEY not set. Semantic Scholar will not be used as "
+                    "an evidence source. Set this key to enable S2 evidence (TLDRs, influential "
+                    "citations) alongside ExistingFindingsSource."
+                ),
+                remediation="export SEMANTIC_SCHOLAR_API_KEY=<your-key>  # see .env.example",
+                elapsed_ms=elapsed(),
+            )
+
+        # Key is set — do a lightweight reachability check (1 result, no quota impact)
+        try:
+            import requests
+            resp = requests.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={"query": "energy", "fields": "paperId", "limit": 1},
+                headers={"x-api-key": api_key},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                return CheckResult(
+                    name="semantic_scholar_api_key",
+                    status="PASS",
+                    detail="SEMANTIC_SCHOLAR_API_KEY set and S2 API reachable — S2 evidence active",
+                    elapsed_ms=elapsed(),
+                )
+            if resp.status_code == 403:
+                return CheckResult(
+                    name="semantic_scholar_api_key",
+                    status="WARN",
+                    detail=(
+                        f"SEMANTIC_SCHOLAR_API_KEY set but S2 returned 403 (invalid or expired key). "
+                        f"Campaigns will fall back to ExistingFindingsSource only."
+                    ),
+                    remediation="Check your Semantic Scholar API key at https://www.semanticscholar.org/product/api",
+                    elapsed_ms=elapsed(),
+                )
+            return CheckResult(
+                name="semantic_scholar_api_key",
+                status="WARN",
+                detail=f"S2 API returned HTTP {resp.status_code} — may be a transient issue",
+                elapsed_ms=elapsed(),
+            )
+        except Exception as e:
+            return CheckResult(
+                name="semantic_scholar_api_key",
+                status="WARN",
+                detail=f"SEMANTIC_SCHOLAR_API_KEY set but S2 API unreachable: {e}. Campaigns will proceed without S2.",
                 elapsed_ms=elapsed(),
             )
 
