@@ -1,0 +1,21 @@
+{
+  "phase": "9c",
+  "status": "SCAFFOLD — batch pending Ollama availability",
+  "collection_plan": "3 evaluation_daily_clean_energy + 3 production_daily_clean_energy, champion-only",
+  "policy": "phase5_champion",
+  "embedding_regime": "regime_2",
+  "embedding_model": "qwen3-embedding:4b",
+  "target_campaign_count": 6,
+  "target_label_count": 12,
+  "completed_campaign_count": 0,
+  "completed_label_count": 0,
+  "campaigns": [],
+  "label_completeness": {
+    "total_campaigns": 0,
+    "labeled_champions": 0,
+    "labeled_runner_ups": 0,
+    "total_labeled": 0,
+    "completeness_pct": 0.0
+  },
+  "notes": "Populate after running 6 daily campaigns. See docs/BREAKTHROUGH_ENGINE_PHASE9C_DAILY_COLLECTION.md."
+}

@@ -1,0 +1,95 @@
+{
+  "title": "evidence_diversity_v1 Proof of Actuation",
+  "phase": "9c",
+  "computed_at": "2026-03-11T00:00:00Z",
+  "method": "Deterministic ranking comparison on controlled 3-item evidence set",
+  "policy_under_test": "evidence_diversity_v1",
+  "champion_policy": "phase5_champion",
+  "surface_changed": "evidence_ranking_weights",
+
+  "controlled_evidence_set": [
+    {
+      "id": "ev_A",
+      "title": "High-efficiency catalyst for hydrogen evolution via platinum group reduction",
+      "citation": "Kim et al. (2024)",
+      "relevance_score": 0.90,
+      "mechanism_overlap_score": 0.20,
+      "domain_overlap_score": 0.50,
+      "note": "High API relevance, low mechanism overlap — would rank first under champion defaults"
+    },
+    {
+      "id": "ev_B",
+      "title": "Electrolyte interface engineering for proton exchange membrane stability",
+      "citation": "Chen et al. (2023)",
+      "relevance_score": 0.40,
+      "mechanism_overlap_score": 0.80,
+      "domain_overlap_score": 0.50,
+      "note": "Low API relevance, high mechanism overlap — would rank first under evidence_diversity_v1"
+    },
+    {
+      "id": "ev_C",
+      "title": "Thermal management strategies in solid oxide fuel cell systems",
+      "citation": "Liu et al. (2022)",
+      "relevance_score": 0.60,
+      "mechanism_overlap_score": 0.50,
+      "domain_overlap_score": 0.50,
+      "note": "Medium scores across both dimensions — middle ranking in both policies"
+    }
+  ],
+
+  "champion_ranking": {
+    "weights": {
+      "api_relevance": 0.35,
+      "domain_overlap": 0.30,
+      "mechanism_overlap": 0.20,
+      "baseline": 0.15
+    },
+    "scores": {
+      "ev_A": 0.580,
+      "ev_B": 0.525,
+      "ev_C": 0.535
+    },
+    "score_breakdown": {
+      "ev_A": "0.90*0.35 + 0.50*0.30 + 0.20*0.20 + 0.15*0.5 = 0.315+0.150+0.040+0.075 = 0.580",
+      "ev_B": "0.40*0.35 + 0.50*0.30 + 0.80*0.20 + 0.15*0.5 = 0.140+0.150+0.160+0.075 = 0.525",
+      "ev_C": "0.60*0.35 + 0.50*0.30 + 0.50*0.20 + 0.15*0.5 = 0.210+0.150+0.100+0.075 = 0.535"
+    },
+    "ranked_order": ["ev_A", "ev_C", "ev_B"],
+    "top_item": "ev_A"
+  },
+
+  "challenger_ranking": {
+    "weights": {
+      "api_relevance": 0.20,
+      "domain_overlap": 0.30,
+      "mechanism_overlap": 0.35,
+      "baseline": 0.15
+    },
+    "scores": {
+      "ev_A": 0.475,
+      "ev_B": 0.585,
+      "ev_C": 0.520
+    },
+    "score_breakdown": {
+      "ev_A": "0.90*0.20 + 0.50*0.30 + 0.20*0.35 + 0.15*0.5 = 0.180+0.150+0.070+0.075 = 0.475",
+      "ev_B": "0.40*0.20 + 0.50*0.30 + 0.80*0.35 + 0.15*0.5 = 0.080+0.150+0.280+0.075 = 0.585",
+      "ev_C": "0.60*0.20 + 0.50*0.30 + 0.50*0.35 + 0.15*0.5 = 0.120+0.150+0.175+0.075 = 0.520"
+    },
+    "ranked_order": ["ev_B", "ev_C", "ev_A"],
+    "top_item": "ev_B"
+  },
+
+  "actuation_verified": true,
+  "ranking_delta": {
+    "top_item_flipped": true,
+    "champion_top": "ev_A (high api_relevance=0.90, low mechanism_overlap=0.20)",
+    "challenger_top": "ev_B (low api_relevance=0.40, high mechanism_overlap=0.80)",
+    "rank_order_diff": "Champion: A>C>B | Challenger: B>C>A — full inversion of top and bottom items",
+    "ev_A_score_delta": -0.105,
+    "ev_B_score_delta": 0.060
+  },
+
+  "interpretation": "The challenger policy (evidence_diversity_v1) meaningfully changes which evidence items are ranked highest. Items with strong mechanism alignment (ev_B) are promoted over items with strong API relevance but weak mechanism alignment (ev_A). This demonstrates that the evidence_ranking_weights change is not inert — it will surface different evidence to the candidate generator, which is the intended mechanism of action.",
+
+  "what_this_does_not_prove": "This proof shows the policy actuates the ranking function. It does not show that the resulting candidates will be approved at a higher rate — that requires a full A/B trial with reviewer labels."
+}

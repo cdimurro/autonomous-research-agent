@@ -1,0 +1,43 @@
+{
+  "name": "evidence_diversity_v1",
+  "version": "1.0",
+  "description": "Challenger v2 policy: mechanism-aligned evidence ranking. Single-surface change from champion: evidence_ranking_weights boosted for mechanism_overlap (0.20->0.35, +75%) and reduced for api_relevance (0.35->0.20, -43%). Generation prompt, scoring weights, and all other surfaces unchanged from phase5_champion. Hypothesis: mechanism-aligned evidence selection leads to more specific, grounded candidates without suppressing novelty, addressing the synthesis_focus_v1 failure (which suppressed novelty via prompt changes).",
+  "generation_prompt_variant": "standard",
+  "diversity_steering_variant": "standard",
+  "sub_domain_rotation_policy": "auto",
+  "bridge_selection_policy": "auto",
+  "evidence_ranking_weights": {
+    "api_relevance": 0.20,
+    "domain_overlap": 0.30,
+    "mechanism_overlap": 0.35,
+    "baseline": 0.15
+  },
+  "negative_memory_strategy": "standard",
+  "review_gating_heuristics": [],
+  "scoring_weights": null,
+  "metadata": {
+    "phase": "9c",
+    "challenger_vs": "phase5_champion",
+    "predecessor": "synthesis_focus_v1",
+    "predecessor_verdict": "PROMOTION_NOT_RECOMMENDED",
+    "failure_analysis": "docs/BREAKTHROUGH_ENGINE_CHALLENGER_FAILURE_ANALYSIS.md",
+    "design_doc": "docs/BREAKTHROUGH_ENGINE_CHALLENGER_V2_DESIGN.md",
+    "config_diff": {
+      "evidence_ranking_weights.api_relevance": "0.35 (champion default) -> 0.20 (-43%)",
+      "evidence_ranking_weights.mechanism_overlap": "0.20 (champion default) -> 0.35 (+75%)"
+    },
+    "unchanged_vs_champion": [
+      "generation_prompt_variant",
+      "scoring_weights",
+      "diversity_steering_variant",
+      "sub_domain_rotation_policy",
+      "bridge_selection_policy",
+      "negative_memory_strategy"
+    ],
+    "hypothesis": "Mechanism-aligned evidence surfacing provides better mechanistic grounding without novelty suppression, improving reviewer plausibility assessments",
+    "rollback_trigger": "champion_score_mean regression > 0.05 vs Phase 9C daily baseline OR approval_rate < 50% in A/B trial",
+    "registered": "2026-03-11",
+    "trial_plan": "phase9c_ab_trial",
+    "embedding_regime": "regime_2"
+  }
+}

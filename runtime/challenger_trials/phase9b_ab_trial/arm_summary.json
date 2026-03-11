@@ -1,0 +1,115 @@
+{
+  "trial_id": "phase9b_ab_trial",
+  "status": "COMPLETE_FROZEN",
+  "verdict": "PROMOTION_NOT_RECOMMENDED",
+  "frozen_at": "2026-03-11T08:43:37Z",
+  "note": "FROZEN — Phase 9B 6+6 Regime 2 A/B trial complete. Do not modify. See docs/BREAKTHROUGH_ENGINE_CHALLENGER_FAILURE_ANALYSIS.md.",
+  "embedding_regime": "regime_2",
+  "embedding_model": "qwen3-embedding:4b",
+  "profile": "eval_clean_energy_30m",
+  "domain": "clean-energy",
+  "trial_date": "2026-03-11",
+  "champion_arm": {
+    "policy_id": "phase5_champion",
+    "policy_name": "phase5_champion",
+    "generation_prompt_variant": "standard",
+    "scoring_weights": {
+      "novelty": 0.20,
+      "plausibility": 0.20,
+      "impact": 0.20,
+      "evidence_strength": 0.20,
+      "simulation_readiness": 0.10,
+      "inverse_validation_cost": 0.10
+    },
+    "campaign_count": 6,
+    "campaign_ids": [
+      "6ab58da8c1124439",
+      "048cde3dfd044064",
+      "71360ee5ba6342b0",
+      "d1f05730ad784b42",
+      "aa7034885e7e4d65",
+      "1daefd4ad26f4fbe"
+    ],
+    "mean_champion_score": 0.90804,
+    "mean_block_rate": 0.0,
+    "integrity_ok_rate": 1.0,
+    "falsification_complete_rate": 1.0,
+    "review_labels_collected": 12,
+    "approve_count": 9,
+    "reject_count": 0,
+    "defer_count": 3,
+    "approval_rate": 0.75,
+    "mean_novelty_confidence": 0.783,
+    "mean_technical_plausibility": 0.763,
+    "mean_commercialization_relevance": 0.710,
+    "champion_scores": [
+      0.88304,
+      0.92054,
+      0.92054,
+      0.89304,
+      0.92054,
+      0.91054
+    ]
+  },
+  "challenger_arm": {
+    "policy_id": "synthesis_focus_v1",
+    "policy_name": "synthesis_focus_v1",
+    "generation_prompt_variant": "synthesis_focus",
+    "scoring_weights": {
+      "novelty": 0.18,
+      "plausibility": 0.25,
+      "impact": 0.20,
+      "evidence_strength": 0.20,
+      "simulation_readiness": 0.12,
+      "inverse_validation_cost": 0.05
+    },
+    "campaign_count": 6,
+    "campaign_ids": [
+      "775193c4f8984a51",
+      "fd11f90b79344204",
+      "ef9aade5797e4985",
+      "4d58fc1142874201",
+      "297e9c65b9734655",
+      "a88b0238b6fd464d"
+    ],
+    "mean_champion_score": 0.87789,
+    "mean_block_rate": 0.0,
+    "integrity_ok_rate": 1.0,
+    "falsification_complete_rate": 1.0,
+    "review_labels_collected": 12,
+    "approve_count": 3,
+    "reject_count": 2,
+    "defer_count": 7,
+    "approval_rate": 0.25,
+    "mean_novelty_confidence": 0.713,
+    "mean_technical_plausibility": 0.694,
+    "mean_commercialization_relevance": 0.633,
+    "champion_scores": [
+      0.87322,
+      0.87322,
+      0.91072,
+      0.87712,
+      0.84982,
+      0.88322
+    ]
+  },
+  "comparison": {
+    "champion_score_delta": -0.03015,
+    "block_rate_delta": 0.0,
+    "integrity_ok_rate_delta": 0.0,
+    "approval_rate_delta": -0.50,
+    "novelty_confidence_delta": -0.070,
+    "technical_plausibility_delta": -0.069,
+    "commercialization_relevance_delta": -0.077,
+    "promotion_assessment": "PROMOTION_NOT_RECOMMENDED",
+    "promotion_notes": [
+      "Score regression: challenger mean 0.8779 < champion 0.9080 (delta=-0.0302)",
+      "Approval rate collapse: challenger 25.0% vs champion 75.0% (delta=-50.0%)",
+      "Novelty confidence decline: challenger 0.713 vs champion 0.783 (delta=-0.070)",
+      "Technical plausibility decline: challenger 0.694 vs champion 0.763 (delta=-0.069)",
+      "All four promotion gates failed — challenger strictly dominated by champion"
+    ],
+    "evidence_sufficient": true,
+    "regime_correct": true
+  }
+}

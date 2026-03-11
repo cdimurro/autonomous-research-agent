@@ -1,0 +1,12 @@
+{
+  "phase": "9c",
+  "computed_at": "2026-03-11T00:00:00Z",
+  "status": "SCAFFOLD — no campaigns run yet",
+  "total_campaigns": 0,
+  "labeled_champions": 0,
+  "labeled_runner_ups": 0,
+  "total_labeled": 0,
+  "completeness_pct": 0.0,
+  "unlabeled_campaign_ids": [],
+  "notes": "Populate after running daily collection batch."
+}
