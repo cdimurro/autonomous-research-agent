@@ -161,8 +161,14 @@ class DailySearchLadder:
         config: Optional[LadderConfig] = None,
         policy_registry: Optional[PolicyRegistry] = None,
         program: Optional[ResearchProgram] = None,
+        policy: Optional[PolicyConfig] = None,
     ) -> DailyCampaignResult:
-        """Run a complete daily search campaign."""
+        """Run a complete daily search campaign.
+
+        Args:
+            policy: If provided, use this policy directly instead of loading champion.
+                    Used for A/B trial challenger arm campaigns.
+        """
         if config is None:
             config = LadderConfig()
 
@@ -174,18 +180,21 @@ class DailySearchLadder:
             started_at=_utcnow(),
         )
 
-        # Determine policy to use
-        champion_policy = None
-        if policy_registry is not None:
-            try:
-                champion_policy = policy_registry.get_champion()
-                result.policy_used = champion_policy.id
-            except Exception as e:
-                logger.warning("Could not load champion policy: %s", e)
-        if champion_policy is None:
-            from .policy_registry import _default_champion
-            champion_policy = _default_champion()
+        # Determine policy to use — explicit override takes priority
+        champion_policy = policy
+        if champion_policy is not None:
             result.policy_used = champion_policy.id
+        else:
+            if policy_registry is not None:
+                try:
+                    champion_policy = policy_registry.get_champion()
+                    result.policy_used = champion_policy.id
+                except Exception as e:
+                    logger.warning("Could not load champion policy: %s", e)
+            if champion_policy is None:
+                from .policy_registry import _default_champion
+                champion_policy = _default_champion()
+                result.policy_used = champion_policy.id
 
         # Load program if not provided
         if program is None:

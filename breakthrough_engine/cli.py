@@ -189,6 +189,8 @@ def main(argv: list[str] | None = None):
                                 help="Strict preflight (default: yes)")
     campaign_run_p.add_argument("--dry-run", action="store_true",
                                 help="Preflight only, do not execute")
+    campaign_run_p.add_argument("--policy", default=None,
+                                help="Policy ID to use instead of champion (for A/B trials)")
     campaign_list_p = campaign_sub.add_parser("list", help="List recent campaigns")
     campaign_list_p.add_argument("--limit", type=int, default=20, help="Max results")
     campaign_show_p = campaign_sub.add_parser("show", help="Show campaign receipt")
@@ -1236,13 +1238,34 @@ def _cmd_campaign(repo: Repository, args):
 
         strict = getattr(args, "strict", True)
         dry_run = getattr(args, "dry_run", False)
+        policy_id = getattr(args, "policy", None)
+
+        # Resolve policy override for A/B trials (by ID or name)
+        policy_override = None
+        if policy_id:
+            from .policy_registry import PolicyRegistry
+            reg = PolicyRegistry(repo)
+            policy_override = reg.get_policy(policy_id)
+            if policy_override is None:
+                # Try lookup by name
+                rows = repo.db.execute(
+                    "SELECT id FROM bt_policies WHERE name=?", (policy_id,)
+                ).fetchall()
+                if rows:
+                    policy_override = reg.get_policy(rows[0][0] if not hasattr(rows[0], 'keys') else rows[0]["id"])
+            if policy_override is None:
+                print(f"Error: policy not found: {policy_id}", file=sys.stderr)
+                sys.exit(1)
 
         manager = CampaignManager(repo=repo, db_path=getattr(args, "db", None))
         print(f"Launching campaign: {profile.profile_name} ({profile.profile_type})")
+        if policy_id:
+            print(f"  Policy override: {policy_id}")
         if dry_run:
             print("  (dry-run mode — preflight only)")
 
-        receipt = manager.run_campaign(profile, strict_preflight=strict, dry_run=dry_run)
+        receipt = manager.run_campaign(profile, strict_preflight=strict, dry_run=dry_run,
+                                       policy_override=policy_override)
 
         print(f"\nCampaign {receipt.campaign_id[:12]}:")
         print(f"  Status: {receipt.status}")

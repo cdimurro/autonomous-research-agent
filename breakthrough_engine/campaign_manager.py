@@ -369,8 +369,14 @@ class CampaignManager:
         profile: CampaignProfile,
         strict_preflight: bool = True,
         dry_run: bool = False,
+        policy_override=None,
     ) -> CampaignReceipt:
-        """Execute a full campaign with preflight, execution, and export."""
+        """Execute a full campaign with preflight, execution, and export.
+
+        Args:
+            policy_override: Optional PolicyConfig to run instead of champion.
+                             Used for A/B trial challenger arm campaigns.
+        """
         import os as _os
         campaign_id = new_id()
         # Detect embedding provider from environment
@@ -484,7 +490,7 @@ class CampaignManager:
             self._save_receipt(receipt)  # checkpoint
 
             campaign_result = self._run_ladder_with_retries(
-                repo, profile, receipt
+                repo, profile, receipt, policy_override=policy_override
             )
 
             if self._shutdown_requested:
@@ -549,8 +555,14 @@ class CampaignManager:
         repo: Repository,
         profile: CampaignProfile,
         receipt: CampaignReceipt,
+        policy_override=None,
     ):
-        """Run the daily search ladder with retry logic."""
+        """Run the daily search ladder with retry logic.
+
+        Args:
+            policy_override: Optional PolicyConfig to use instead of champion.
+                             Used for A/B trial challenger arm campaigns.
+        """
         from .daily_search import DailySearchLadder, LadderConfig, StageConfig
 
         ladder_event = StageEvent(stage_name="daily_search_ladder", started_at=_utcnow())
@@ -597,7 +609,7 @@ class CampaignManager:
                 )
 
                 ladder = DailySearchLadder()
-                result = ladder.run_campaign(repo, ladder_config)
+                result = ladder.run_campaign(repo, ladder_config, policy=policy_override)
 
                 ladder_event.status = StageStatus.COMPLETED.value
                 ladder_event.completed_at = _utcnow()
