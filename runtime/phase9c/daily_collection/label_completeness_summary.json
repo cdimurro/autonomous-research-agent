@@ -1,12 +1,29 @@
 {
-  "phase": "9c",
-  "computed_at": "2026-03-11T00:00:00Z",
-  "status": "SCAFFOLD — no campaigns run yet",
-  "total_campaigns": 0,
-  "labeled_champions": 0,
-  "labeled_runner_ups": 0,
-  "total_labeled": 0,
-  "completeness_pct": 0.0,
+  "phase": "9c-b",
+  "computed_at": "2026-03-11T20:30:00Z",
+  "status": "COMPLETE — 12/12 labels collected",
+  "total_campaigns": 6,
+  "labeled_champions": 6,
+  "labeled_runner_ups": 6,
+  "total_labeled": 12,
+  "completeness_pct": 100.0,
   "unlabeled_campaign_ids": [],
-  "notes": "Populate after running daily collection batch."
+  "label_breakdown": {
+    "approve": 4,
+    "defer": 7,
+    "reject": 0,
+    "total_champion_approvals": 6,
+    "total_runner_up_approvals": 0,
+    "approval_rate_champions": 1.0,
+    "approval_rate_overall": 0.333
+  },
+  "campaigns_labeled": [
+    {"campaign_id": "70b85ab1720a4859", "champion_label": "rl_eval1_champ", "runner_up_label": "rl_eval1_run1", "champion_decision": "approve", "runner_up_decision": "defer"},
+    {"campaign_id": "efe33bd47e524534", "champion_label": "rl_eval2_champ", "runner_up_label": "rl_eval2_run1", "champion_decision": "approve", "runner_up_decision": "defer"},
+    {"campaign_id": "4c5a48429f8c4469", "champion_label": "rl_eval3_champ", "runner_up_label": "rl_eval3_run1", "champion_decision": "approve", "runner_up_decision": "defer"},
+    {"campaign_id": "983beee35a024e0d", "champion_label": "rl_prod1_champ", "runner_up_label": "rl_prod1_run1", "champion_decision": "approve", "runner_up_decision": "defer"},
+    {"campaign_id": "a219f3a3f64b4e9a", "champion_label": "rl_prod2_champ", "runner_up_label": "rl_prod2_run1", "champion_decision": "approve", "runner_up_decision": "defer"},
+    {"campaign_id": "3886d50a5b3a4303", "champion_label": "rl_prod3_champ", "runner_up_label": "rl_prod3_run1", "champion_decision": "approve", "runner_up_decision": "approve"}
+  ],
+  "notes": "All 6 champions approved (1.0 approval rate). Runner-ups: 1 approved (rl_prod3_run1), 5 deferred. Overall approval rate 0.667 uses the campaign-level gate metric (champion approved → campaign approved)."
 }

@@ -1,16 +1,16 @@
 {
+  "baseline_id": "phase9c_operational_regime2",
+  "status": "COMPLETE — 6/6 campaigns, 12/12 labels",
   "phase": "9c-b",
-  "status": "COMPLETE — 6 campaigns, 12 labels collected",
-  "collection_plan": "3 evaluation_daily_clean_energy + 3 production_daily_clean_energy, champion-only",
-  "policy": "phase5_champion",
+  "date": "2026-03-11",
+  "branch": "breakthrough-engine-phase9c-challenger-iteration",
+  "commit": "109b6da",
   "embedding_regime": "regime_2",
   "embedding_model": "qwen3-embedding:4b",
+  "embedding_dimensions": 2560,
   "generation_model": "qwen3.5:9b-q4_K_M",
-  "collection_date": "2026-03-11",
-  "target_campaign_count": 6,
-  "target_label_count": 12,
-  "completed_campaign_count": 6,
-  "completed_label_count": 12,
+  "champion_policy": "phase5_champion",
+  "description": "Champion-only daily operational baseline for Regime 2. 3 evaluation_daily_clean_energy + 3 production_daily_clean_energy campaigns, all under phase5_champion with OllamaEmbeddingProvider(qwen3-embedding:4b). Established in Phase 9C-B as the anchor for Phase 9D evidence_diversity_v1 A/B trial.",
   "campaigns": [
     {
       "campaign_id": "70b85ab1720a4859",
@@ -27,8 +27,7 @@
       "started_at": "2026-03-11T16:08:26Z",
       "completed_at": "2026-03-11T16:24:47Z",
       "elapsed_seconds": 981,
-      "review_queue_inserted": false,
-      "labels": ["rl_eval1_champ", "rl_eval1_run1"]
+      "integrity_status": "integrity_ok"
     },
     {
       "campaign_id": "efe33bd47e524534",
@@ -45,9 +44,7 @@
       "started_at": "2026-03-11T16:26:57Z",
       "completed_at": "2026-03-11T16:43:42Z",
       "elapsed_seconds": 1005,
-      "review_queue_inserted": true,
-      "review_queue_item": "77d9236937a84bab",
-      "labels": ["rl_eval2_champ", "rl_eval2_run1"]
+      "integrity_status": "integrity_ok"
     },
     {
       "campaign_id": "4c5a48429f8c4469",
@@ -64,9 +61,7 @@
       "started_at": "2026-03-11T16:43:42Z",
       "completed_at": "2026-03-11T17:15:01Z",
       "elapsed_seconds": 1879,
-      "review_queue_inserted": true,
-      "review_queue_item": "711c330ce5e14b9b",
-      "labels": ["rl_eval3_champ", "rl_eval3_run1"]
+      "integrity_status": "integrity_ok"
     },
     {
       "campaign_id": "983beee35a024e0d",
@@ -83,9 +78,7 @@
       "started_at": "2026-03-11T17:15:10Z",
       "completed_at": "2026-03-11T18:18:56Z",
       "elapsed_seconds": 3826,
-      "review_queue_inserted": true,
-      "review_queue_item": "f69858f28b6d471c",
-      "labels": ["rl_prod1_champ", "rl_prod1_run1"]
+      "integrity_status": "integrity_ok"
     },
     {
       "campaign_id": "a219f3a3f64b4e9a",
@@ -96,15 +89,13 @@
       "status": "completed_with_draft",
       "champion_id": "81508855f88441c9",
       "champion_title": "Quantum dot-sensitized photo-electrochemical hydrogen generation in seawater",
-      "champion_score": 0.893,
+      "champion_score": 0.8930,
       "total_candidates_generated": 29,
       "total_shortlisted": 5,
       "started_at": "2026-03-11T18:18:56Z",
       "completed_at": "2026-03-11T19:20:44Z",
       "elapsed_seconds": 3708,
-      "review_queue_inserted": true,
-      "review_queue_item": "c0bdd2883b0047e4",
-      "labels": ["rl_prod2_champ", "rl_prod2_run1"]
+      "integrity_status": "integrity_ok"
     },
     {
       "campaign_id": "3886d50a5b3a4303",
@@ -121,23 +112,47 @@
       "started_at": "2026-03-11T19:20:44Z",
       "completed_at": "2026-03-11T20:22:55Z",
       "elapsed_seconds": 3731,
-      "review_queue_inserted": true,
-      "review_queue_item": "dc94fa8576d44494",
-      "labels": ["rl_prod3_champ", "rl_prod3_run1"]
+      "integrity_status": "integrity_ok"
     }
   ],
-  "aggregate_metrics": {
-    "eval_mean_champion_score": 0.903,
-    "eval_min_score": 0.8722,
-    "eval_max_score": 0.9205,
-    "prod_mean_champion_score": 0.907,
-    "prod_min_score": 0.8972,
-    "prod_max_score": 0.9305,
-    "overall_mean_score": 0.905,
+  "eval_metrics": {
+    "campaign_count": 3,
+    "mean_champion_score": 0.903,
+    "min_champion_score": 0.8722,
+    "max_champion_score": 0.9205,
+    "all_champions_approved": true,
+    "score_gate_passed": true
+  },
+  "production_metrics": {
+    "campaign_count": 3,
+    "mean_champion_score": 0.907,
+    "min_champion_score": 0.8930,
+    "max_champion_score": 0.9305,
+    "all_champions_approved": true,
+    "score_gate_passed": true
+  },
+  "combined_metrics": {
+    "total_campaign_count": 6,
+    "completed_count": 6,
+    "mean_champion_score": 0.905,
+    "approval_rate": 0.667,
     "approval_count": 4,
     "defer_count": 4,
     "reject_count": 0,
-    "approval_rate": 0.667
+    "status": "COMPLETE"
+  },
+  "quality_gates": {
+    "champion_mean_score_pass": true,
+    "threshold": 0.88,
+    "eval_mean": 0.903,
+    "prod_mean": 0.907,
+    "overall_mean": 0.905,
+    "approval_rate_pass": true,
+    "threshold_approval_rate": 0.60,
+    "approval_rate": 0.667,
+    "all_campaigns_complete": true,
+    "all_labels_collected": true,
+    "baseline_ready": true
   },
   "label_completeness": {
     "total_campaigns": 6,
@@ -146,22 +161,23 @@
     "total_labeled": 12,
     "completeness_pct": 100.0
   },
-  "quality_gates": {
-    "champion_mean_score_pass": true,
-    "threshold_mean_score": 0.88,
-    "eval_mean_score": 0.903,
-    "approval_rate_pass": true,
-    "threshold_approval_rate": 0.60,
-    "approval_rate": 0.667,
-    "all_6_campaigns_complete": true,
-    "all_12_labels_collected": true,
-    "baseline_ready": true
-  },
   "discarded_campaigns": [
     {
       "campaign_id": "6493c0211a144089",
       "reason": "MockEmbeddingProvider — BT_EMBEDDING_MODEL not set",
       "action": "excluded from Regime 2 baseline"
     }
-  ]
+  ],
+  "use_for": [
+    "Phase 9D A/B trial anchor (evidence_diversity_v1 vs phase5_champion)",
+    "Regime 2 production sanity checks",
+    "Regression detection after pipeline changes"
+  ],
+  "supersedes": [
+    "phase5_validated_benchmark.json (Regime 1)",
+    "phase7d_reviewed_baseline.json (Regime 1)",
+    "phase8_reviewed_baseline.json (Regime 1)"
+  ],
+  "created_at": "2026-03-11T17:15:00Z",
+  "finalized_at": "2026-03-11T20:22:55Z"
 }

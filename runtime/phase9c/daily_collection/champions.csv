@@ -1,1 +1,7 @@
 campaign_id,profile,policy,champion_id,champion_title,champion_score,finalist_count,integrity_status,run_at
+70b85ab1720a4859,evaluation_daily_clean_energy,phase5_champion,f2c339531f2f4878,MOF-808 Insulation with Low-Temp Regeneration for Passive Building Cooling,0.8722,3,integrity_ok,2026-03-11T16:08:26Z
+efe33bd47e524534,evaluation_daily_clean_energy,phase5_champion,a2323ff3d078472a,Quantum Dot BiVO4 Photocatalytic Desalination for Offshore Platforms,0.9205,3,integrity_ok,2026-03-11T16:26:57Z
+4c5a48429f8c4469,evaluation_daily_clean_energy,phase5_champion,2a6727f6a43b4ee0,Quantum Dot-BiVO4 Sensitized Microalgae for Synergistic Bio-hydrogen,0.9165,6,integrity_ok,2026-03-11T16:43:42Z
+983beee35a024e0d,production_daily_clean_energy,phase5_champion,741eb725e91f4d3a,Perovskite Tandem Trap Passivation via OABr Analogues,0.8972,5,integrity_ok,2026-03-11T17:15:10Z
+a219f3a3f64b4e9a,production_daily_clean_energy,phase5_champion,81508855f88441c9,Quantum dot-sensitized photo-electrochemical hydrogen generation in seawater,0.8930,5,integrity_ok,2026-03-11T18:18:56Z
+3886d50a5b3a4303,production_daily_clean_energy,phase5_champion,d7a5371207c44200,Perovskite Solar Cell Tandem Stacking Increases Charge Collection Efficiency in Concentrated PV-Thermal Systems,0.9305,5,integrity_ok,2026-03-11T19:20:44Z

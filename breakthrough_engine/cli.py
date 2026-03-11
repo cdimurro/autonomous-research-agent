@@ -280,6 +280,7 @@ def main(argv: list[str] | None = None):
     daily_sub = daily_p.add_subparsers(dest="daily_command")
     daily_run_p = daily_sub.add_parser("run", help="Run a daily automation profile")
     daily_run_p.add_argument("profile_name", help="Profile name (e.g. evaluation_daily_clean_energy)")
+    daily_run_p.add_argument("--force", action="store_true", help="Skip max-runs-per-day guard (for batch collection)")
     daily_dryrun_p = daily_sub.add_parser("dry-run", help="Dry run a daily automation profile")
     daily_dryrun_p.add_argument("profile_name", help="Profile name")
     daily_sub.add_parser("status", help="Show status of today's daily automation runs")
@@ -1035,6 +1036,7 @@ def _cmd_policy(repo: Repository, args):
         description = getattr(args, "description", "")
 
         config_path = getattr(args, "config_path", "")
+        evidence_ranking_weights = None
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path) as f:
@@ -1043,6 +1045,7 @@ def _cmd_policy(repo: Repository, args):
                 div_variant = file_config.get("diversity_steering_variant", div_variant)
                 neg_strategy = file_config.get("negative_memory_strategy", neg_strategy)
                 scoring_weights = file_config.get("scoring_weights")
+                evidence_ranking_weights = file_config.get("evidence_ranking_weights")
                 description = description or file_config.get("description", "")
             except Exception as e:
                 print(f"Warning: could not read config file {config_path}: {e}", file=sys.stderr)
@@ -1063,6 +1066,7 @@ def _cmd_policy(repo: Repository, args):
             diversity_steering_variant=div_variant,
             negative_memory_strategy=neg_strategy,
             scoring_weights=scoring_weights,
+            evidence_ranking_weights=evidence_ranking_weights,
         )
         registered = registry.register(config)
         print(f"Registered challenger: {registered.name} (id={registered.id})")
@@ -1489,8 +1493,9 @@ def _cmd_daily(repo: Repository, args):
         from .models import new_id
         today = _today()
 
-        # Enforce max-runs-per-day
-        if repo.has_daily_run_today(profile_name, today):
+        # Enforce max-runs-per-day (skip if --force)
+        force = getattr(args, "force", False)
+        if not force and repo.has_daily_run_today(profile_name, today):
             result_dict = {
                 "run_id": new_id(),
                 "profile_name": profile_name,
@@ -1532,11 +1537,27 @@ def _cmd_daily(repo: Repository, args):
         review_queue_item_id = ""
 
         try:
+            from .campaign_manager import load_campaign_profile as _load_cp
             mgr = CampaignManager(repo)
-            campaign_result = mgr.run(profile_name=profile.campaign_profile)
-            campaign_id = campaign_result.get("campaign_id", "")
-            has_draft = bool(campaign_result.get("has_draft", False))
+            campaign_profile_obj = _load_cp(profile.campaign_profile)
+            receipt = mgr.run_campaign(campaign_profile_obj, strict_preflight=profile.require_integrity_ok)
+            campaign_id = receipt.campaign_id
+            from .campaign_manager import CampaignStatus as _CampaignStatus
+            has_draft = receipt.status == _CampaignStatus.COMPLETED_WITH_DRAFT.value
             outcome = OUTCOME_COMPLETED_WITH_DRAFT if has_draft else OUTCOME_COMPLETED_NO_DRAFT
+            # Build campaign_result dict from receipt for downstream consumers
+            campaign_result = {
+                "campaign_id": campaign_id,
+                "has_draft": has_draft,
+                "champion_candidate_id": receipt.champion_candidate_id,
+                "champion_title": receipt.champion_candidate_title,
+                "champion_score": 0.0,
+                "finalist_count": receipt.total_shortlisted,
+                "champion": {
+                    "id": receipt.champion_candidate_id,
+                    "title": receipt.champion_candidate_title,
+                },
+            }
 
             # Insert into review queue if draft found and profile requests it
             if profile.insert_review_queue and has_draft:

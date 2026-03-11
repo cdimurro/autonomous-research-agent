@@ -1,0 +1,91 @@
+{
+  "batch_id": "phase9c_b_daily_collection",
+  "phase": "9c-b",
+  "status": "COMPLETE",
+  "completed_at": "2026-03-11T20:22:55Z",
+  "policy": "phase5_champion",
+  "embedding_regime": "regime_2",
+  "embedding_model": "qwen3-embedding:4b",
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "collection_date": "2026-03-11",
+  "campaigns": {
+    "target": 6,
+    "completed": 6,
+    "discarded": 1,
+    "eval_campaigns": 3,
+    "prod_campaigns": 3
+  },
+  "champion_score_distribution": {
+    "eval": {
+      "mean": 0.903,
+      "min": 0.8722,
+      "max": 0.9205,
+      "scores": [0.8722, 0.9205, 0.9165]
+    },
+    "prod": {
+      "mean": 0.907,
+      "min": 0.8930,
+      "max": 0.9305,
+      "scores": [0.8972, 0.8930, 0.9305]
+    },
+    "overall": {
+      "mean": 0.905,
+      "min": 0.8722,
+      "max": 0.9305,
+      "all_above_threshold_0_88": true
+    }
+  },
+  "candidate_generation": {
+    "total_candidates_generated": 120,
+    "total_shortlisted": 27,
+    "shortlist_rate": 0.225,
+    "eval_candidates_generated": 31,
+    "eval_shortlisted": 12,
+    "prod_candidates_generated": 89,
+    "prod_shortlisted": 15
+  },
+  "review_labels": {
+    "total_labeled": 12,
+    "champions_labeled": 6,
+    "runner_ups_labeled": 6,
+    "completeness_pct": 100.0,
+    "approve": 4,
+    "defer": 7,
+    "reject": 0,
+    "approval_rate": 0.667,
+    "approval_count_campaigns": 4,
+    "defer_count_campaigns": 4
+  },
+  "quality_gates": {
+    "champion_mean_score_pass": true,
+    "threshold_mean_score": 0.88,
+    "approval_rate_pass": true,
+    "threshold_approval_rate": 0.60,
+    "all_6_campaigns_complete": true,
+    "all_12_labels_collected": true,
+    "baseline_ready": true
+  },
+  "timing": {
+    "batch_start": "2026-03-11T16:08:26Z",
+    "batch_end": "2026-03-11T20:22:55Z",
+    "total_elapsed_seconds": 15269,
+    "eval_mean_elapsed_seconds": 1288,
+    "prod_mean_elapsed_seconds": 3755
+  },
+  "artifacts": {
+    "batch_summary_json": "runtime/phase9c/daily_collection/batch_summary.json",
+    "batch_summary_md": "runtime/phase9c/daily_collection/batch_summary.md",
+    "champions_csv": "runtime/phase9c/daily_collection/champions.csv",
+    "campaign_metrics_csv": "runtime/phase9c/daily_collection/campaign_metrics.csv",
+    "review_labels_csv": "runtime/phase9c/daily_collection/review_labels.csv",
+    "label_completeness_json": "runtime/phase9c/daily_collection/label_completeness_summary.json",
+    "daily_collection_summary_json": "runtime/phase9c/daily_collection/daily_collection_summary.json",
+    "baseline_json": "runtime/baselines/phase9c_operational_baseline_regime2.json"
+  },
+  "next_phase": {
+    "trial_id": "phase9c_ab_trial",
+    "challenger": "evidence_diversity_v1",
+    "baseline": "phase9c_operational_baseline_regime2",
+    "readiness_doc": "docs/BREAKTHROUGH_ENGINE_PHASE9D_READY.md"
+  }
+}
