@@ -602,6 +602,7 @@ class DailySearchLadder:
             orch = BreakthroughOrchestrator(
                 program=trial_program,
                 repo=trial_repo,
+                policy_config=policy,  # Phase 9: pass full policy config for actuation
             )
 
         run_record = orch.run()

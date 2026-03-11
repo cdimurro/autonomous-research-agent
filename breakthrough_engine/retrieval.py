@@ -684,6 +684,7 @@ def rank_evidence(
     mechanism: str = "",
     domain_keywords: set[str] | None = None,
     recency_weight: float = 0.1,
+    evidence_ranking_weights: dict | None = None,
 ) -> list[tuple[EvidenceItem, dict]]:
     """Rank evidence items using a layered scoring approach.
 
@@ -693,6 +694,10 @@ def rank_evidence(
     2. Title/abstract domain keyword overlap
     3. Mechanism keyword overlap
     4. Recency bonus (if publication date available)
+
+    Phase 9: evidence_ranking_weights allows policy-configurable layer weights.
+    Keys: "api_relevance", "domain_overlap", "mechanism_overlap", "baseline"
+    If None, uses defaults: api=0.35, domain=0.30, mech=0.20, baseline=0.15
     """
     if not items:
         return []
@@ -739,13 +744,18 @@ def rank_evidence(
                 recency_bonus = recency_weight * 0.5
         detail["recency_bonus"] = round(recency_bonus, 3)
 
-        # Composite score
+        # Composite score — weights configurable via evidence_ranking_weights policy param
+        _w = evidence_ranking_weights or {}
+        _api_w = _w.get("api_relevance", 0.35)
+        _dom_w = _w.get("domain_overlap", 0.30)
+        _mech_w = _w.get("mechanism_overlap", 0.20)
+        _base_w = _w.get("baseline", 0.15)
         composite = (
-            api_score * 0.35
-            + domain_overlap * 0.30
-            + mech_overlap * 0.20
+            api_score * _api_w
+            + domain_overlap * _dom_w
+            + mech_overlap * _mech_w
             + recency_bonus
-            + 0.15 * 0.5  # baseline
+            + _base_w * 0.5  # baseline
         )
         detail["composite_score"] = round(composite, 3)
         detail["rank_explanation"] = (

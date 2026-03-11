@@ -405,7 +405,7 @@ class PreflightEngine:
                 status="PASS",
                 detail=(
                     "Using MockEmbeddingProvider (BT_EMBEDDING_MODEL not set). "
-                    "Set BT_EMBEDDING_MODEL=nomic-embed-text for real embeddings."
+                    "Set BT_EMBEDDING_MODEL=qwen3-embedding:4b for real embeddings."
                 ),
                 elapsed_ms=elapsed(),
             )

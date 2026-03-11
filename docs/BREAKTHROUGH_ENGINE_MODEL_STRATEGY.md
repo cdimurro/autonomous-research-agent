@@ -86,14 +86,14 @@ Llama 3.1 8B is widely available, well-tested, and has good JSON output complian
 
 | Role | Primary Model | Backup | Why Selected | Cost | Required Now? |
 |------|--------------|--------|--------------|------|---------------|
-| Novelty embeddings | `nomic-embed-text` (Ollama) | `MockEmbeddingProvider` | 768d, good scientific text similarity, local-first | $0 (local) | Optional (mock fallback works) |
+| Novelty embeddings | `qwen3-embedding:4b` (Ollama) | `MockEmbeddingProvider` | 2560d, top MTEB quality, local-first | $0 (local) | Optional (mock fallback works) |
 
-### Primary: nomic-embed-text
+### Primary: qwen3-embedding:4b
 
-- **768-dimensional** embeddings
+- **2560-dimensional** embeddings
 - **Local-first**: Runs via Ollama, no API keys
-- **Good quality** for scientific text similarity tasks
-- **Environment override**: `BT_EMBEDDING_MODEL=nomic-embed-text`
+- **Top MTEB quality** for scientific text similarity tasks (outperforms nomic-embed-text by ~6 points avg)
+- **Environment override**: `BT_EMBEDDING_MODEL=qwen3-embedding:4b`
 - **Fallback**: If Ollama embedding endpoint is unavailable, the system falls back to `MockEmbeddingProvider` (deterministic hash-based, always available)
 
 ### Separation of Concerns
@@ -101,7 +101,7 @@ Llama 3.1 8B is widely available, well-tested, and has good JSON output complian
 | Component | Model | Purpose |
 |-----------|-------|---------|
 | Candidate generation | qwen3.5:9b-q4_K_M | Generate hypotheses from evidence |
-| Novelty embeddings | nomic-embed-text | Detect semantic near-duplicates |
+| Novelty embeddings | qwen3-embedding:4b | Detect semantic near-duplicates |
 | Scoring | Rule-based (no LLM) | Deterministic formula |
 | Domain-fit | Rule-based (no LLM) | Keyword-based relevance |
 

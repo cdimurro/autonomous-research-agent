@@ -81,6 +81,84 @@ OUTPUT FORMAT: Return ONLY valid JSON array. No markdown, no explanation, no pre
 ```
 """
 
+CANDIDATE_GENERATION_PROMPT_SYNTHESIS_FOCUS = """You are a scientific hypothesis generation engine specializing in mechanistically rigorous, highly testable breakthrough candidates.
+
+CORE EMPHASIS (synthesis_focus variant):
+- MECHANISM FIRST: Every hypothesis must articulate *why* the proposed effect should occur at the physical, chemical, or biological level. Analogies and intuitions are insufficient — the causal chain must be explicit.
+- TESTABILITY CLARITY: Prefer hypotheses testable within shorter windows (hours to weeks). State the minimal experiment needed to falsify each hypothesis.
+- SYNTHESIS PRIORITY: Favor hypotheses that bridge two or more evidence items through a non-obvious mechanism. The connection should be surprising but physically grounded.
+- PLAUSIBILITY GATE: Do not include hypotheses where the mechanism relies on uncharacterized materials, poorly understood interactions, or speculative physics unless clearly flagged as high-risk.
+
+RULES:
+- Each hypothesis must have an explicit mechanism (how it works physically/chemically/biologically)
+- Each hypothesis must have a measurable expected outcome with quantitative targets where possible
+- Each hypothesis must be testable within a realistic timeframe
+- State all assumptions explicitly
+- Note all risk flags, especially mechanism assumptions that are unverified
+- Do NOT use marketing language, superlatives, or vague claims
+- Do NOT claim "confirmed discovery" — these are candidates only
+- Each hypothesis must reference at least one piece of evidence
+- Prefer shorter testability windows (hours/days) over longer ones (months/years)
+
+OUTPUT FORMAT: Return ONLY valid JSON array. No markdown, no explanation, no preamble.
+```json
+[
+  {
+    "title": "Short descriptive title (max 80 chars)",
+    "statement": "Clear, specific, testable hypothesis statement (2-4 sentences)",
+    "mechanism": "Detailed explanation of the physical/chemical/biological mechanism (2-4 sentences). Must explain the causal chain explicitly.",
+    "expected_outcome": "Quantitative or measurable expected result with units and comparison baseline",
+    "testability_window_hours": 24.0,
+    "novelty_notes": "What makes this novel — cite specific gaps or cross-domain connections",
+    "assumptions": ["assumption 1 — describe why this assumption is reasonable", "assumption 2"],
+    "risk_flags": ["risk 1 — mechanism-specific risk", "risk 2 — experimental risk"]
+  }
+]
+```
+"""
+
+CANDIDATE_GENERATION_PROMPT_EVIDENCE_HEAVY = """You are a scientific hypothesis generation engine that grounds every claim in the provided evidence.
+
+CORE EMPHASIS (evidence_heavy variant):
+- EVIDENCE GROUNDING: Every hypothesis must be directly traceable to at least two provided evidence items. State which evidence supports which aspect of the mechanism.
+- CONSERVATIVE EXTRAPOLATION: Prefer incremental hypotheses that are direct extensions of observed phenomena over speculative cross-domain leaps.
+- EVIDENCE GAP FOCUS: Identify and address gaps between existing evidence items. The best hypotheses explain what is missing or contradictory in the evidence.
+- CITATION REQUIREMENT: Explicitly cite which evidence reference(s) support the mechanism, the expected outcome, and the assumptions.
+
+RULES:
+- Each hypothesis must have an explicit mechanism (how it works physically/chemically/biologically)
+- Each hypothesis must have a measurable expected outcome
+- Each hypothesis must be testable within a realistic timeframe
+- State all assumptions explicitly
+- Note all risk flags
+- Do NOT use marketing language, superlatives, or vague claims
+- Do NOT claim "confirmed discovery" — these are candidates only
+- Each hypothesis must reference at least two pieces of evidence
+
+OUTPUT FORMAT: Return ONLY valid JSON array. No markdown, no explanation, no preamble.
+```json
+[
+  {
+    "title": "Short descriptive title (max 80 chars)",
+    "statement": "Clear, specific, testable hypothesis statement (2-4 sentences)",
+    "mechanism": "Detailed explanation of the physical/chemical/biological mechanism (2-4 sentences)",
+    "expected_outcome": "Quantitative or measurable expected result with units where applicable",
+    "testability_window_hours": 24.0,
+    "novelty_notes": "What makes this novel — cite specific gaps or cross-domain connections",
+    "assumptions": ["assumption 1", "assumption 2"],
+    "risk_flags": ["risk 1"]
+  }
+]
+```
+"""
+
+# Registry of all prompt variants
+PROMPT_VARIANTS: dict[str, str] = {
+    "standard": CANDIDATE_GENERATION_PROMPT,
+    "synthesis_focus": CANDIDATE_GENERATION_PROMPT_SYNTHESIS_FOCUS,
+    "evidence_heavy": CANDIDATE_GENERATION_PROMPT_EVIDENCE_HEAVY,
+}
+
 EVIDENCE_BLOCK_TEMPLATE = """DOMAIN: {domain}
 
 EVIDENCE ({count} items):
@@ -125,10 +203,19 @@ class OllamaCandidateGenerator(CandidateGenerator):
 
     Calls the Ollama chat endpoint, parses structured JSON output into
     CandidateHypothesis objects, and applies validation/repair.
+
+    Phase 9: prompt_variant selects the system prompt template.
+    Valid values: "standard" | "synthesis_focus" | "evidence_heavy"
     """
 
-    def __init__(self, config: Optional[OllamaConfig] = None):
+    def __init__(self, config: Optional[OllamaConfig] = None, prompt_variant: str = "standard"):
         self.config = config or OllamaConfig.from_env()
+        self.prompt_variant = prompt_variant if prompt_variant in PROMPT_VARIANTS else "standard"
+        if prompt_variant not in PROMPT_VARIANTS:
+            logger.warning(
+                "OllamaCandidateGenerator: unknown prompt_variant=%r, using 'standard'",
+                prompt_variant,
+            )
 
     def generate(
         self,
@@ -180,9 +267,14 @@ class OllamaCandidateGenerator(CandidateGenerator):
             except Exception as e:
                 logger.warning("Could not build diversity addendum: %s", e)
 
-        # Call Ollama
+        # Call Ollama — select system prompt based on policy prompt_variant
+        system_prompt = PROMPT_VARIANTS.get(self.prompt_variant, CANDIDATE_GENERATION_PROMPT)
+        logger.debug(
+            "OllamaCandidateGenerator: using prompt_variant=%r (prompt length=%d chars)",
+            self.prompt_variant, len(system_prompt),
+        )
         raw_response = self._call_ollama(
-            system_prompt=CANDIDATE_GENERATION_PROMPT,
+            system_prompt=system_prompt,
             user_message=user_message,
         )
 
@@ -441,7 +533,13 @@ class OllamaCandidateGenerator(CandidateGenerator):
 # ---------------------------------------------------------------------------
 
 class FakeCandidateGenerator(CandidateGenerator):
-    """Fixed deterministic output for tests. Always returns the same candidates."""
+    """Fixed deterministic output for tests. Always returns the same candidates.
+
+    Phase 9: stores prompt_variant for test inspection (does not affect output).
+    """
+
+    def __init__(self, prompt_variant: str = "standard"):
+        self.prompt_variant = prompt_variant
 
     def generate(
         self,
@@ -502,6 +600,9 @@ class FakeCandidateGenerator(CandidateGenerator):
 class DemoCandidateGenerator(CandidateGenerator):
     """Varied but fake output for local demos. Uses evidence content to seed variation."""
 
+    def __init__(self, prompt_variant: str = "standard"):
+        self.prompt_variant = prompt_variant
+
     def generate(
         self,
         evidence: list[EvidenceItem],
@@ -512,7 +613,7 @@ class DemoCandidateGenerator(CandidateGenerator):
         synthesis_context=None,
     ) -> list[CandidateHypothesis]:
         # Reuse FakeCandidateGenerator but add variation based on evidence count
-        base = FakeCandidateGenerator().generate(evidence, domain, budget, run_id)
+        base = FakeCandidateGenerator(prompt_variant=self.prompt_variant).generate(evidence, domain, budget, run_id)
 
         # Add a 4th candidate if budget allows and evidence is available
         if budget > 3 and evidence:

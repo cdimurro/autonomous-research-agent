@@ -116,10 +116,13 @@ class BreakthroughOrchestrator:
         dispatcher: Optional[NotificationDispatcher] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
         policy_id: Optional[str] = None,
+        policy_config=None,  # Phase 9: Optional[PolicyConfig] — avoids circular import
     ):
         self.program = program
         self.repo = repo
-        self.policy_id = policy_id  # Phase 6: for reward logging
+        # Phase 9: store full policy config for actuation wiring
+        self.policy_config = policy_config
+        self.policy_id = policy_id or (policy_config.id if policy_config else None)  # Phase 6: for reward logging
         self.memory = RunMemory(repo.db)
         self.novelty_engine = NoveltyEngine(repo.db)
         self.domain_fit_evaluator = DomainFitEvaluator()
@@ -179,15 +182,26 @@ class BreakthroughOrchestrator:
         else:
             self.evidence_source = DemoFixtureSource()
 
+        # Phase 9: extract prompt_variant from policy_config for generator construction
+        _prompt_variant = "standard"
+        if policy_config is not None and hasattr(policy_config, "generation_prompt_variant"):
+            _prompt_variant = policy_config.generation_prompt_variant or "standard"
+
         if generator:
             self.generator = generator
         elif program.mode == RunMode.DETERMINISTIC_TEST:
-            self.generator = FakeCandidateGenerator()
+            self.generator = FakeCandidateGenerator(prompt_variant=_prompt_variant)
         elif program.mode in (RunMode.PRODUCTION_LOCAL, RunMode.PRODUCTION_REVIEW,
                               RunMode.PRODUCTION_SHADOW, RunMode.OMNIVERSE_DRY_RUN):
-            self.generator = OllamaCandidateGenerator()
+            self.generator = OllamaCandidateGenerator(prompt_variant=_prompt_variant)
         else:
-            self.generator = DemoCandidateGenerator()
+            self.generator = DemoCandidateGenerator(prompt_variant=_prompt_variant)
+
+        if _prompt_variant != "standard":
+            logger.info(
+                "Orchestrator: generator using policy prompt_variant=%r (policy_id=%s)",
+                _prompt_variant, self.policy_id or "none",
+            )
 
         if simulator:
             self.simulator = simulator
@@ -229,6 +243,21 @@ class BreakthroughOrchestrator:
         metrics = RunMetrics(run_id=run.id)
         t0 = time.time()
         novelty_results: dict[str, object] = {}
+
+        # Phase 9: Log policy snapshot at run start
+        if self.policy_config is not None:
+            logger.info(
+                "[%s] Policy snapshot: id=%s generation_prompt_variant=%r "
+                "scoring_weights=%s evidence_ranking_weights=%s sub_domain_rotation_policy=%r",
+                run.id[:8],
+                self.policy_config.id,
+                self.policy_config.generation_prompt_variant,
+                self.policy_config.scoring_weights,
+                self.policy_config.evidence_ranking_weights,
+                self.policy_config.sub_domain_rotation_policy,
+            )
+        elif self.policy_id:
+            logger.info("[%s] Policy snapshot: id=%s (no config loaded)", run.id[:8], self.policy_id)
 
         # Step 1: Gather evidence
         t_step = time.time()
@@ -300,15 +329,21 @@ class BreakthroughOrchestrator:
                 logger.warning("[%s] Synthesis context build failed (non-fatal): %s", run.id[:8], e)
         else:
             try:
+                # Phase 9: pass sub_domain_rotation_policy from policy_config if available
+                _rotation_policy = "auto"
+                if self.policy_config is not None and hasattr(self.policy_config, "sub_domain_rotation_policy"):
+                    _rotation_policy = self.policy_config.sub_domain_rotation_policy or "auto"
                 diversity_ctx = self.diversity_engine.build_context(
                     run_id=run.id,
                     domain=self.program.domain,
+                    rotation_policy=_rotation_policy,
                 )
                 logger.info(
-                    "[%s] Diversity context: sub_domain=%r excluded_topics=%d",
+                    "[%s] Diversity context: sub_domain=%r excluded_topics=%d rotation_policy=%r",
                     run.id[:8],
                     diversity_ctx.sub_domain,
                     len(diversity_ctx.excluded_topics),
+                    _rotation_policy,
                 )
             except Exception as e:
                 logger.warning("[%s] Diversity context build failed (non-fatal): %s", run.id[:8], e)
@@ -750,10 +785,15 @@ class BreakthroughOrchestrator:
 
             if not items and evidence:
                 # Use ranked evidence matching based on mechanism keywords
+                # Phase 9: pass evidence_ranking_weights from policy_config if available
+                _erw = None
+                if self.policy_config is not None and hasattr(self.policy_config, "evidence_ranking_weights"):
+                    _erw = self.policy_config.evidence_ranking_weights
                 ranked = rank_evidence(
                     evidence,
                     domain=self.program.domain,
                     mechanism=c.mechanism,
+                    evidence_ranking_weights=_erw,
                 )
                 items = [item for item, _ in ranked[:max(self.program.evidence_minimum, 2)]]
                 # Update evidence_refs to reflect actual links

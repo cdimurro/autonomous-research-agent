@@ -83,16 +83,16 @@ class MockEmbeddingProvider(EmbeddingProvider):
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """Local embeddings via Ollama API.
 
-    Default model: nomic-embed-text (768d, good quality, runs locally).
+    Default model: qwen3-embedding:4b (2560d, top MTEB quality, runs locally).
     Falls back gracefully if Ollama is unavailable.
     """
 
     def __init__(
         self,
         host: str = "127.0.0.1:11434",
-        model: str = "nomic-embed-text",
-        dim: int = 768,
-        timeout: int = 30,
+        model: str = "qwen3-embedding:4b",
+        dim: int = 2560,
+        timeout: int = 120,
     ):
         import os
         self.host = os.environ.get("OLLAMA_HOST", host)
@@ -111,7 +111,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         try:
             resp = requests.post(
                 url,
-                json={"model": self.model, "input": texts},
+                json={"model": self.model, "input": texts, "keep_alive": -1},
                 timeout=self.timeout,
             )
             resp.raise_for_status()
