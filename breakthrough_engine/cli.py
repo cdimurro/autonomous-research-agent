@@ -305,6 +305,33 @@ def main(argv: list[str] | None = None):
     rq_mark_p.add_argument("item_id", help="Review queue item ID")
     rq_mark_p.add_argument("--reviewer", default="operator", help="Reviewer identifier")
 
+    # Phase 10A: KG shadow foundation
+    ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
+    ingest_sub = ingest_p.add_subparsers(dest="ingest_command")
+    ingest_run_p = ingest_sub.add_parser("run", help="Ingest papers into bt_paper_segments")
+    ingest_run_p.add_argument("--domain", default="clean-energy", help="Domain to ingest for")
+    ingest_run_p.add_argument("--limit", type=int, default=100, help="Max papers to ingest")
+    ingest_run_p.add_argument("--source", default="findings", choices=["findings", "evidence"],
+                              help="Ingestion source")
+    ingest_run_p.add_argument("--compress", action="store_true", help="Compress segments via Ollama")
+    ingest_status_p = ingest_sub.add_parser("status", help="Show ingestion status")
+    ingest_status_p.add_argument("--domain", default="", help="Filter by domain")
+
+    kg_p = sub.add_parser("kg", help="Phase 10A knowledge graph commands")
+    kg_sub = kg_p.add_subparsers(dest="kg_command")
+    kg_extract_p = kg_sub.add_parser("extract", help="Extract entities/relations from segments")
+    kg_extract_p.add_argument("--domain", default="", help="Domain to extract for")
+    kg_extract_p.add_argument("--limit", type=int, default=50, help="Max segments to process")
+    kg_extract_p.add_argument("--mock", action="store_true", help="Use mock extractor (no LLM)")
+    kg_sub.add_parser("stats", help="Show KG entity/relation counts")
+    kg_compare_p = kg_sub.add_parser("compare", help="Compare current vs KG shadow retrieval")
+    kg_compare_p.add_argument("--domain", default="clean-energy", help="Domain to compare")
+    kg_compare_p.add_argument("--limit", type=int, default=20, help="Evidence limit per source")
+    kg_compare_p.add_argument("--output-dir", default="runtime/kg_comparisons",
+                              help="Output directory for comparison artifacts")
+    kg_writeback_p = kg_sub.add_parser("writeback-status", help="Show KG write-back findings")
+    kg_writeback_p.add_argument("--domain", default="", help="Filter by domain")
+
     args = parser.parse_args(argv)
 
     if args.verbose:
@@ -381,6 +408,10 @@ def main(argv: list[str] | None = None):
         _cmd_review_queue(repo, args)
     elif args.command == "challenger-trial":
         _cmd_challenger_trial(repo, args)
+    elif args.command == "ingest":
+        _cmd_ingest(repo, args)
+    elif args.command == "kg":
+        _cmd_kg(repo, args)
 
 
 def _cmd_run(repo: Repository, args):
@@ -1839,3 +1870,115 @@ def _cmd_challenger_trial(repo: Repository, args):
 
     else:
         print("Usage: python -m breakthrough_engine challenger-trial [build|show]")
+
+
+# ---------------------------------------------------------------------------
+# Phase 10A: Ingest
+# ---------------------------------------------------------------------------
+
+def _cmd_ingest(repo: Repository, args):
+    if not hasattr(args, "ingest_command") or not args.ingest_command:
+        print("Usage: python -m breakthrough_engine ingest [run|status]")
+        return
+
+    if args.ingest_command == "run":
+        from .paper_ingestion import PaperIngestionWorker, IngestionConfig
+
+        config = IngestionConfig(
+            domain=args.domain,
+            limit=args.limit,
+            compress=args.compress,
+        )
+        worker = PaperIngestionWorker(repo, config=config)
+
+        if args.source == "findings":
+            stats = worker.ingest_from_findings(domain=args.domain, limit=args.limit)
+        else:
+            stats = worker.ingest_from_evidence_items(domain=args.domain, limit=args.limit)
+
+        print(f"Ingestion complete: {json.dumps(stats, indent=2)}")
+
+    elif args.ingest_command == "status":
+        domain = args.domain if hasattr(args, "domain") else ""
+        total = repo.count_paper_segments(domain=domain)
+        by_status = {}
+        for st in ("ingested", "scored", "extracted", "extraction_failed", "skipped"):
+            count = repo.count_paper_segments(domain=domain, status=st)
+            if count > 0:
+                by_status[st] = count
+        print(f"Paper segments (domain={domain or 'all'}): {total} total")
+        for status, count in by_status.items():
+            print(f"  {status}: {count}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 10A: KG
+# ---------------------------------------------------------------------------
+
+def _cmd_kg(repo: Repository, args):
+    if not hasattr(args, "kg_command") or not args.kg_command:
+        print("Usage: python -m breakthrough_engine kg [extract|stats|compare|writeback-status]")
+        return
+
+    if args.kg_command == "extract":
+        from .kg_extractor import EntityRelationExtractor, ExtractionConfig
+
+        config = ExtractionConfig()
+        extractor = EntityRelationExtractor(repo, config=config, mock=args.mock)
+        stats = extractor.extract_from_segments(
+            domain=args.domain, limit=args.limit,
+        )
+        print(f"Extraction complete: {json.dumps(stats, indent=2)}")
+
+    elif args.kg_command == "stats":
+        entities = repo.list_kg_entities(limit=1000)
+        relations = repo.list_kg_relations(limit=1000)
+        segments = repo.count_paper_segments()
+
+        print("KG Statistics:")
+        print(f"  Paper segments: {segments}")
+        print(f"  Entities: {len(entities)}")
+        print(f"  Relations: {len(relations)}")
+
+        if entities:
+            type_counts: dict[str, int] = {}
+            for e in entities:
+                t = e.get("entity_type", "unknown")
+                type_counts[t] = type_counts.get(t, 0) + 1
+            print("  Entity types:")
+            for t, c in sorted(type_counts.items(), key=lambda x: -x[1]):
+                print(f"    {t}: {c}")
+
+    elif args.kg_command == "compare":
+        from .evidence_source import DemoFixtureSource
+        from .kg_retrieval import KGEvidenceSource
+        from .kg_comparison import RetrievalComparisonHarness
+
+        current = DemoFixtureSource()
+        shadow = KGEvidenceSource(repo)
+        harness = RetrievalComparisonHarness(current, shadow)
+        result = harness.compare(domain=args.domain, limit=args.limit)
+
+        import os
+        os.makedirs(args.output_dir, exist_ok=True)
+        harness.export_json(result, os.path.join(args.output_dir, "comparison.json"))
+        harness.export_markdown(result, os.path.join(args.output_dir, "comparison.md"))
+        harness.export_csv(result, os.path.join(args.output_dir, "comparison.csv"))
+
+        print(f"Comparison verdict: {result.verdict}")
+        for note in result.notes:
+            print(f"  - {note}")
+        print(f"Artifacts: {args.output_dir}/")
+
+    elif args.kg_command == "writeback-status":
+        domain = args.domain if hasattr(args, "domain") else ""
+        from .kg_writer import list_active_findings, list_shadow_findings
+        active = list_active_findings(repo, domain=domain)
+        shadow = list_shadow_findings(repo, domain=domain)
+        print(f"KG Findings (domain={domain or 'all'}):")
+        print(f"  Active: {len(active)}")
+        print(f"  Shadow: {len(shadow)}")
+        for f in active[:5]:
+            print(f"    [{f['id'][:8]}] {f.get('title', '')[:60]}")
+        for f in shadow[:5]:
+            print(f"    [{f['id'][:8]}] (shadow) {f.get('title', '')[:60]}")

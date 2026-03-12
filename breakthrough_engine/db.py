@@ -739,6 +739,92 @@ CREATE TABLE IF NOT EXISTS bt_policy_promotion_log (
 CREATE INDEX IF NOT EXISTS idx_bt_ppl_policy ON bt_policy_promotion_log(policy_id);
 CREATE INDEX IF NOT EXISTS idx_bt_ppl_event ON bt_policy_promotion_log(event_type);
 """,
+    12: """
+-- Phase 10A: Knowledge Graph shadow foundation tables.
+
+-- Paper segments staging layer.
+CREATE TABLE IF NOT EXISTS bt_paper_segments (
+    id TEXT PRIMARY KEY,
+    paper_id TEXT NOT NULL,
+    source_id TEXT NOT NULL DEFAULT '',
+    segment_index INTEGER NOT NULL DEFAULT 0,
+    raw_text TEXT NOT NULL DEFAULT '',
+    compressed_text TEXT DEFAULT '',
+    relevance_score REAL DEFAULT 0.0,
+    domain TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'ingested',
+    embedding_json TEXT DEFAULT NULL,
+    ingested_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    summarized_at TEXT DEFAULT NULL,
+    error_message TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_bt_ps_paper ON bt_paper_segments(paper_id);
+CREATE INDEX IF NOT EXISTS idx_bt_ps_domain ON bt_paper_segments(domain);
+CREATE INDEX IF NOT EXISTS idx_bt_ps_status ON bt_paper_segments(status);
+
+-- KG entities extracted from paper segments.
+CREATE TABLE IF NOT EXISTS bt_kg_entities (
+    id TEXT PRIMARY KEY,
+    segment_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL DEFAULT '',
+    entity_type TEXT NOT NULL DEFAULT 'concept',
+    name TEXT NOT NULL,
+    canonical_name TEXT NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    domain TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'extracted',
+    extracted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    error_message TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_bt_kge_segment ON bt_kg_entities(segment_id);
+CREATE INDEX IF NOT EXISTS idx_bt_kge_type ON bt_kg_entities(entity_type);
+CREATE INDEX IF NOT EXISTS idx_bt_kge_name ON bt_kg_entities(canonical_name);
+CREATE INDEX IF NOT EXISTS idx_bt_kge_domain ON bt_kg_entities(domain);
+
+-- KG relations extracted from paper segments.
+CREATE TABLE IF NOT EXISTS bt_kg_relations (
+    id TEXT PRIMARY KEY,
+    segment_id TEXT NOT NULL,
+    paper_id TEXT NOT NULL DEFAULT '',
+    source_entity_id TEXT NOT NULL,
+    target_entity_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT 'related_to',
+    description TEXT DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    domain TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'extracted',
+    extracted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    error_message TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_bt_kgr_segment ON bt_kg_relations(segment_id);
+CREATE INDEX IF NOT EXISTS idx_bt_kgr_source ON bt_kg_relations(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_bt_kgr_target ON bt_kg_relations(target_entity_id);
+CREATE INDEX IF NOT EXISTS idx_bt_kgr_type ON bt_kg_relations(relation_type);
+CREATE INDEX IF NOT EXISTS idx_bt_kgr_domain ON bt_kg_relations(domain);
+
+-- KG findings: write-back of published candidates for temporal knowledge.
+CREATE TABLE IF NOT EXISTS bt_kg_findings (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    publication_id TEXT DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    statement TEXT NOT NULL DEFAULT '',
+    mechanism TEXT NOT NULL DEFAULT '',
+    domain TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    valid_from TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    valid_until TEXT DEFAULT NULL,
+    superseded_by TEXT DEFAULT NULL,
+    source_evidence_ids TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_kgf_candidate ON bt_kg_findings(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_kgf_domain ON bt_kg_findings(domain);
+CREATE INDEX IF NOT EXISTS idx_bt_kgf_status ON bt_kg_findings(status);
+CREATE INDEX IF NOT EXISTS idx_bt_kgf_valid ON bt_kg_findings(valid_from);
+""",
 }
 
 
@@ -1705,3 +1791,207 @@ class Repository:
                 "SELECT * FROM bt_policy_promotion_log ORDER BY created_at DESC LIMIT 100"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # -- Phase 10A: Paper segments --
+
+    def save_paper_segment(self, seg: dict) -> None:
+        """Insert or replace a paper segment."""
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_paper_segments
+               (id, paper_id, source_id, segment_index, raw_text,
+                compressed_text, relevance_score, domain, status,
+                embedding_json, ingested_at, summarized_at, error_message)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                seg["id"], seg["paper_id"], seg.get("source_id", ""),
+                seg.get("segment_index", 0), seg.get("raw_text", ""),
+                seg.get("compressed_text", ""), seg.get("relevance_score", 0.0),
+                seg.get("domain", ""), seg.get("status", "ingested"),
+                seg.get("embedding_json"), seg.get("ingested_at", _utcnow()),
+                seg.get("summarized_at"), seg.get("error_message", ""),
+            ),
+        )
+        self.db.commit()
+
+    def list_paper_segments(
+        self, domain: str = "", status: str = "", paper_id: str = "", limit: int = 100,
+    ) -> list[dict]:
+        """List paper segments with optional filters."""
+        conditions: list[str] = []
+        params: list = []
+        if domain:
+            conditions.append("domain = ?")
+            params.append(domain)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if paper_id:
+            conditions.append("paper_id = ?")
+            params.append(paper_id)
+        where = " AND ".join(conditions) if conditions else "1=1"
+        params.append(limit)
+        rows = self.db.execute(
+            f"SELECT * FROM bt_paper_segments WHERE {where} ORDER BY ingested_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_segment_status(self, segment_id: str, status: str, error: str = "") -> None:
+        self.db.execute(
+            "UPDATE bt_paper_segments SET status=?, error_message=? WHERE id=?",
+            (status, error, segment_id),
+        )
+        self.db.commit()
+
+    def count_paper_segments(self, domain: str = "", status: str = "") -> int:
+        conditions: list[str] = []
+        params: list = []
+        if domain:
+            conditions.append("domain = ?")
+            params.append(domain)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        where = " AND ".join(conditions) if conditions else "1=1"
+        row = self.db.execute(
+            f"SELECT COUNT(*) as cnt FROM bt_paper_segments WHERE {where}", params
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+    # -- Phase 10A: KG entities --
+
+    def save_kg_entity(self, entity: dict) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_kg_entities
+               (id, segment_id, paper_id, entity_type, name, canonical_name,
+                description, confidence, domain, status, extracted_at, error_message)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                entity["id"], entity["segment_id"], entity.get("paper_id", ""),
+                entity.get("entity_type", "concept"), entity["name"],
+                entity.get("canonical_name", entity["name"].lower().strip()),
+                entity.get("description", ""), entity.get("confidence", 0.5),
+                entity.get("domain", ""), entity.get("status", "extracted"),
+                entity.get("extracted_at", _utcnow()), entity.get("error_message", ""),
+            ),
+        )
+        self.db.commit()
+
+    def list_kg_entities(
+        self, domain: str = "", entity_type: str = "", limit: int = 200,
+    ) -> list[dict]:
+        conditions: list[str] = []
+        params: list = []
+        if domain:
+            conditions.append("domain = ?")
+            params.append(domain)
+        if entity_type:
+            conditions.append("entity_type = ?")
+            params.append(entity_type)
+        where = " AND ".join(conditions) if conditions else "1=1"
+        params.append(limit)
+        rows = self.db.execute(
+            f"SELECT * FROM bt_kg_entities WHERE {where} ORDER BY confidence DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_kg_entities_for_segment(self, segment_id: str) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_kg_entities WHERE segment_id=? ORDER BY confidence DESC",
+            (segment_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 10A: KG relations --
+
+    def save_kg_relation(self, rel: dict) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_kg_relations
+               (id, segment_id, paper_id, source_entity_id, target_entity_id,
+                relation_type, description, confidence, domain, status,
+                extracted_at, error_message)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                rel["id"], rel["segment_id"], rel.get("paper_id", ""),
+                rel["source_entity_id"], rel["target_entity_id"],
+                rel.get("relation_type", "related_to"),
+                rel.get("description", ""), rel.get("confidence", 0.5),
+                rel.get("domain", ""), rel.get("status", "extracted"),
+                rel.get("extracted_at", _utcnow()), rel.get("error_message", ""),
+            ),
+        )
+        self.db.commit()
+
+    def list_kg_relations(
+        self, domain: str = "", relation_type: str = "", limit: int = 200,
+    ) -> list[dict]:
+        conditions: list[str] = []
+        params: list = []
+        if domain:
+            conditions.append("domain = ?")
+            params.append(domain)
+        if relation_type:
+            conditions.append("relation_type = ?")
+            params.append(relation_type)
+        where = " AND ".join(conditions) if conditions else "1=1"
+        params.append(limit)
+        rows = self.db.execute(
+            f"SELECT * FROM bt_kg_relations WHERE {where} ORDER BY confidence DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_kg_relations_for_entity(self, entity_id: str) -> list[dict]:
+        rows = self.db.execute(
+            """SELECT * FROM bt_kg_relations
+               WHERE source_entity_id=? OR target_entity_id=?
+               ORDER BY confidence DESC""",
+            (entity_id, entity_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Phase 10A: KG findings (write-back) --
+
+    def save_kg_finding(self, finding: dict) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_kg_findings
+               (id, candidate_id, publication_id, title, statement, mechanism,
+                domain, confidence, valid_from, valid_until, superseded_by,
+                source_evidence_ids, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                finding["id"], finding["candidate_id"],
+                finding.get("publication_id", ""),
+                finding.get("title", ""), finding.get("statement", ""),
+                finding.get("mechanism", ""), finding.get("domain", ""),
+                finding.get("confidence", 0.5),
+                finding.get("valid_from", _utcnow()),
+                finding.get("valid_until"), finding.get("superseded_by"),
+                json.dumps(finding.get("source_evidence_ids", [])),
+                finding.get("status", "active"),
+            ),
+        )
+        self.db.commit()
+
+    def list_kg_findings(
+        self, domain: str = "", status: str = "active", limit: int = 100,
+    ) -> list[dict]:
+        conditions = ["status = ?"]
+        params: list = [status]
+        if domain:
+            conditions.append("domain = ?")
+            params.append(domain)
+        where = " AND ".join(conditions)
+        params.append(limit)
+        rows = self.db.execute(
+            f"SELECT * FROM bt_kg_findings WHERE {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_kg_finding(self, finding_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_kg_findings WHERE id=?", (finding_id,)
+        ).fetchone()
+        return dict(row) if row else None
