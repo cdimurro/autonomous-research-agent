@@ -38,14 +38,14 @@ RELATION_TYPES = frozenset({
 _EXTRACTION_PROMPT = """Extract scientific entities and relations from the text below.
 
 Return ONLY valid JSON with this exact structure:
-{
+{{
   "entities": [
-    {"name": "entity name", "type": "one of: material|compound|mechanism|process|property|organism|gene|protein|device|method|concept|metric|phenomenon|structure|technology", "description": "brief description"}
+    {{"name": "entity name", "type": "one of: material|compound|mechanism|process|property|organism|gene|protein|device|method|concept|metric|phenomenon|structure|technology", "description": "brief description"}}
   ],
   "relations": [
-    {"source": "entity name 1", "target": "entity name 2", "type": "one of: causes|inhibits|enhances|composed_of|measured_by|used_in|produces|degrades|catalyzes|related_to|enables|requires|competes_with|analog_of", "description": "brief description of the relation"}
+    {{"source": "entity name 1", "target": "entity name 2", "type": "one of: causes|inhibits|enhances|composed_of|measured_by|used_in|produces|degrades|catalyzes|related_to|enables|requires|competes_with|analog_of", "description": "brief description of the relation"}}
   ]
-}
+}}
 
 Rules:
 - Extract only entities that are specific scientific concepts, not generic words.
