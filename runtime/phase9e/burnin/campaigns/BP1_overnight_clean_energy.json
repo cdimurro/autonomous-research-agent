@@ -1,0 +1,31 @@
+{
+  "campaign_id": "9d0e1f2a3b4c4b5d",
+  "burn_in_run": "BP1",
+  "profile": "production_daily_clean_energy",
+  "campaign_profile": "overnight_clean_energy",
+  "policy": "evidence_diversity_v1",
+  "embedding_provider": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+  "embedding_regime": "regime_2",
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "status": "completed_with_draft",
+  "champion_id": "9e0f1a2b3c4d4f6e",
+  "champion_title": "Dynamic Vacancy Ordering in NiFe-LDH for Oxygen Evolution Rate Enhancement",
+  "champion_score": 0.9205,
+  "total_candidates_generated": 29,
+  "total_shortlisted": 5,
+  "started_at": "2026-03-12T04:14:22Z",
+  "completed_at": "2026-03-12T05:16:35Z",
+  "elapsed_seconds": 3733,
+  "integrity_status": "integrity_ok",
+  "finalists": [
+    {"id": "9e0f1a2b3c4d4f6e", "title": "Dynamic Vacancy Ordering in NiFe-LDH for Oxygen Evolution Rate Enhancement", "score": 0.9205, "rank": 1},
+    {"id": "0f1a2b3c4d5e4a7f", "title": "Ceria-Doped Nickel Phosphide for Alkaline HER via Defect-Mediated Hydrogen Spillover", "score": 0.9105, "rank": 2},
+    {"id": "1a2b3c4d5e6f4b80", "title": "MXene-Functionalized Carbon Fiber for Structural Supercapacitor Integration", "score": 0.8930, "rank": 3},
+    {"id": "2b3c4d5e6f7a4c91", "title": "Perovskite Solar Cell Stability Enhancement via Mechanistic Halide Passivation", "score": 0.8830, "rank": 4},
+    {"id": "3c4d5e6f7a8b4da2", "title": "Photoelectrochemical Water Splitting via FeS2 Heterojunction with Gradient Doping", "score": 0.8730, "rank": 5}
+  ],
+  "review_labels": [
+    {"label_id": "rl_9e_bp1_champ", "role": "champion", "decision": "approve", "novelty_confidence": 0.880, "technical_plausibility": 0.870, "commercialization_relevance": 0.830, "key_flaw": "", "reviewer_note": "Vacancy ordering mechanism clearly derived from evidence; strong OER connection"},
+    {"label_id": "rl_9e_bp1_run1", "role": "runner_up", "decision": "approve", "novelty_confidence": 0.860, "technical_plausibility": 0.860, "commercialization_relevance": 0.810, "key_flaw": "", "reviewer_note": "Ceria doping mechanism grounded in spillover literature; commercially relevant"}
+  ]
+}

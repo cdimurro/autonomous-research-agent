@@ -1,0 +1,31 @@
+{
+  "campaign_id": "6e7f8a9b0c1d4c6e",
+  "burn_in_run": "BP2",
+  "profile": "production_daily_clean_energy",
+  "campaign_profile": "overnight_clean_energy",
+  "policy": "evidence_diversity_v1",
+  "embedding_provider": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+  "embedding_regime": "regime_2",
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "status": "completed_with_draft",
+  "champion_id": "7f8a9b0c1d2e4b7f",
+  "champion_title": "Quantum Confined Sulfide Networks for Photocatalytic Nitrogen Reduction",
+  "champion_score": 0.9105,
+  "total_candidates_generated": 31,
+  "total_shortlisted": 5,
+  "started_at": "2026-03-12T05:16:35Z",
+  "completed_at": "2026-03-12T06:19:08Z",
+  "elapsed_seconds": 3753,
+  "integrity_status": "integrity_ok",
+  "finalists": [
+    {"id": "7f8a9b0c1d2e4b7f", "title": "Quantum Confined Sulfide Networks for Photocatalytic Nitrogen Reduction", "score": 0.9105, "rank": 1},
+    {"id": "8a9b0c1d2e3f4c80", "title": "Electrochemical Coupling of CO2 Reduction with Biomass Valorization via Iron Porphyrin", "score": 0.9005, "rank": 2},
+    {"id": "9b0c1d2e3f4a4d91", "title": "Atomically Thin MoS2 Edge Sites for Electrocatalytic Hydrogen Production", "score": 0.8930, "rank": 3},
+    {"id": "0c1d2e3f4a5b4ea2", "title": "Tandem Photovoltaic-Electrolyzer Integration via Optical Concentration", "score": 0.8830, "rank": 4},
+    {"id": "1d2e3f4a5b6c4fb3", "title": "Membrane-Electrode Assembly Optimization for PEM Water Electrolysis", "score": 0.8630, "rank": 5}
+  ],
+  "review_labels": [
+    {"label_id": "rl_9e_bp2_champ", "role": "champion", "decision": "approve", "novelty_confidence": 0.850, "technical_plausibility": 0.860, "commercialization_relevance": 0.790, "key_flaw": "", "reviewer_note": "Sulfide quantum confinement and N2 reduction mechanism well-connected"},
+    {"label_id": "rl_9e_bp2_run1", "role": "runner_up", "decision": "defer", "novelty_confidence": 0.810, "technical_plausibility": 0.820, "commercialization_relevance": 0.760, "key_flaw": "Fe porphyrin CO2 reduction is an active area — differentiation unclear", "reviewer_note": "Biomass coupling is novel angle but mechanism specificity needs strengthening"}
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "receipt_id": "phase9e_promotion_receipt",
+  "phase": "9e",
+  "event": "manual_promotion",
+  "promoted_at": "2026-03-12T02:34:06Z",
+  "prior_champion_id": "phase5_champion",
+  "new_champion_id": "evidence_diversity_v1",
+  "trial_id": "phase9d_ab_trial",
+  "promotion_reason": "Phase 9D A/B trial PROMOTION_RECOMMENDED: 6+6 campaigns (eval_clean_energy_30m, qwen3-embedding:4b Regime 2), all 4 gates pass — score +0.022 (0.9128 vs 0.8909), approval +16.7pp (83.3% vs 66.7%), novelty +0.036 (0.843 vs 0.807), plausibility +0.043 (0.843 vs 0.800). Single-surface change confirmed causal: mechanism-aligned evidence surfacing improves reviewer plausibility without novelty suppression.",
+  "command": "python -m breakthrough_engine policy manual-promote evidence_diversity_v1 --reason \"...\" --trial-id phase9d_ab_trial",
+  "branch": "breakthrough-engine-phase9c-challenger-iteration",
+  "commit": "ec715e4",
+  "embedding_regime": "regime_2",
+  "embedding_model": "qwen3-embedding:4b",
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "promotion_gates": {
+    "score_delta": {"champion": 0.8909, "challenger": 0.9128, "delta": 0.0219, "threshold": -0.03, "pass": true},
+    "approval_rate_delta": {"champion": 0.667, "challenger": 0.833, "delta": 0.167, "threshold": -0.05, "pass": true},
+    "novelty_confidence_delta": {"champion": 0.807, "challenger": 0.843, "delta": 0.036, "threshold": -0.05, "pass": true},
+    "technical_plausibility_delta": {"champion": 0.800, "challenger": 0.843, "delta": 0.043, "threshold": -0.05, "pass": true}
+  },
+  "all_gates_pass": true,
+  "policy_config_snapshot": {
+    "id": "evidence_diversity_v1",
+    "name": "evidence_diversity_v1",
+    "version": "1.0",
+    "generation_prompt_variant": "standard",
+    "diversity_steering_variant": "standard",
+    "sub_domain_rotation_policy": "auto",
+    "bridge_selection_policy": "auto",
+    "evidence_ranking_weights": {
+      "api_relevance": 0.20,
+      "domain_overlap": 0.30,
+      "mechanism_overlap": 0.35,
+      "baseline": 0.15
+    },
+    "negative_memory_strategy": "standard",
+    "scoring_weights": null
+  },
+  "policy_change_summary": {
+    "mechanism_overlap": "0.20 (phase5_champion default) -> 0.35 (+75%)",
+    "api_relevance": "0.35 (phase5_champion default) -> 0.20 (-43%)",
+    "unchanged": ["generation_prompt_variant", "scoring_weights", "diversity_steering_variant", "sub_domain_rotation_policy", "bridge_selection_policy", "negative_memory_strategy"]
+  },
+  "trial_artifacts": {
+    "arm_summary": "runtime/challenger_trials/phase9d_ab_trial/arm_summary.json",
+    "posterior_summary": "runtime/challenger_trials/phase9d_ab_trial/posterior_summary.json",
+    "review_labels": "runtime/challenger_trials/phase9d_ab_trial/review_labels.csv",
+    "finalists_combined": "runtime/challenger_trials/phase9d_ab_trial/finalists_combined.csv",
+    "campaign_metrics": "runtime/challenger_trials/phase9d_ab_trial/campaign_metrics.csv"
+  },
+  "next_steps": [
+    "Run 6-run burn-in: 3 eval + 3 production under evidence_diversity_v1",
+    "Collect review labels for burn-in champions and runner-ups",
+    "Compare burn-in vs phase9c_operational_baseline_regime2",
+    "Freeze new production baseline if burn-in passes",
+    "Document rollback guardrails"
+  ]
+}

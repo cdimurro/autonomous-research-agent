@@ -135,6 +135,13 @@ def main(argv: list[str] | None = None):
     policy_promote_p = policy_sub.add_parser("promote", help="Promote challenger to probation/champion")
     policy_promote_p.add_argument("policy_id", help="Challenger policy ID")
     policy_promote_p.add_argument("--reason", default="", help="Promotion reason")
+    policy_manual_promote_p = policy_sub.add_parser(
+        "manual-promote",
+        help="Manually promote a challenger directly to champion (bypasses trial count — use after external A/B trial)"
+    )
+    policy_manual_promote_p.add_argument("policy_id", help="Challenger policy ID to promote")
+    policy_manual_promote_p.add_argument("--reason", required=True, help="Promotion reason (required)")
+    policy_manual_promote_p.add_argument("--trial-id", default="", help="Trial ID supporting this promotion")
     policy_rollback_p = policy_sub.add_parser("rollback", help="Roll back champion to previous")
     policy_rollback_p.add_argument("--reason", default="", help="Rollback reason")
     # Phase 8B: register a challenger
@@ -960,7 +967,7 @@ def _cmd_baseline(repo: Repository, args):
 
 def _cmd_policy(repo: Repository, args):
     if not hasattr(args, "policy_command") or not args.policy_command:
-        print("Usage: python -m breakthrough_engine policy [list|show|promote|rollback]")
+        print("Usage: python -m breakthrough_engine policy [list|show|promote|manual-promote|rollback|register]")
         return
     from .policy_registry import PolicyRegistry
     registry = PolicyRegistry(repo)
@@ -999,19 +1006,71 @@ def _cmd_policy(repo: Repository, args):
             print(f"    [{t.trial_type}] {t.outcome}")
 
     elif args.policy_command == "promote":
-        ok = registry.promote_to_probation(args.policy_id, evidence={"reason": args.reason})
+        ok, reason_msg = registry.promote_to_probation(args.policy_id, evidence={"reason": args.reason})
         if ok:
             print(f"Policy {args.policy_id} promoted to probation.")
         else:
-            print(f"Promotion failed: criteria not met or insufficient trials.")
+            print(f"Promotion failed: {reason_msg}")
+            sys.exit(1)
+
+    elif args.policy_command == "manual-promote":
+        # Manual promotion: bypass trial count, promote directly to champion.
+        # Used after an external A/B trial with a documented PROMOTION_RECOMMENDED verdict.
+        import json as _json
+        from .policy_registry import PolicyConfig
+
+        reason = args.reason
+        policy_id = args.policy_id
+        trial_id = getattr(args, "trial_id", "")
+
+        # Auto-register from config file if not in DB
+        policy = registry.get_policy(policy_id)
+        if policy is None:
+            config_path = os.path.join("config", "policies", f"{policy_id}.json")
+            if os.path.exists(config_path):
+                with open(config_path) as _f:
+                    file_config = _json.load(_f)
+                pc = PolicyConfig.from_dict({**file_config, "id": policy_id})
+                registry.register(pc)
+                print(f"Auto-registered {policy_id!r} from {config_path}")
+            else:
+                print(f"Error: policy {policy_id!r} not found in DB or config/policies/", file=sys.stderr)
+                sys.exit(1)
+
+        # Guard: already champion
+        status = registry.get_policy_status(policy_id)
+        if status == "champion":
+            print(f"Policy {policy_id} is already champion — nothing to do.")
+            return
+
+        # Step 1: set probation flag (bypass trial_count gate — evidence is external A/B trial)
+        repo.db.execute("UPDATE bt_policies SET is_probation=1 WHERE id=?", (policy_id,))
+        repo.db.commit()
+
+        # Step 2: promote from probation to champion
+        evidence = {"manual_promotion": True, "trial_id": trial_id, "reason": reason}
+        ok, msg = registry.promote_to_champion_reviewed(
+            policy_id,
+            evidence=evidence,
+            reason=reason,
+        )
+        if ok:
+            champion = registry.get_champion()
+            print(f"Policy {policy_id!r} manually promoted to champion.")
+            print(f"  Reason : {reason}")
+            if trial_id:
+                print(f"  Trial ID: {trial_id}")
+            print(f"  Champion: {champion.name} (id={champion.id})")
+        else:
+            print(f"Manual promotion failed: {msg}", file=sys.stderr)
             sys.exit(1)
 
     elif args.policy_command == "rollback":
-        ok = registry.rollback_champion(reason=args.reason or "operator rollback")
+        ok, reason_msg = registry.rollback_champion(reason=args.reason or "operator rollback")
         if ok:
-            print("Champion rolled back to previous.")
+            print(f"Champion rolled back to previous. {reason_msg}")
         else:
-            print("Rollback failed: no previous champion found.")
+            print(f"Rollback failed: {reason_msg}")
             sys.exit(1)
 
     elif args.policy_command == "register":

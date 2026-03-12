@@ -191,7 +191,7 @@ class TestPhase9CBDocs:
         path = REPO_ROOT / "docs" / "BREAKTHROUGH_ENGINE_PHASE9D_READY.md"
         content = path.read_text()
         assert "evidence_diversity_v1" in content
-        assert "phase9c_ab_trial" in content
+        assert "phase9d_ab_trial" in content
         assert "eval_clean_energy_30m" in content
 
     def test_phase9d_ready_doc_has_promotion_gates(self):

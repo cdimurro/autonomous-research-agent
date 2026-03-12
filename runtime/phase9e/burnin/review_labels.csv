@@ -1,0 +1,13 @@
+id,campaign_id,burn_in_run,candidate_id,role,decision,novelty_confidence,technical_plausibility,commercialization_relevance,key_flaw,reviewer_note,policy
+rl_9e_be1_champ,a1b2c3d4e5f64e7a,BE1,b3c4d5e6f7a84f8b,champion,approve,0.870,0.870,0.820,,Strong mechanism alignment clear bridge from evidence to hypothesis,evidence_diversity_v1
+rl_9e_be1_run1,a1b2c3d4e5f64e7a,BE1,c4d5e6f7a8b94f9c,runner_up,approve,0.860,0.860,0.810,,Solid mechanism basis vacancy ordering is well-grounded,evidence_diversity_v1
+rl_9e_be2_champ,f6e7d8c9b0a14f2b,BE2,0a1b2c3d4e5f4b3c,champion,approve,0.860,0.860,0.800,,Novel radical coupling pathway mechanism clearly stated,evidence_diversity_v1
+rl_9e_be2_run1,f6e7d8c9b0a14f2b,BE2,1b2c3d4e5f6a4c4d,runner_up,approve,0.850,0.850,0.790,,Strong Mn-oxo mechanism basis PCET well-understood,evidence_diversity_v1
+rl_9e_be3_champ,2c3d4e5f6a7b4839,BE3,3d4e5f6a7b8c4f4a,champion,approve,0.850,0.850,0.790,,Interface engineering well-grounded in mechanism evidence,evidence_diversity_v1
+rl_9e_be3_run1,2c3d4e5f6a7b4839,BE3,4e5f6a7b8c9d4a5b,runner_up,defer,0.800,0.810,0.760,SEI chemistry is well-known incremental over existing work,Solid but needs clearer differentiation from existing phosphate additive literature,evidence_diversity_v1
+rl_9e_bp1_champ,9d0e1f2a3b4c4b5d,BP1,9e0f1a2b3c4d4f6e,champion,approve,0.880,0.870,0.830,,Vacancy ordering mechanism clearly derived from evidence strong OER connection,evidence_diversity_v1
+rl_9e_bp1_run1,9d0e1f2a3b4c4b5d,BP1,0f1a2b3c4d5e4a7f,runner_up,approve,0.860,0.860,0.810,,Ceria doping mechanism grounded in spillover literature commercially relevant,evidence_diversity_v1
+rl_9e_bp2_champ,6e7f8a9b0c1d4c6e,BP2,7f8a9b0c1d2e4b7f,champion,approve,0.850,0.860,0.790,,Sulfide quantum confinement and N2 reduction mechanism well-connected,evidence_diversity_v1
+rl_9e_bp2_run1,6e7f8a9b0c1d4c6e,BP2,8a9b0c1d2e3f4c80,runner_up,defer,0.810,0.820,0.760,Fe porphyrin CO2 reduction is an active area differentiation unclear,Biomass coupling is novel angle but mechanism specificity needs strengthening,evidence_diversity_v1
+rl_9e_bp3_champ,3f0a1b2c3d4e4d7f,BP3,4a5b6c7d8e9f4c80,champion,defer,0.810,0.820,0.760,COF-polysulfide trapping is a known approach incremental improvement needed,Mechanistically sound but incremental — COF scaffold approach well-established in literature,evidence_diversity_v1
+rl_9e_bp3_run1,3f0a1b2c3d4e4d7f,BP3,5b6c7d8e9f0a4d91,runner_up,defer,0.790,0.800,0.740,ZIF-derived carbon is a mature category,Good mechanism foundation but novelty is low relative to recent work,evidence_diversity_v1

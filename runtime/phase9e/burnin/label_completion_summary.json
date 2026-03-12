@@ -1,0 +1,27 @@
+{
+  "phase": "9e",
+  "burn_in_id": "phase9e_burnin",
+  "total_campaigns": 6,
+  "labeled_champions": 6,
+  "labeled_runner_ups": 6,
+  "total_labeled": 12,
+  "completeness_pct": 100.0,
+  "champion_approve_count": 5,
+  "champion_defer_count": 1,
+  "champion_reject_count": 0,
+  "champion_approval_rate": 0.833,
+  "runner_up_approve_count": 3,
+  "runner_up_defer_count": 3,
+  "runner_up_reject_count": 0,
+  "runner_up_approval_rate": 0.5,
+  "by_run": {
+    "BE1": {"champion": "approve", "runner_up": "approve"},
+    "BE2": {"champion": "approve", "runner_up": "approve"},
+    "BE3": {"champion": "approve", "runner_up": "defer"},
+    "BP1": {"champion": "approve", "runner_up": "approve"},
+    "BP2": {"champion": "approve", "runner_up": "defer"},
+    "BP3": {"champion": "defer", "runner_up": "defer"}
+  },
+  "status": "COMPLETE",
+  "created_at": "2026-03-12T08:00:00Z"
+}

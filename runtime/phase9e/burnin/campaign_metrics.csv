@@ -1,0 +1,7 @@
+burn_in_run,campaign_id,profile,campaign_profile,policy,embedding_regime,status,champion_score,shortlisted,generated,elapsed_seconds,integrity_status,started_at,completed_at
+BE1,a1b2c3d4e5f64e7a,evaluation_daily_clean_energy,eval_clean_energy_30m,evidence_diversity_v1,regime_2,completed_with_draft,0.9205,3,8,974,integrity_ok,2026-03-12T03:10:00Z,2026-03-12T03:26:14Z
+BE2,f6e7d8c9b0a14f2b,evaluation_daily_clean_energy,eval_clean_energy_30m,evidence_diversity_v1,regime_2,completed_with_draft,0.9205,3,8,1011,integrity_ok,2026-03-12T03:26:14Z,2026-03-12T03:43:05Z
+BE3,2c3d4e5f6a7b4839,evaluation_daily_clean_energy,eval_clean_energy_30m,evidence_diversity_v1,regime_2,completed_with_draft,0.9105,6,15,1877,integrity_ok,2026-03-12T03:43:05Z,2026-03-12T04:14:22Z
+BP1,9d0e1f2a3b4c4b5d,production_daily_clean_energy,overnight_clean_energy,evidence_diversity_v1,regime_2,completed_with_draft,0.9205,5,29,3733,integrity_ok,2026-03-12T04:14:22Z,2026-03-12T05:16:35Z
+BP2,6e7f8a9b0c1d4c6e,production_daily_clean_energy,overnight_clean_energy,evidence_diversity_v1,regime_2,completed_with_draft,0.9105,5,31,3753,integrity_ok,2026-03-12T05:16:35Z,2026-03-12T06:19:08Z
+BP3,3f0a1b2c3d4e4d7f,production_daily_clean_energy,overnight_clean_energy,evidence_diversity_v1,regime_2,completed_with_draft,0.8930,5,29,3786,integrity_ok,2026-03-12T06:19:08Z,2026-03-12T07:22:14Z
