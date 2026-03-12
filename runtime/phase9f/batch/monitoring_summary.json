@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-03-12T06:14:58Z",
+  "baseline_id": "phase9e_promoted_production_baseline_regime2",
+  "baseline_mean_score": 0.9126,
+  "baseline_approval_rate": 0.833,
+  "baseline_novelty": 0.853,
+  "baseline_plausibility": 0.855,
+  "phase9e_burnin": {
+    "n": 6,
+    "mean": 0.9126,
+    "approval_rate": 0.8333333333333334,
+    "approve": 5,
+    "defer": 1,
+    "reject": 0
+  },
+  "phase9f_shadow": {
+    "n": 6,
+    "mean": 0.9132,
+    "approval_rate": 1.0,
+    "approve": 6,
+    "defer": 0,
+    "reject": 0
+  },
+  "phase9f_formal_eval_9F_E1": {
+    "campaign_id": "9e5d26795855404c",
+    "profile": "evaluation_daily_clean_energy",
+    "champion": "Waste Heat-Driven Regeneration of Perovskite-Sorbent Hybrid DAC Units",
+    "score": 0.8855,
+    "finalists": 6,
+    "generated": 11,
+    "decision": "approve",
+    "elapsed_minutes": 24.4,
+    "embedding": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+    "integrity_ok": true
+  },
+  "phase9f_formal_prod_9F_P1": {
+    "campaign_id": "2395a2325d554f20",
+    "profile": "production_daily_clean_energy",
+    "champion": "Anion-Membrane Inspired Hydrophobic Insulation for Moisture-Resistant Walls",
+    "score": 0.913,
+    "finalists": 5,
+    "generated": 31,
+    "decision": "approve",
+    "elapsed_minutes": 66.6,
+    "embedding": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+    "integrity_ok": true
+  },
+  "phase9f_formal_combined": {
+    "n": 2,
+    "mean": 0.8992,
+    "approval_rate": 1.0,
+    "approve": 2,
+    "defer": 0,
+    "reject": 0
+  },
+  "phase9f_all_combined": {
+    "n": 8,
+    "mean": 0.9097,
+    "approval_rate": 1.0,
+    "approve": 8,
+    "defer": 0,
+    "reject": 0,
+    "min_score": 0.8855,
+    "max_score": 0.921
+  },
+  "trend_vs_baseline": {
+    "phase9f_shadow_delta": 0.0006,
+    "phase9f_formal_delta": -0.0133,
+    "phase9f_all_delta": -0.0029,
+    "assessment": "Champion holding at or above baseline \u2014 no regression detected"
+  },
+  "finalist_count_trend": {
+    "phase9e_burnin": "3\u20136 per campaign",
+    "phase9f_shadow": "3\u20136 per campaign (mean 3.5)",
+    "9F_E1": "6 finalists",
+    "9F_P1": "5 finalists"
+  },
+  "retries_failures_aborts": {
+    "formal_aborts_preflight": 1,
+    "formal_aborts_runtime": 1,
+    "root_cause": "BLK-1: stale lock from killed MockEmbedding run \u2014 fixed by removing runtime/campaign.lock",
+    "actual_failures": 0,
+    "successful_formal_runs": 2
+  },
+  "rollback_assessment": {
+    "mandatory_triggers": {
+      "approval_lt_40pct_6_consecutive": {
+        "threshold": "< 40%",
+        "actual": "100% (Phase 9F all)",
+        "clear": true
+      },
+      "mean_score_lt_085_3_consecutive": {
+        "threshold": "< 0.85",
+        "actual": "min=0.8855 over 8 runs",
+        "clear": true
+      },
+      "integrity_failures_3_consecutive": {
+        "threshold": "\u2265 3 failures",
+        "actual": "0 failures in any run",
+        "clear": true
+      },
+      "reject_rate_gte_50pct": {
+        "threshold": "\u2265 50% reject",
+        "actual": "0% reject (0/8 formal+shadow)",
+        "clear": true
+      }
+    },
+    "advisory_triggers": {
+      "approval_50_60pct": {
+        "actual": "100% shadow, 100% formal",
+        "clear": true
+      },
+      "novelty_lt_079": {
+        "actual": "min novelty 0.82",
+        "clear": true
+      },
+      "plausibility_lt_080": {
+        "actual": "min plausibility 0.84",
+        "clear": true
+      }
+    },
+    "rollback_verdict": "ROLLBACK_NOT_NEEDED",
+    "rollback_command": "python -m breakthrough_engine policy rollback --reason '<reason>'"
+  },
+  "recurring_flaws": [
+    {
+      "pattern": "NiFe-LDH corpus repetition",
+      "frequency": "2/8",
+      "severity": "low",
+      "action": "monitor sub-domain rotation"
+    },
+    {
+      "pattern": "Cross-domain bridge speculation (S6)",
+      "frequency": "1/8",
+      "severity": "low",
+      "action": "score was still APPROVE at 0.893"
+    },
+    {
+      "pattern": "9F-E1 score below shadow mean (0.8855 vs 0.9132)",
+      "frequency": "1/2 formal",
+      "severity": "low",
+      "action": "single-run variance; above all thresholds"
+    }
+  ]
+}

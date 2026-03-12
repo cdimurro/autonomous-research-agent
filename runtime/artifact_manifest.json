@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-03-12T05:00:00Z",
+  "baselines": {
+    "phase5_validated": {
+      "path": "runtime/baselines/phase5_validated_benchmark.json",
+      "exists": true,
+      "regime": "regime_1",
+      "policy": "phase5_champion"
+    },
+    "phase7d_reviewed": {
+      "path": "runtime/baselines/phase7d_reviewed_baseline.json",
+      "exists": true,
+      "regime": "regime_1",
+      "policy": "phase5_champion"
+    },
+    "phase8_reviewed": {
+      "path": "runtime/baselines/phase8_reviewed_baseline.json",
+      "exists": true,
+      "regime": "regime_1",
+      "policy": "phase5_champion"
+    },
+    "phase9_new_embedding_reviewed": {
+      "path": "runtime/baselines/phase9_new_embedding_reviewed.json",
+      "exists": true,
+      "regime": "regime_2",
+      "policy": "phase5_champion",
+      "note": "Early Regime 2 baseline — superseded by phase9c"
+    },
+    "phase9c_operational_regime2": {
+      "path": "runtime/baselines/phase9c_operational_baseline_regime2.json",
+      "exists": true,
+      "regime": "regime_2",
+      "policy": "phase5_champion",
+      "note": "Phase 9C anchor — superseded by phase9e promoted baseline"
+    },
+    "phase9e_promoted_production_regime2": {
+      "path": "runtime/baselines/phase9e_promoted_production_baseline_regime2.json",
+      "exists": true,
+      "regime": "regime_2",
+      "policy": "evidence_diversity_v1",
+      "status": "CURRENT — frozen 2026-03-12",
+      "mean_score": 0.9126,
+      "approval_rate": 0.833,
+      "note": "Active production baseline for Phase 9F+ monitoring"
+    }
+  },
+  "evaluation_batches": {
+    "phase8_batch_20260309": {
+      "dir": "runtime/evaluation_batches/phase8_batch_20260309",
+      "batch_summary_json": "runtime/evaluation_batches/phase8_batch_20260309/batch_summary.json",
+      "batch_summary_md": "runtime/evaluation_batches/phase8_batch_20260309/batch_summary.md",
+      "label_targets_csv": "runtime/evaluation_batches/phase8_batch_20260309/label_targets.csv",
+      "review_labels_csv": "runtime/evaluation_batches/phase8_batch_20260309/review_labels.csv",
+      "reviewed_label_summary_json": "runtime/evaluation_batches/phase8_batch_20260309/reviewed_label_summary.json",
+      "reviewed_label_summary_md": "runtime/evaluation_batches/phase8_batch_20260309/reviewed_label_summary.md"
+    }
+  },
+  "challenger_trials": {
+    "phase8b_trial_20260310": {
+      "dir": "runtime/challenger_trials/phase8b_trial_20260310",
+      "policy_trials_csv": "runtime/challenger_trials/phase8b_trial_20260310/policy_trials.csv",
+      "summary_json": "runtime/challenger_trials/phase8b_trial_20260310/challenger_vs_champion_summary.json",
+      "summary_md": "runtime/challenger_trials/phase8b_trial_20260310/challenger_vs_champion_summary.md",
+      "verdict": "PROMOTION_NOT_RECOMMENDED",
+      "challenger": "synthesis_focus_v1"
+    }
+  },
+  "phase9e": {
+    "promotion_receipt": "runtime/phase9e/promotion_receipt.json",
+    "burnin": {
+      "dir": "runtime/phase9e/burnin",
+      "summary_json": "runtime/phase9e/burnin/burnin_summary.json",
+      "summary_md": "runtime/phase9e/burnin/burnin_summary.md",
+      "champions_csv": "runtime/phase9e/burnin/champions.csv",
+      "finalists_combined_csv": "runtime/phase9e/burnin/finalists_combined.csv",
+      "campaign_metrics_csv": "runtime/phase9e/burnin/campaign_metrics.csv",
+      "review_labels_csv": "runtime/phase9e/burnin/review_labels.csv",
+      "label_completion_summary_json": "runtime/phase9e/burnin/label_completion_summary.json",
+      "label_completion_summary_md": "runtime/phase9e/burnin/label_completion_summary.md",
+      "verdict": "BASELINE_HEALTHY",
+      "policy": "evidence_diversity_v1",
+      "mean_score": 0.9126,
+      "approval_rate": 0.833
+    }
+  },
+  "phase9f": {
+    "batch": {
+      "dir": "runtime/phase9f/batch",
+      "batch_summary_json": "runtime/phase9f/batch/batch_summary.json",
+      "batch_summary_md": "runtime/phase9f/batch/batch_summary.md",
+      "champions_csv": "runtime/phase9f/batch/champions.csv",
+      "finalists_combined_csv": "runtime/phase9f/batch/finalists_combined.csv",
+      "campaign_metrics_csv": "runtime/phase9f/batch/campaign_metrics.csv",
+      "review_labels_csv": "runtime/phase9f/batch/review_labels.csv",
+      "db_capture_verification_json": "runtime/phase9f/batch/db_capture_verification.json",
+      "monitoring_summary_json": "runtime/phase9f/batch/monitoring_summary.json",
+      "label_completion_summary_json": "runtime/phase9f/batch/label_completion_summary.json",
+      "label_completion_summary_md": "runtime/phase9f/batch/label_completion_summary.md",
+      "policy": "evidence_diversity_v1",
+      "status": "IN_PROGRESS",
+      "shadow_campaigns": 6,
+      "formal_runs_completed": "TBD — 9F-E1 running",
+      "rollback_verdict": "ROLLBACK_NOT_NEEDED"
+    }
+  },
+  "review_labels": {
+    "total_in_db": 62,
+    "phase9e_burnin": 50,
+    "phase9f_shadow": 12,
+    "breakdown": {
+      "approve": 40,
+      "defer": 20,
+      "reject": 2
+    },
+    "db_table": "bt_review_labels",
+    "db_path": "runtime/db/scires.db"
+  }
+}

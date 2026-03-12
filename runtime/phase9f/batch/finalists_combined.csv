@@ -1,0 +1,17 @@
+campaign_id,candidate_id,candidate_title,role,decision,novelty_confidence,technical_plausibility,source
+822e6c4ed82445c0,88d39adc457540a6,Carrier Lifetime Extension via Trap-State Suppression in Tandems,champion,approve,0.87,0.87,phase9f_shadow
+91303a97ac2a49b4,d9ee75b5a8384273,Thermally Stabilized Tandem Junctions via Waste Heat Sink Integration,champion,approve,0.86,0.88,phase9f_shadow
+2fe8e0adf40f4228,2372f29887e347a4,Thermal-to-Chemical Coupling for High-Temp Battery Safety,champion,approve,0.85,0.87,phase9f_shadow
+68e67ae1b4e3497e,d75ec2c5409a44cc,NiFe-LDH Membrane Integration for Seawater Electrolysis Stability,champion,approve,0.86,0.86,phase9f_shadow
+66ac0fe88fec4a14,f6e67d8819224ec0,NiFe-LDH Anode Coupling with Low-Temp DAC for Integrated Green H2/DAC Systems,champion,approve,0.84,0.85,phase9f_shadow
+8d70f1d2580548f3,0d84a554efb44391,High-Energy Density Argyrodite Coatings for Lightning Protection,champion,approve,0.82,0.84,phase9f_shadow
+822e6c4ed82445c0,60f69fa765ba4467,Perovskite Tandem Stability via OABr Passivation Synergy,runner_up,approve,0.83,0.85,phase9f_shadow
+91303a97ac2a49b4,db9c67a7c3724741,Spectral Splitting Optimization for Tandem Cells Using MOF Filters,runner_up,defer,0.8,0.82,phase9f_shadow
+2fe8e0adf40f4228,1b9d490a43674a48,Thermal-Induced Solid Electrolyte Interphase Stabilization in Sulfide Batteries,runner_up,approve,0.83,0.84,phase9f_shadow
+68e67ae1b4e3497e,,Seawater Electrolysis Cell Integration with Real-Time Salinity Monitoring,runner_up,approve,0.82,0.83,phase9f_shadow
+66ac0fe88fec4a14,,NiFe-LDH Water-Splitting for Offshore Platform Integration,runner_up,defer,0.79,0.82,phase9f_shadow
+8d70f1d2580548f3,,Grid-Scale Battery Thermal Management via Phase Change Materials,runner_up,approve,0.81,0.84,phase9f_shadow
+2395a2325d554f20,9349e53b251b4acd,Perovskite-Enhanced Radiative Sky Cooling Paints for Urban Climate Control,runner_up,approve,0.86,0.88,phase9f_formal_prod
+9e5d26795855404c,9e51f49cb8e44d3a,CO2 Mineralization via Sulfide-Electrolyte Coupled Electrochemical Reduction,runner_up,approve,0.85,0.85,phase9f_formal_eval
+9e5d26795855404c,69a843c5ed7641d7,Waste Heat-Driven Regeneration of Perovskite-Sorbent Hybrid DAC Units,champion,approve,0.86,0.87,phase9f_formal_eval
+2395a2325d554f20,71a319f7bdeb43ce,Anion-Membrane Inspired Hydrophobic Insulation for Moisture-Resistant Walls,champion,approve,0.87,0.88,phase9f_formal_prod

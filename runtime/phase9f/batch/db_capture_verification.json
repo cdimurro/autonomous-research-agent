@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-03-12T06:14:16Z",
+  "db_path": "runtime/db/scires.db",
+  "table_counts": {
+    "bt_daily_automation_runs": 21,
+    "bt_daily_campaigns": 72,
+    "bt_candidates": 1341,
+    "bt_runs": 243,
+    "bt_campaign_receipts": 92,
+    "bt_review_queue": 7,
+    "bt_review_labels": 66,
+    "bt_scores": 1055,
+    "bt_ladder_stages": 344,
+    "bt_harness_decisions": 3524,
+    "bt_publication_drafts": 12,
+    "bt_publications": 3
+  },
+  "phase9f_formal_runs": {
+    "9F_E1": {
+      "campaign_id": "9e5d26795855404c",
+      "profile": "evaluation_daily_clean_energy",
+      "automation_run_id": "de752fdacbdc4d2b",
+      "status": "completed_with_draft",
+      "champion": "Waste Heat-Driven Regeneration of Perovskite-Sorbent Hybrid DAC Units",
+      "champion_id": "69a843c5ed7641d7",
+      "champion_score": 0.8855,
+      "finalists": 6,
+      "generated": 11,
+      "elapsed_seconds": 1465,
+      "embedding": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+      "review_queue_item": "9c9a7c586296457a",
+      "labels_inserted": true
+    },
+    "9F_P1": {
+      "campaign_id": "2395a2325d554f20",
+      "profile": "production_daily_clean_energy",
+      "automation_run_id": "e9ab74439d6649f9",
+      "status": "completed_with_draft",
+      "champion": "Anion-Membrane Inspired Hydrophobic Insulation for Moisture-Resistant Walls",
+      "champion_id": "71a319f7bdeb43ce",
+      "champion_score": 0.913,
+      "finalists": 5,
+      "generated": 31,
+      "elapsed_seconds": 3994,
+      "embedding": "OllamaEmbeddingProvider(qwen3-embedding:4b)",
+      "review_queue_item": "0076f934b3324772",
+      "labels_inserted": true
+    }
+  },
+  "phase9f_shadow_campaigns": {
+    "count": 6,
+    "policy_id": "3f24a0a2a8074759 (evidence_diversity_v1 UUID)",
+    "all_in_db": true,
+    "mean_score": 0.9132,
+    "approval_rate": 1.0
+  },
+  "review_labels_summary": {
+    "total": 66,
+    "by_decision": {
+      "approve": 44,
+      "defer": 20,
+      "reject": 2
+    },
+    "phase9f_labels_inserted": 16
+  },
+  "known_gaps": [
+    "champion_score=0.0 in bt_review_queue for all formal daily runs (score not persisted to review queue \u2014 known issue)",
+    "Phase 9E burn-in campaigns not in bt_daily_campaigns (ran via daily_search directly, not formal daily runner)",
+    "bt_campaign_receipts has 1 aborted_runtime + 1 aborted_preflight from stale lock blocker BLK-1 (documented)",
+    "Shadow campaign review labels inserted directly into bt_review_labels (no corresponding review queue items \u2014 shadow mode doesn't create queue items)"
+  ],
+  "verdicts": {
+    "core_campaign_data": "CAPTURED",
+    "formal_run_persistence": "CAPTURED \u2014 bt_daily_automation_runs, bt_campaign_receipts, bt_review_queue all populated",
+    "review_labels": "CAPTURED \u2014 66 total labels in DB",
+    "data_integrity": "VERIFIED",
+    "missing_paths": "NONE blocking analysis"
+  }
+}

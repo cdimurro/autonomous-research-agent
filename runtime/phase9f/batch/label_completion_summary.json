@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-03-12T06:15:41Z",
+  "phase9e_burnin_labels": {
+    "source": "runtime/phase9e/burnin/review_labels.csv",
+    "total": 50
+  },
+  "phase9f_shadow_labels": {
+    "champions": 6,
+    "runner_ups": 6,
+    "total": 12,
+    "approve": 10,
+    "defer": 2,
+    "reject": 0,
+    "approval_rate": 1.0
+  },
+  "phase9f_formal_labels": {
+    "champions": 2,
+    "runner_ups": 2,
+    "total": 4,
+    "approve": 4,
+    "defer": 0,
+    "reject": 0,
+    "approval_rate": 1.0
+  },
+  "total_phase9f_labels": 16,
+  "combined_phase9ef": {
+    "total_labels": 66,
+    "approve": 44,
+    "defer": 20,
+    "reject": 2
+  },
+  "label_completion_status": "COMPLETE \u2014 all formal run champions and runner-ups labeled"
+}

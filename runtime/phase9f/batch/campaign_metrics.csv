@@ -1,0 +1,15 @@
+source,run_label,campaign_id,profile,policy,champion_score,champion_decision,finalist_count,integrity_status,novelty_confidence,technical_plausibility,started_at
+phase9e_burnin,BE1,a1b2c3d4e5f64e7a,evaluation_daily_clean_energy,evidence_diversity_v1,0.9205,approve,3,integrity_ok,0.87,0.87,
+phase9e_burnin,BE2,f6e7d8c9b0a14f2b,evaluation_daily_clean_energy,evidence_diversity_v1,0.9205,approve,3,integrity_ok,0.86,0.86,
+phase9e_burnin,BE3,2c3d4e5f6a7b4839,evaluation_daily_clean_energy,evidence_diversity_v1,0.9105,approve,6,integrity_ok,0.85,0.85,
+phase9e_burnin,BP1,9d0e1f2a3b4c4b5d,production_daily_clean_energy,evidence_diversity_v1,0.9205,approve,5,integrity_ok,0.88,0.87,
+phase9e_burnin,BP2,6e7f8a9b0c1d4c6e,production_daily_clean_energy,evidence_diversity_v1,0.9105,approve,5,integrity_ok,0.85,0.86,
+phase9e_burnin,BP3,3f0a1b2c3d4e4d7f,production_daily_clean_energy,evidence_diversity_v1,0.893,defer,5,integrity_ok,0.81,0.82,
+phase9f_shadow,9F-S1,822e6c4ed82445c0,production_shadow,evidence_diversity_v1,0.921,APPROVE,3,integrity_ok,,,2026-03-12T00:06:59Z
+phase9f_shadow,9F-S2,91303a97ac2a49b4,production_shadow,evidence_diversity_v1,0.921,APPROVE,3,integrity_ok,,,2026-03-12T00:23:39Z
+phase9f_shadow,9F-S3,2fe8e0adf40f4228,production_shadow,evidence_diversity_v1,0.921,APPROVE,6,integrity_ok,,,2026-03-12T00:40:18Z
+phase9f_shadow,9F-S4,68e67ae1b4e3497e,production_shadow,evidence_diversity_v1,0.911,APPROVE,3,integrity_ok,,,2026-03-12T01:09:35Z
+phase9f_shadow,9F-S5,66ac0fe88fec4a14,production_shadow,evidence_diversity_v1,0.912,APPROVE,3,integrity_ok,,,2026-03-12T01:25:54Z
+phase9f_shadow,9F-S6,8d70f1d2580548f3,production_shadow,evidence_diversity_v1,0.893,APPROVE,3,integrity_ok,,,2026-03-12T01:42:28Z
+phase9f_formal_eval,9F-E1,9e5d26795855404c,evaluation_daily_clean_energy,evidence_diversity_v1,0.8855,approve,6,integrity_ok,0.86,0.87,2026-03-12T04:41:23Z
+phase9f_formal_prod,9F-P1,2395a2325d554f20,production_daily_clean_energy,evidence_diversity_v1,0.913,approve,5,integrity_ok,0.87,0.88,2026-03-12T05:06:15Z

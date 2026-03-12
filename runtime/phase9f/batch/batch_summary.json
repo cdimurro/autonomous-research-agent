@@ -1,0 +1,107 @@
+{
+  "phase": "9F",
+  "batch_id": "phase9f_production_batch_1",
+  "generated_at": "2026-03-12T06:15:41Z",
+  "branch": "breakthrough-engine-phase9c-challenger-iteration",
+  "commit_at_phase_start": "c84bc71",
+  "champion_policy": "evidence_diversity_v1",
+  "rollback_target": "phase5_champion",
+  "embedding_regime": "regime_2 \u2014 qwen3-embedding:4b (2560d)",
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "baseline_reference": "phase9e_promoted_production_baseline_regime2",
+  "baseline_mean_score": 0.9126,
+  "baseline_approval_rate": 0.833,
+  "run_window": {
+    "phase9e_burnin": {
+      "n": 6,
+      "mean_score": 0.9126,
+      "approval_rate": 0.833,
+      "profiles": [
+        "evaluation_daily_clean_energy",
+        "production_daily_clean_energy"
+      ]
+    },
+    "phase9f_shadow": {
+      "n": 6,
+      "mean_score": 0.9132,
+      "approval_rate": 1.0,
+      "note": "overnight shadow campaigns 2026-03-12 under evidence_diversity_v1"
+    },
+    "phase9f_formal_eval_9F_E1": {
+      "campaign_id": "9e5d26795855404c",
+      "profile": "evaluation_daily_clean_energy",
+      "status": "COMPLETED_WITH_DRAFT",
+      "champion": "Waste Heat-Driven Regeneration of Perovskite-Sorbent Hybrid DAC Units",
+      "champion_score": 0.8855,
+      "finalists": 6,
+      "generated": 11,
+      "decision": "approve",
+      "elapsed_minutes": 24.4
+    },
+    "phase9f_formal_prod_9F_P1": {
+      "campaign_id": "2395a2325d554f20",
+      "profile": "production_daily_clean_energy",
+      "status": "COMPLETED_WITH_DRAFT",
+      "champion": "Anion-Membrane Inspired Hydrophobic Insulation for Moisture-Resistant Walls",
+      "champion_score": 0.913,
+      "finalists": 5,
+      "generated": 31,
+      "decision": "approve",
+      "elapsed_minutes": 66.6
+    }
+  },
+  "aggregate_metrics": {
+    "total_formal_runs": 2,
+    "total_shadow_runs": 6,
+    "total_burnin_runs": 6,
+    "total_campaigns_evidence_diversity_v1": 14,
+    "formal_mean_score": 0.8993,
+    "shadow_mean_score": 0.9132,
+    "all_phase9f_mean_score": 0.9097,
+    "formal_approval_rate": 1.0,
+    "shadow_approval_rate": 1.0,
+    "reject_rate": 0.0,
+    "integrity_failures": 0
+  },
+  "review_labels": {
+    "total_in_db": 66,
+    "phase9e_burnin": 50,
+    "phase9f_shadow_champions": 6,
+    "phase9f_shadow_runner_ups": 6,
+    "phase9f_formal_champions": 2,
+    "phase9f_formal_runner_ups": 2,
+    "total_phase9f": 16,
+    "breakdown": {
+      "approve": 44,
+      "defer": 20,
+      "reject": 2
+    }
+  },
+  "rollback_verdict": "ROLLBACK_NOT_NEEDED",
+  "blockers_encountered": [
+    {
+      "id": "BLK-1",
+      "description": "Stale campaign lock from killed MockEmbeddingProvider run",
+      "fix": "Removed runtime/campaign.lock manually",
+      "code_change": "None required"
+    }
+  ],
+  "artifact_files": {
+    "batch_summary": "runtime/phase9f/batch/batch_summary.json",
+    "batch_summary_md": "runtime/phase9f/batch/batch_summary.md",
+    "champions_csv": "runtime/phase9f/batch/champions.csv",
+    "finalists_combined_csv": "runtime/phase9f/batch/finalists_combined.csv",
+    "campaign_metrics_csv": "runtime/phase9f/batch/campaign_metrics.csv",
+    "review_labels_csv": "runtime/phase9f/batch/review_labels.csv",
+    "db_capture_verification": "runtime/phase9f/batch/db_capture_verification.json",
+    "monitoring_summary": "runtime/phase9f/batch/monitoring_summary.json",
+    "label_completion_summary": "runtime/phase9f/batch/label_completion_summary.json",
+    "label_completion_summary_md": "runtime/phase9f/batch/label_completion_summary.md"
+  },
+  "next_steps": [
+    "Continue daily operation: 1 eval + 1 prod run per day",
+    "Recheck rollback triggers after each batch of 6 runs",
+    "Phase 10: diversity_steering_v1 (design-only, not yet registered)",
+    "Weekly: verify no challenger has been inadvertently registered"
+  ]
+}
