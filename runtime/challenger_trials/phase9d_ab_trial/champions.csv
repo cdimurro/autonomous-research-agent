@@ -1,0 +1,13 @@
+arm,campaign_id,policy,champion_id,champion_title,champion_score,finalist_count,run_at
+challenger,117d49f083054557,evidence_diversity_v1,88d39adc457540a6,Carrier Lifetime Extension via Trap-State Suppression in Tandems,0.9205,3,2026-03-12T00:08:00Z
+challenger,6ca72240342d45b1,evidence_diversity_v1,d9ee75b5a8384273,Thermally Stabilized Tandem Junctions via Waste Heat Sink Integration,0.9205,3,2026-03-12T00:25:00Z
+challenger,25afc501cfbd4449,evidence_diversity_v1,2372f29887e347a4,Thermal-to-Chemical Coupling for High-Temp Battery Safety,0.9205,6,2026-03-12T00:42:00Z
+challenger,4089e3888df3452f,evidence_diversity_v1,d75ec2c5409a44cc,NiFe-LDH Membrane Integration for Seawater Electrolysis Stability,0.9105,3,2026-03-12T01:11:00Z
+challenger,ff41d501a44f4898,evidence_diversity_v1,f6e67d8819224ec0,NiFe-LDH Anode Coupling with Low-Temp DAC for Integrated Green H2/DAC Systems,0.9115,3,2026-03-12T01:28:00Z
+challenger,65745a5faa804f5f,evidence_diversity_v1,0d84a554efb44391,High-Energy Density Argyrodite Coatings for Lightning Protection,0.8930,3,2026-03-12T01:43:00Z
+champion,395427c74e9b492c,phase5_champion,28da748b8f324552,Sulfide Electrolyte Thermal Runaway Suppression via Phase Transition,0.9205,3,2026-03-11T21:45:25Z
+champion,5f66091ebc2243a9,phase5_champion,f5440f26b01b47da,Thermal Management Optimization for Large-Scale Electrolyzer Arrays,0.8830,6,2026-03-11T22:03:58Z
+champion,5d4ffdb3fcc048e2,phase5_champion,8abfdaf00dcd4918,Thermophotovoltaic Waste Heat Recovery for District Heating Integration,0.8930,6,2026-03-11T22:33:58Z
+champion,0d85970835ed4cb1,phase5_champion,0f49a60567414834,Perovskite-Tandem Coating for Offshore Wave Energy Converter Power Take-Offs,0.8930,6,2026-03-11T23:03:35Z
+champion,8cf41bbecb3c457b,phase5_champion,f8e6c9baf32e46b0,Lignin-Derived Perovskite Passivation for Biomass Solar Integration,0.8830,3,2026-03-11T23:33:11Z
+champion,8a1baaf2d75c45d8,phase5_champion,7dea0bb3b0ae41db,Biogenic Sulfide Interface Engineering for Bio-Battery Stability,0.8730,3,2026-03-11T23:48:31Z

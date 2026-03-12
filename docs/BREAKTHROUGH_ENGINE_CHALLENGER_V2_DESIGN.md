@@ -1,7 +1,7 @@
 # Challenger V2 Design: evidence_diversity_v1
 
-**Phase**: 9C
-**Status**: REGISTERED — ready for A/B batch
+**Phase**: 9C/9D
+**Status**: PROMOTION_RECOMMENDED — phase9d_ab_trial COMPLETE
 **Predecessor**: synthesis_focus_v1 (RETIRED_FAILED — see BREAKTHROUGH_ENGINE_CHALLENGER_FAILURE_ANALYSIS.md)
 **Champion baseline**: phase5_champion
 
@@ -127,7 +127,7 @@ The generation prompt is unchanged (standard), so novelty is not suppressed at t
 
 When ready (after collecting new baseline runs under champion):
 
-- **Trial ID**: `phase9c_ab_trial`
+- **Trial ID**: `phase9d_ab_trial`
 - **Profile**: `eval_clean_energy_30m`
 - **Arms**: 6 champion + 6 challenger (minimum)
 - **Labels**: 2 per campaign (champion + runner-up), 24 minimum

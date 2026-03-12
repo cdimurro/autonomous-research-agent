@@ -1,0 +1,39 @@
+{
+  "trial_id": "phase9d_ab_trial",
+  "status": "IN_PROGRESS",
+  "phase": "9d",
+  "date": "2026-03-11",
+  "branch": "breakthrough-engine-phase9c-challenger-iteration",
+  "commit": "52561de",
+  "embedding_regime": "regime_2",
+  "embedding_model": "qwen3-embedding:4b",
+  "embedding_dimensions": 2560,
+  "generation_model": "qwen3.5:9b-q4_K_M",
+  "profile": "eval_clean_energy_30m",
+  "domain": "clean-energy",
+  "champion_policy": "phase5_champion",
+  "challenger_policy": "evidence_diversity_v1",
+  "campaigns_per_arm": 6,
+  "total_campaigns": 12,
+  "labels_per_campaign": 2,
+  "total_label_target": 24,
+  "promotion": "manual_only",
+  "comparability_ok": true,
+  "baseline_anchor": "phase9c_operational_baseline_regime2",
+  "baseline_eval_metrics": {
+    "mean_champion_score": 0.903,
+    "approval_rate": 1.0,
+    "novelty_confidence_mean": 0.837,
+    "technical_plausibility_mean": 0.847,
+    "commercialization_relevance_mean": 0.770
+  },
+  "promotion_gates": {
+    "score_delta_threshold": -0.03,
+    "approval_rate_delta_threshold": -0.05,
+    "novelty_confidence_delta_threshold": -0.05,
+    "technical_plausibility_delta_threshold": -0.05
+  },
+  "champion_arm_command": "BT_EMBEDDING_MODEL=qwen3-embedding:4b .venv/bin/python -m breakthrough_engine campaign run --profile eval_clean_energy_30m",
+  "challenger_arm_command": "BT_EMBEDDING_MODEL=qwen3-embedding:4b .venv/bin/python -m breakthrough_engine campaign run --profile eval_clean_energy_30m --policy evidence_diversity_v1",
+  "created_at": "2026-03-11T20:30:00Z"
+}

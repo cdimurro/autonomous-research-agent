@@ -1,0 +1,25 @@
+arm,campaign_id,policy,candidate_id,candidate_title,final_score,role
+champion,395427c74e9b492c,phase5_champion,28da748b8f324552,Sulfide Electrolyte Thermal Runaway Suppression via Phase Transition,0.9205,champion
+champion,395427c74e9b492c,phase5_champion,de0731a694c0,Hydrogen Electrolysis Waste Heat Recovery Loop,0.9205,runner_up
+champion,5f66091ebc2243a9,phase5_champion,f5440f26b01b47da,Thermal Management Optimization for Large-Scale Electrolyzer Arrays,0.8830,champion
+champion,5f66091ebc2243a9,phase5_champion,045ccd43d303,Perovskite-Tandem-Driven PEM Membrane Cross-Linking,0.8730,runner_up
+champion,5d4ffdb3fcc048e2,phase5_champion,8abfdaf00dcd4918,Thermophotovoltaic Waste Heat Recovery for District Heating Integration,0.8930,champion
+champion,5d4ffdb3fcc048e2,phase5_champion,27db4b4ab7fc,MOF-808 Aerogel Insulation for Passive Heat Sink Optimization,0.8830,runner_up
+champion,0d85970835ed4cb1,phase5_champion,0f49a60567414834,Perovskite-Tandem Coating for Offshore Wave Energy Converter Power Take-Offs,0.8930,champion
+champion,0d85970835ed4cb1,phase5_champion,8a6cb0ad9324,Offshore Floating TPV Arrays Coupled with Deep-Sea Geothermal,0.8830,runner_up
+champion,8cf41bbecb3c457b,phase5_champion,f8e6c9baf32e46b0,Lignin-Derived Perovskite Passivation for Biomass Solar Integration,0.8830,champion
+champion,8cf41bbecb3c457b,phase5_champion,54b4f20b7af9,Fermentation-Integrated Photocatalytic Systems for Wastewater,0.8830,runner_up
+champion,8a1baaf2d75c45d8,phase5_champion,7dea0bb3b0ae41db,Biogenic Sulfide Interface Engineering for Bio-Battery Stability,0.8730,champion
+champion,8a1baaf2d75c45d8,phase5_champion,df1a15bc147a,Perovskite-Tandem Photocatalysis for Algae Biomass Upcycling,0.8317,runner_up
+challenger,117d49f083054557,evidence_diversity_v1,88d39adc457540a6,Carrier Lifetime Extension via Trap-State Suppression in Tandems,0.9205,champion
+challenger,117d49f083054557,evidence_diversity_v1,8971d055dd05,Spectral Splitting Optimization using Non-Fullerene Acceptors,0.9205,runner_up
+challenger,6ca72240342d45b1,evidence_diversity_v1,d9ee75b5a8384273,Thermally Stabilized Tandem Junctions via Waste Heat Sink Integration,0.9205,champion
+challenger,6ca72240342d45b1,evidence_diversity_v1,db9c67a7c372,Spectral Splitting Optimization for Tandem Cells Using MOF Filters,0.9105,runner_up
+challenger,25afc501cfbd4449,evidence_diversity_v1,2372f29887e347a4,Thermal-to-Chemical Coupling for High-Temp Battery Safety,0.9205,champion
+challenger,25afc501cfbd4449,evidence_diversity_v1,01c49169d588,Ammonia-Cracking Derived High-Purity Thermal Buffers,0.9025,runner_up
+challenger,4089e3888df3452f,evidence_diversity_v1,d75ec2c5409a44cc,NiFe-LDH Membrane Integration for Seawater Electrolysis Stability,0.9105,champion
+challenger,4089e3888df3452f,evidence_diversity_v1,a4dbc48b9ac9,Thermally Activated Catalyst Support for Low-Temperature Seawater,0.8925,runner_up
+challenger,ff41d501a44f4898,evidence_diversity_v1,f6e67d8819224ec0,NiFe-LDH Anode Coupling with Low-Temp DAC for Integrated Green H2/DAC Systems,0.9115,champion
+challenger,ff41d501a44f4898,evidence_diversity_v1,ae8769dc119d,Magnetic Field-Assisted Gas Separation in NiFe-LDH Electrolyzer,0.8849,runner_up
+challenger,65745a5faa804f5f,evidence_diversity_v1,0d84a554efb44391,High-Energy Density Argyrodite Coatings for Lightning Protection,0.8930,champion
+challenger,65745a5faa804f5f,evidence_diversity_v1,f929df586d02,Quantum Dot Sensitized Blade Edge Heating for Icing Mitigation,0.8830,runner_up

@@ -1,0 +1,24 @@
+{
+  "trial_id": "phase9d_ab_trial",
+  "computed_at": "2026-03-12T02:45:00Z",
+  "status": "COMPLETE — 24/24 labels collected",
+  "champion_arm": {
+    "campaigns": 6,
+    "champion_labels": 6,
+    "runner_up_labels": 6,
+    "total_labels": 12,
+    "completeness_pct": 100.0
+  },
+  "challenger_arm": {
+    "campaigns": 6,
+    "champion_labels": 6,
+    "runner_up_labels": 6,
+    "total_labels": 12,
+    "completeness_pct": 100.0
+  },
+  "total": {
+    "target": 24,
+    "collected": 24,
+    "completeness_pct": 100.0
+  }
+}

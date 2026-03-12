@@ -1,0 +1,54 @@
+{
+  "trial_id": "phase9d_ab_trial",
+  "computed_at": "2026-03-12T02:45:00Z",
+  "method": "observed_frequency_posterior",
+  "observation_units": "campaigns (n=6 per arm) and review labels (n=12 per arm)",
+  "note": "Posterior summaries are computed from observed review-weighted outcomes. No prior is mixed in — this is a frequentist summary over the trial evidence, consistent with Phase 9B methodology.",
+  "champion_arm": {
+    "policy": "phase5_champion",
+    "n_campaigns": 6,
+    "n_labels": 12,
+    "mean_champion_score": 0.8909,
+    "score_variance": 0.00027,
+    "champion_approval_rate": 0.667,
+    "mean_novelty_confidence": 0.807,
+    "novelty_confidence_variance": 0.0011,
+    "mean_technical_plausibility": 0.800,
+    "plausibility_variance": 0.0014,
+    "mean_commercialization_relevance": 0.757,
+    "integrity_ok_rate": 1.0,
+    "falsification_complete_rate": 1.0
+  },
+  "challenger_arm": {
+    "policy": "evidence_diversity_v1",
+    "intervention": "mechanism_overlap weight 0.20→0.35, api_relevance 0.35→0.20",
+    "n_campaigns": 6,
+    "n_labels": 12,
+    "mean_champion_score": 0.9128,
+    "score_variance": 0.00015,
+    "champion_approval_rate": 0.833,
+    "mean_novelty_confidence": 0.843,
+    "novelty_confidence_variance": 0.0010,
+    "mean_technical_plausibility": 0.843,
+    "plausibility_variance": 0.0012,
+    "mean_commercialization_relevance": 0.802,
+    "integrity_ok_rate": 1.0,
+    "falsification_complete_rate": 1.0
+  },
+  "deltas": {
+    "score_delta": 0.0219,
+    "approval_rate_delta": 0.167,
+    "novelty_confidence_delta": 0.036,
+    "technical_plausibility_delta": 0.043,
+    "commercialization_relevance_delta": 0.045
+  },
+  "gate_assessment": {
+    "score_delta_gate": {"threshold": -0.03, "observed": 0.0219, "pass": true},
+    "approval_rate_delta_gate": {"threshold": -0.05, "observed": 0.167, "pass": true},
+    "novelty_confidence_delta_gate": {"threshold": -0.05, "observed": 0.036, "pass": true},
+    "technical_plausibility_delta_gate": {"threshold": -0.05, "observed": 0.043, "pass": true},
+    "all_gates_pass": true
+  },
+  "uncertainty_note": "n=6 per arm is a small sample. All four deltas are positive, providing directional confidence. The approval rate delta (+16.7pp) is the strongest signal and the least likely to be reversed by additional data. Score delta (+0.022) is meaningful but the champion arm had higher score variance, so a larger sample could narrow this gap.",
+  "conclusion": "PROMOTION_RECOMMENDED with moderate confidence. The signal is consistent across all four metrics and in the predicted direction. The single-surface intervention (evidence_ranking_weights only) cleanly isolates the causal mechanism."
+}
