@@ -101,6 +101,10 @@ SYNONYM_MAP: dict[str, str] = {
     "single-junction devices": "single-junction solar cell",
     "single-junction device": "single-junction solar cell",
     "single junction device": "single-junction solar cell",
+    "single-junction cell": "single-junction solar cell",
+    "single junction cell": "single-junction solar cell",
+    "single-junction cells": "single-junction solar cell",
+    "single junction cells": "single-junction solar cell",
     "silicon solar cell": "silicon solar cell",
     "silicon solar cells": "silicon solar cell",
     "si solar cell": "silicon solar cell",
@@ -331,6 +335,9 @@ class ConceptCanonicalizer:
             )
             canonical_map[cname] = concept
 
+        # Step 3.5: Fuzzy near-duplicate merge (Phase 10F)
+        canonical_map = self._merge_near_duplicates(canonical_map)
+
         stats.unique_canonical = len(canonical_map)
         if stats.remaining_entities > 0:
             stats.duplicate_collapse_rate = 1.0 - (
@@ -385,6 +392,95 @@ class ConceptCanonicalizer:
                 self.repo.update_entity_canonical_name(ent["id"], canonical)
                 updated += 1
         return updated
+
+    @staticmethod
+    def _merge_near_duplicates(
+        canonical_map: dict[str, CanonicalConcept],
+    ) -> dict[str, CanonicalConcept]:
+        """Phase 10F: Merge near-duplicate concepts via token-set overlap.
+
+        Handles cases like:
+        - "single-junction cell" vs "single-junction solar cell" (subset)
+        - "methylammonium-free perovskite" vs "methylammonium-free perovskite composition" (subset)
+        - "champion tandem device" vs "champion device" (subset)
+
+        Merge rule: if concept A's token set is a subset of concept B's,
+        AND A has fewer papers, merge A into B. Never merge concepts with
+        different entity_types unless one is generic "concept".
+        """
+        names = sorted(canonical_map.keys())
+        merged_into: dict[str, str] = {}  # short_name -> long_name
+
+        for i, name_a in enumerate(names):
+            if name_a in merged_into:
+                continue
+            tokens_a = set(name_a.replace("-", " ").split())
+            if len(tokens_a) < 2:
+                continue  # skip single-word concepts
+
+            for name_b in names[i + 1:]:
+                if name_b in merged_into:
+                    continue
+                tokens_b = set(name_b.replace("-", " ").split())
+                if len(tokens_b) < 2:
+                    continue
+
+                # Check if one is a subset of the other
+                if tokens_a < tokens_b:
+                    shorter, longer = name_a, name_b
+                elif tokens_b < tokens_a:
+                    shorter, longer = name_b, name_a
+                else:
+                    continue
+
+                # Don't merge if types conflict (unless one is generic "concept")
+                type_s = canonical_map[shorter].entity_type
+                type_l = canonical_map[longer].entity_type
+                if type_s != type_l and type_s != "concept" and type_l != "concept":
+                    continue
+
+                merged_into[shorter] = longer
+
+        if not merged_into:
+            return canonical_map
+
+        # Apply merges
+        result: dict[str, CanonicalConcept] = {}
+        for cname, concept in canonical_map.items():
+            target = cname
+            # Follow merge chain
+            while target in merged_into:
+                target = merged_into[target]
+
+            if target not in result:
+                result[target] = CanonicalConcept(
+                    canonical_name=target,
+                    entity_type=canonical_map[target].entity_type,
+                    description=canonical_map[target].description,
+                    confidence=canonical_map[target].confidence,
+                    aliases=list(canonical_map[target].aliases),
+                    source_entity_ids=list(canonical_map[target].source_entity_ids),
+                    source_paper_ids=set(canonical_map[target].source_paper_ids),
+                    source_segment_ids=set(canonical_map[target].source_segment_ids),
+                    mention_count=canonical_map[target].mention_count,
+                )
+
+            if cname != target:
+                # Merge concept into target
+                dest = result[target]
+                dest.aliases.extend(concept.aliases)
+                dest.aliases.append(cname)  # The merged name is also an alias
+                dest.source_entity_ids.extend(concept.source_entity_ids)
+                dest.source_paper_ids |= concept.source_paper_ids
+                dest.source_segment_ids |= concept.source_segment_ids
+                dest.mention_count += concept.mention_count
+                dest.confidence = max(dest.confidence, concept.confidence)
+                if len(concept.description) > len(dest.description):
+                    dest.description = concept.description
+
+        logger.info("Near-duplicate merge: %d concepts merged into existing concepts",
+                    len(merged_into))
+        return result
 
     def build_entity_id_to_canonical(
         self,

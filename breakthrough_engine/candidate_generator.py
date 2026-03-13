@@ -232,6 +232,7 @@ class CandidateGenerator(abc.ABC):
         run_id: str = "",
         diversity_context=None,
         synthesis_context=None,
+        graph_context: Optional[str] = None,
     ) -> list[CandidateHypothesis]:
         """Generate up to `budget` candidate hypotheses from evidence.
 
@@ -239,6 +240,10 @@ class CandidateGenerator(abc.ABC):
         away from saturated semantic regions. Ignored if None.
         synthesis_context: optional SynthesisContext for cross-domain runs.
         Ignored if None.
+        graph_context: optional structured graph context string from
+        canonical reasoning paths and subgraphs. When present, the
+        graph-conditioned template is used instead of the flat template.
+        Phase 10F wiring.
         """
 
 
@@ -273,17 +278,32 @@ class OllamaCandidateGenerator(CandidateGenerator):
         run_id: str = "",
         diversity_context=None,
         synthesis_context=None,
+        graph_context: Optional[str] = None,
     ) -> list[CandidateHypothesis]:
         budget = min(budget, self.config.max_candidates)
 
-        # Build the evidence block
-        evidence_text = self._format_evidence(evidence)
-        user_message = EVIDENCE_BLOCK_TEMPLATE.format(
-            domain=domain,
-            count=len(evidence),
-            evidence_text=evidence_text,
-            budget=budget,
-        )
+        # Phase 10F: Use graph-conditioned template when graph context is provided
+        if graph_context:
+            user_message = self._build_graph_conditioned_prompt(
+                evidence=evidence,
+                domain=domain,
+                budget=budget,
+                graph_context=graph_context,
+            )
+            logger.info(
+                "OllamaCandidateGenerator: using GRAPH_CONDITIONED_TEMPLATE "
+                "(graph_context=%d chars, evidence=%d items)",
+                len(graph_context), len(evidence),
+            )
+        else:
+            # Build the flat evidence block (default)
+            evidence_text = self._format_evidence(evidence)
+            user_message = EVIDENCE_BLOCK_TEMPLATE.format(
+                domain=domain,
+                count=len(evidence),
+                evidence_text=evidence_text,
+                budget=budget,
+            )
 
         # Append synthesis steering if provided (Phase 5)
         if synthesis_context is not None:
@@ -621,6 +641,7 @@ class FakeCandidateGenerator(CandidateGenerator):
         run_id: str = "",
         diversity_context=None,
         synthesis_context=None,
+        graph_context: Optional[str] = None,
     ) -> list[CandidateHypothesis]:
         candidates = [
             CandidateHypothesis(
@@ -683,6 +704,7 @@ class DemoCandidateGenerator(CandidateGenerator):
         run_id: str = "",
         diversity_context=None,
         synthesis_context=None,
+        graph_context: Optional[str] = None,
     ) -> list[CandidateHypothesis]:
         # Reuse FakeCandidateGenerator but add variation based on evidence count
         base = FakeCandidateGenerator(prompt_variant=self.prompt_variant).generate(evidence, domain, budget, run_id)

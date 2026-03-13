@@ -117,12 +117,16 @@ class BreakthroughOrchestrator:
         embedding_provider: Optional[EmbeddingProvider] = None,
         policy_id: Optional[str] = None,
         policy_config=None,  # Phase 9: Optional[PolicyConfig] — avoids circular import
+        enable_graph_context: bool = False,  # Phase 10F: graph-conditioned generation
     ):
         self.program = program
         self.repo = repo
         # Phase 9: store full policy config for actuation wiring
         self.policy_config = policy_config
         self.policy_id = policy_id or (policy_config.id if policy_config else None)  # Phase 6: for reward logging
+        # Phase 10F: graph-conditioned generation mode
+        self.enable_graph_context = enable_graph_context
+        self._graph_context_str: Optional[str] = None
         self.memory = RunMemory(repo.db)
         self.novelty_engine = NoveltyEngine(repo.db)
         self.domain_fit_evaluator = DomainFitEvaluator()
@@ -348,6 +352,11 @@ class BreakthroughOrchestrator:
             except Exception as e:
                 logger.warning("[%s] Diversity context build failed (non-fatal): %s", run.id[:8], e)
 
+        # Phase 10F: Build graph context for graph-conditioned generation
+        graph_context = None
+        if self.enable_graph_context:
+            graph_context = self._build_graph_context(run.id, evidence)
+
         candidates = self.generator.generate(
             evidence=evidence,
             domain=self.program.domain,
@@ -355,6 +364,7 @@ class BreakthroughOrchestrator:
             run_id=run.id,
             diversity_context=diversity_ctx,
             synthesis_context=synthesis_ctx,
+            graph_context=graph_context,
         )
         run.candidates_generated = len(candidates)
         for c in candidates:
@@ -1093,6 +1103,80 @@ class BreakthroughOrchestrator:
             harness_name=harness_name,
             failed_rules=failed_rules,
         )
+
+    def _build_graph_context(self, run_id: str, evidence: list) -> Optional[str]:
+        """Phase 10F: Build graph context string for graph-conditioned generation.
+
+        Constructs canonical graph from KG entities/relations, finds multi-hop
+        reasoning paths, and builds a topic subgraph. Returns a formatted string
+        for the GRAPH_CONDITIONED_TEMPLATE, or None if graph is too small.
+        """
+        try:
+            from .kg_canonicalization import ConceptCanonicalizer, CanonicalGraph
+            from .kg_reasoning import CanonicalMultiHopReasoner
+            from .kg_subgraph import SubgraphBuilder
+
+            domain = self.program.domain
+
+            # 1. Canonicalize entities
+            canonicalizer = ConceptCanonicalizer(self.repo)
+            canonical_map, stats = canonicalizer.canonicalize(domain=domain, limit=5000)
+            if len(canonical_map) < 3:
+                logger.info("[%s] Graph context: too few canonical concepts (%d), skipping",
+                            run_id[:8], len(canonical_map))
+                return None
+
+            entity_id_map = canonicalizer.build_entity_id_to_canonical(canonical_map)
+            relations = self.repo.list_kg_relations(domain=domain, limit=5000)
+            graph = CanonicalGraph()
+            graph.build(canonical_map, entity_id_map, relations)
+
+            # 2. Find reasoning paths
+            reasoner = CanonicalMultiHopReasoner(graph, max_hops=3, min_path_confidence=0.1)
+            paths = reasoner.find_paths(limit=10)
+            path_strs = []
+            for p in paths[:6]:
+                cross = " [CROSS-PAPER]" if p.is_cross_paper else ""
+                tpl = f" [{p.template_match}]" if p.template_match else ""
+                path_strs.append(
+                    f"  {' → '.join(p.concepts)} (conf={p.path_confidence:.2f}){cross}{tpl}"
+                )
+
+            # 3. Build topic subgraph from evidence titles
+            topic = domain.replace("-", " ")
+            if evidence:
+                # Use most common words from evidence titles as topic seed
+                title_words = " ".join(e.title for e in evidence[:5])
+                topic = title_words[:100]
+
+            builder = SubgraphBuilder(graph, max_nodes=10)
+            sg = builder.build_from_topic(topic)
+
+            # 4. Format graph context string
+            lines = ["GRAPH STRUCTURE (from knowledge graph):"]
+            lines.append(f"  Canonical concepts: {len(canonical_map)}")
+            lines.append(f"  Cross-paper concepts: {stats.cross_paper_concepts}")
+
+            if path_strs:
+                lines.append(f"\nREASONING PATHS ({len(path_strs)} multi-hop paths):")
+                lines.extend(path_strs)
+
+            if sg and sg.node_count > 0:
+                lines.append(f"\n{sg.to_prompt_block()}")
+
+            context = "\n".join(lines)
+            self._graph_context_str = context
+
+            logger.info(
+                "[%s] Graph context built: concepts=%d paths=%d subgraph_nodes=%d context_chars=%d",
+                run_id[:8], len(canonical_map), len(paths),
+                sg.node_count if sg else 0, len(context),
+            )
+            return context
+
+        except Exception as e:
+            logger.warning("[%s] Graph context build failed (non-fatal): %s", run_id[:8], e)
+            return None
 
     @staticmethod
     def _format_evidence_summary(pack: EvidencePack | None) -> str:

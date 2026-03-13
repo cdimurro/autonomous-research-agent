@@ -93,6 +93,10 @@ class LadderConfig:
     # Production override (wall clock for whole campaign)
     production_wall_clock_budget_minutes: int = 120
 
+    # Phase 10F: Graph-native evidence and generation
+    evidence_source_override: object = None   # Optional EvidenceSource to inject
+    enable_graph_context: bool = False         # Build graph context for generation
+
 
 # ---------------------------------------------------------------------------
 # Results
@@ -319,7 +323,12 @@ class DailySearchLadder:
 
             logger.info("Stage 1: trial %d / %d", trial_idx + 1, stage.max_trials)
             # FIX (7D): _run_single_trial now returns actual candidate count
-            run_record, finalists, trial_candidate_count = self._run_single_trial(repo, program, policy)
+            # Phase 10F: propagate evidence_source_override and enable_graph_context from config
+            run_record, finalists, trial_candidate_count = self._run_single_trial(
+                repo, program, policy,
+                evidence_source_override=config.evidence_source_override,
+                enable_graph_context=config.enable_graph_context,
+            )
             trials_attempted += 1
             actual_candidates_total += trial_candidate_count
 
@@ -557,10 +566,16 @@ class DailySearchLadder:
         repo: Repository,
         program: ResearchProgram,
         policy: PolicyConfig,
+        evidence_source_override=None,
+        enable_graph_context: bool = False,
     ) -> tuple:
         """Run one orchestrator trial and return (RunRecord, finalists).
 
         finalists = list of (CandidateHypothesis, final_score)
+
+        Phase 10F additions:
+        - evidence_source_override: inject a custom EvidenceSource (e.g. HybridKGEvidenceSource)
+        - enable_graph_context: build and pass graph context to the generator
         """
         from .benchmark import BenchmarkCandidateGenerator, _make_deterministic_orchestrator
         from .benchmark import golden_high_quality, golden_publishable_finalist
@@ -612,7 +627,15 @@ class DailySearchLadder:
                 program=trial_program,
                 repo=trial_repo,
                 policy_config=policy,  # Phase 9: pass full policy config for actuation
+                evidence_source=evidence_source_override,  # Phase 10F
+                enable_graph_context=enable_graph_context,  # Phase 10F
             )
+            if evidence_source_override is not None:
+                import logging as _logging
+                _logging.getLogger(__name__).info(
+                    "Trial using evidence_source_override: %s (graph_context=%s)",
+                    type(evidence_source_override).__name__, enable_graph_context,
+                )
 
         run_record = orch.run()
 

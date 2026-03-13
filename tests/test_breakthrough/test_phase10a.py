@@ -788,20 +788,31 @@ class TestSchemaVersion:
 class TestProductionPipelineUntouched:
     """Verify no production pipeline code was changed."""
 
-    def test_orchestrator_no_kg_import(self):
-        """Orchestrator must not import KG modules."""
-        import breakthrough_engine.orchestrator as orch
-        source = open(orch.__file__).read()
-        assert "kg_retrieval" not in source
-        assert "kg_extractor" not in source
-        assert "KGEvidenceSource" not in source
+    def test_orchestrator_default_no_kg(self):
+        """Orchestrator default path must not use KG evidence source."""
+        from breakthrough_engine.orchestrator import BreakthroughOrchestrator
+        from breakthrough_engine.evidence_source import ExistingFindingsSource
+        from breakthrough_engine.models import ResearchProgram, RunMode
+        from breakthrough_engine.db import Repository, init_db
 
-    def test_daily_search_no_kg_import(self):
-        """Daily search must not import KG modules."""
-        import breakthrough_engine.daily_search as ds
-        source = open(ds.__file__).read()
-        assert "kg_retrieval" not in source
-        assert "KGEvidenceSource" not in source
+        db = init_db(in_memory=True)
+        repo = Repository(db)
+        program = ResearchProgram(
+            name="test", domain="test", mode=RunMode.DETERMINISTIC_TEST,
+        )
+        orch = BreakthroughOrchestrator(program=program, repo=repo)
+        # Default evidence source is NOT a KG source
+        assert not type(orch.evidence_source).__name__.startswith("Hybrid")
+        assert not type(orch.evidence_source).__name__.startswith("KG")
+        # Graph context is disabled by default
+        assert orch.enable_graph_context is False
+
+    def test_daily_search_default_no_kg(self):
+        """Daily search default config must not enable graph context."""
+        from breakthrough_engine.daily_search import LadderConfig
+        config = LadderConfig()
+        assert config.evidence_source_override is None
+        assert config.enable_graph_context is False
 
     def test_evidence_source_abc_unchanged(self):
         """EvidenceSource ABC must still have its gather method."""
