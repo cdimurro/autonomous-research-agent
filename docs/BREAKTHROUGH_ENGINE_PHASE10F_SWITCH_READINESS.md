@@ -37,8 +37,36 @@
 | Pipeline wired | NO | **YES** | Fixed |
 | Collapse rate | 70.7% | **90.4%** | +20pp |
 
-### Downstream Campaign Comparison
-(Pending — running in background)
+### Downstream Campaign Comparison (3+3, REAL WIRING)
+
+**Date:** 2026-03-13
+**Arms:** 3 campaigns each, policy fixed to evidence_diversity_v1
+**Wiring:** Graph arm uses `HybridKGEvidenceSource` + `GRAPH_CONDITIONED_TEMPLATE` (confirmed in logs)
+
+| Metric | Current Arm | Graph Native Arm |
+|--------|-------------|-----------------|
+| Campaigns completed | 3/3 | 3/3 |
+| Total candidates | 20 | 22 (+10%) |
+| Mean elapsed (s) | 835 | 1089 (+30%) |
+| Evidence source | ExistingFindingsSource | **HybridKGEvidenceSource** |
+| Graph-conditioned | No | **Yes** |
+
+**Current Arm Champions:**
+1. Self-Healing Elastomer Binders for Perovskite Tandem Battery Stability
+2. MOF-Coated Anode for Enhanced H2 Isotope Separation during Electrolysis
+3. Self-Healing Elastomer Coatings for Corrosion Protection in HEA Hydrogen Tanks
+
+**Graph Native Arm Champions:**
+1. Self-Healing Elastomer Encasement for Corrosion-Resistant Additive Manufacturing
+2. Spin-Orbit Torque Cooling for High-Power Density Electrolyzers
+3. Piezoelectric Energy Harvesting for Self-Powered Corrosion Sensors
+
+**Observations:**
+- All 6 campaigns completed successfully — no crashes or novel failure modes
+- Graph-native arm generated 10% more candidates (22 vs 20)
+- Graph-native arm produced more topically diverse champions (3 distinct domains vs 2 for current)
+- Graph-native arm ~30% slower due to graph context construction + one Ollama timeout retry
+- No regression in campaign completion rate or candidate generation
 
 ## Risk Assessment
 

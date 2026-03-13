@@ -128,7 +128,7 @@ def main():
     # ARM 2: Graph-native hybrid retrieval with graph-conditioned generation
     print("\n  Building graph-native evidence source...")
     trusted_source = ExistingFindingsSource(db)
-    kg_source = KGEvidenceSource(db)
+    kg_source = KGEvidenceSource(repo)
     hybrid_source = HybridKGEvidenceSource(
         trusted_source=trusted_source,
         kg_source=kg_source,
