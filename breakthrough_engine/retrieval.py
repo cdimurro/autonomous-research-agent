@@ -750,12 +750,20 @@ def rank_evidence(
         _dom_w = _w.get("domain_overlap", 0.30)
         _mech_w = _w.get("mechanism_overlap", 0.20)
         _base_w = _w.get("baseline", 0.15)
+
+        # Phase 10D: source-type-aware ranking adjustments
+        # KG evidence gets a diversity bonus; findings retain trusted-anchor value
+        _source_type_adj = _w.get("source_type_adjustments", {})
+        _st_adj = _source_type_adj.get(item.source_type, 0.0)
+        detail["source_type_adjustment"] = round(_st_adj, 3)
+
         composite = (
             api_score * _api_w
             + domain_overlap * _dom_w
             + mech_overlap * _mech_w
             + recency_bonus
             + _base_w * 0.5  # baseline
+            + _st_adj  # source-type adjustment
         )
         detail["composite_score"] = round(composite, 3)
         detail["rank_explanation"] = (

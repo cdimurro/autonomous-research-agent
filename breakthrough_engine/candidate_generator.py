@@ -159,13 +159,61 @@ PROMPT_VARIANTS: dict[str, str] = {
     "evidence_heavy": CANDIDATE_GENERATION_PROMPT_EVIDENCE_HEAVY,
 }
 
+# Phase 10E: source type display labels for generation prompts
+_SOURCE_TYPE_LABELS: dict[str, str] = {
+    "finding": "CURATED_FINDING",
+    "paper": "PAPER",
+    "kg_segment": "KG_SEGMENT",
+    "kg_graph": "KG_RELATION",
+    "graph_path": "GRAPH_PATH",
+    "kg_synthesis": "CROSS_PAPER_SYNTHESIS",
+    "kg_subgraph": "GRAPH_NEIGHBORHOOD",
+}
+
 EVIDENCE_BLOCK_TEMPLATE = """DOMAIN: {domain}
 
 EVIDENCE ({count} items):
 {evidence_text}
 
+EVIDENCE TYPE KEY:
+- [CURATED_FINDING]: Verified scientific finding from accepted literature
+- [KG_SEGMENT]: Machine-extracted passage from a scientific paper
+- [KG_RELATION]: Structured entity-relation from the knowledge graph
+- [GRAPH_PATH]: Multi-hop reasoning path connecting concepts across papers
+- [CROSS_PAPER_SYNTHESIS]: Synthesized cross-paper connection
+- [GRAPH_NEIGHBORHOOD]: Structured concept subgraph with entity relations
+
+INSTRUCTIONS:
 Generate {budget} candidate hypotheses. Focus on cross-evidence connections and testable predictions.
+Prefer hypotheses that combine CURATED_FINDINGs with KG insights for stronger grounding.
 Each hypothesis must cite evidence by reference number."""
+
+# Phase 10E-Prime: graph-conditioned generation template
+# Uses structured graph context alongside flat evidence
+GRAPH_CONDITIONED_TEMPLATE = """DOMAIN: {domain}
+
+{graph_context}
+
+EVIDENCE ({count} items):
+{evidence_text}
+
+EVIDENCE TYPE KEY:
+- [CURATED_FINDING]: Verified scientific finding from accepted literature
+- [KG_SEGMENT]: Machine-extracted passage from a scientific paper
+- [GRAPH_PATH]: Multi-hop reasoning path connecting concepts across papers
+- [CROSS_PAPER_SYNTHESIS]: Synthesized cross-paper connection
+- [GRAPH_NEIGHBORHOOD]: Structured concept subgraph with entity relations
+
+INSTRUCTIONS:
+Generate {budget} candidate hypotheses.
+Use the GRAPH STRUCTURE above to identify non-obvious cross-paper connections.
+Cross-paper connections (marked [CROSS-PAPER]) are especially valuable — they reveal
+structural bridges between different research contexts that are invisible to keyword search.
+Each hypothesis must:
+1. Cite evidence by reference number
+2. Explain the mechanistic reasoning chain
+3. Identify which cross-paper connections (if any) support the hypothesis
+4. Be testable within a concrete experimental timeframe"""
 
 
 # ---------------------------------------------------------------------------
@@ -299,12 +347,36 @@ class OllamaCandidateGenerator(CandidateGenerator):
     def _format_evidence(self, evidence: list[EvidenceItem]) -> str:
         lines = []
         for i, e in enumerate(evidence, 1):
+            # Phase 10E: source-type-aware formatting
+            type_label = _SOURCE_TYPE_LABELS.get(e.source_type, e.source_type.upper())
             lines.append(
-                f"[{i}] {e.title} ({e.citation})\n"
+                f"[{i}] [{type_label}] {e.title} ({e.citation})\n"
                 f"    Quote: \"{e.quote[:300]}\"\n"
-                f"    Relevance: {e.relevance_score:.2f}"
+                f"    Relevance: {e.relevance_score:.2f} | Source: {e.source_type}"
             )
         return "\n".join(lines)
+
+    def _build_graph_conditioned_prompt(
+        self,
+        evidence: list[EvidenceItem],
+        domain: str,
+        budget: int,
+        graph_context: str,
+    ) -> str:
+        """Build a graph-conditioned user prompt with subgraph structure.
+
+        Phase 10E-Prime: graph_context is a formatted subgraph block
+        (from EvidenceSubgraph.to_prompt_block()) that gives the LLM
+        structural reasoning context alongside flat evidence.
+        """
+        evidence_text = self._format_evidence(evidence)
+        return GRAPH_CONDITIONED_TEMPLATE.format(
+            domain=domain,
+            graph_context=graph_context,
+            count=len(evidence),
+            evidence_text=evidence_text,
+            budget=budget,
+        )
 
     def _call_ollama(self, system_prompt: str, user_message: str) -> str:
         import requests

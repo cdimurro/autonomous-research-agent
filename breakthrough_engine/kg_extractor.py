@@ -40,10 +40,10 @@ _EXTRACTION_PROMPT = """Extract scientific entities and relations from the text 
 Return ONLY valid JSON with this exact structure:
 {{
   "entities": [
-    {{"name": "entity name", "type": "one of: material|compound|mechanism|process|property|organism|gene|protein|device|method|concept|metric|phenomenon|structure|technology", "description": "brief description"}}
+    {{"name": "entity name", "type": "one of: material|compound|mechanism|process|property|organism|gene|protein|device|method|concept|metric|phenomenon|structure|technology", "description": "brief description", "confidence": 0.8}}
   ],
   "relations": [
-    {{"source": "entity name 1", "target": "entity name 2", "type": "one of: causes|inhibits|enhances|composed_of|measured_by|used_in|produces|degrades|catalyzes|related_to|enables|requires|competes_with|analog_of", "description": "brief description of the relation"}}
+    {{"source": "entity name 1", "target": "entity name 2", "type": "one of: causes|inhibits|enhances|composed_of|measured_by|used_in|produces|degrades|catalyzes|related_to|enables|requires|competes_with|analog_of", "description": "brief description of the relation", "confidence": 0.7}}
   ]
 }}
 
@@ -51,6 +51,7 @@ Rules:
 - Extract only entities that are specific scientific concepts, not generic words.
 - Each entity must have a type from the allowed list.
 - Each relation must connect two entities found in the text.
+- Set confidence between 0.3 and 1.0 based on how clearly the entity/relation is stated in the text. Higher confidence for explicitly stated facts, lower for inferred connections.
 - Return empty arrays if no meaningful entities or relations are found.
 - Do NOT return markdown, explanations, or anything outside the JSON.
 
@@ -153,23 +154,26 @@ class MockEntityRelationExtractor:
                 "name": "Perovskite Solar Cell",
                 "type": "device",
                 "description": "Solar cell using perovskite absorber",
+                "confidence": 0.85,
             })
         if any(w in words for w in ("carbon", "co2", "capture")):
             entities.append({
                 "name": "Carbon Capture",
                 "type": "process",
                 "description": "Process for capturing CO2",
+                "confidence": 0.80,
             })
         if any(w in words for w in ("mof", "metal-organic", "framework")):
             entities.append({
                 "name": "MOF-303",
                 "type": "material",
                 "description": "Metal-organic framework for gas adsorption",
+                "confidence": 0.90,
             })
 
         if not entities:
             entities = [
-                {"name": "Generic Concept", "type": "concept", "description": "Extracted concept"},
+                {"name": "Generic Concept", "type": "concept", "description": "Extracted concept", "confidence": 0.50},
             ]
 
         relations = []
@@ -179,6 +183,7 @@ class MockEntityRelationExtractor:
                 "target": entities[1]["name"],
                 "type": "related_to",
                 "description": "Related concepts from the same text",
+                "confidence": 0.65,
             })
 
         return {"entities": entities, "relations": relations}
@@ -289,6 +294,14 @@ class EntityRelationExtractor:
             ent_id = new_id()
             entity_name_to_id[name] = ent_id
 
+            # Phase 10E: use LLM-derived confidence, with rule-based fallback
+            raw_conf = raw_ent.get("confidence")
+            if isinstance(raw_conf, (int, float)) and 0.1 <= float(raw_conf) <= 1.0:
+                ent_confidence = round(float(raw_conf), 3)
+            else:
+                # Rule-based fallback: named types with descriptions get higher confidence
+                ent_confidence = 0.65 if raw_ent.get("description") else 0.50
+
             self.repo.save_kg_entity({
                 "id": ent_id,
                 "segment_id": seg["id"],
@@ -297,7 +310,7 @@ class EntityRelationExtractor:
                 "name": name,
                 "canonical_name": name.lower().strip(),
                 "description": str(raw_ent.get("description", ""))[:500],
-                "confidence": 0.6,  # baseline for LLM extraction
+                "confidence": ent_confidence,
                 "domain": seg.get("domain", ""),
                 "status": "extracted",
             })
@@ -321,6 +334,14 @@ class EntityRelationExtractor:
             if rtype not in RELATION_TYPES:
                 rtype = "related_to"
 
+            # Phase 10E: use LLM-derived confidence, with rule-based fallback
+            raw_rconf = raw_rel.get("confidence")
+            if isinstance(raw_rconf, (int, float)) and 0.1 <= float(raw_rconf) <= 1.0:
+                rel_confidence = round(float(raw_rconf), 3)
+            else:
+                # Rule-based: specific relation types get higher confidence than generic
+                rel_confidence = 0.55 if rtype != "related_to" else 0.40
+
             self.repo.save_kg_relation({
                 "id": new_id(),
                 "segment_id": seg["id"],
@@ -329,7 +350,7 @@ class EntityRelationExtractor:
                 "target_entity_id": target_id,
                 "relation_type": rtype,
                 "description": str(raw_rel.get("description", ""))[:500],
-                "confidence": 0.5,
+                "confidence": rel_confidence,
                 "domain": seg.get("domain", ""),
                 "status": "extracted",
             })

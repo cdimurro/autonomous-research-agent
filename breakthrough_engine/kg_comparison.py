@@ -54,19 +54,21 @@ class SourceMetrics:
 
 @dataclass
 class ComparisonResult:
-    """Result of comparing two retrieval sources."""
+    """Result of comparing two or three retrieval sources."""
     domain: str = ""
     limit: int = 20
     current_metrics: Optional[SourceMetrics] = None
     shadow_metrics: Optional[SourceMetrics] = None
+    hybrid_metrics: Optional[SourceMetrics] = None
     overlap_count: int = 0
     overlap_source_ids: list[str] = field(default_factory=list)
     verdict: str = "inconclusive"
+    hybrid_verdict: str = "not_tested"
     notes: list[str] = field(default_factory=list)
     timestamp: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "domain": self.domain,
             "limit": self.limit,
             "current": self.current_metrics.to_dict() if self.current_metrics else {},
@@ -74,9 +76,13 @@ class ComparisonResult:
             "overlap_count": self.overlap_count,
             "overlap_source_ids": self.overlap_source_ids[:20],
             "verdict": self.verdict,
+            "hybrid_verdict": self.hybrid_verdict,
             "notes": self.notes,
             "timestamp": self.timestamp,
         }
+        if self.hybrid_metrics:
+            d["hybrid"] = self.hybrid_metrics.to_dict()
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +190,10 @@ def _verdict(current: SourceMetrics, shadow: SourceMetrics) -> tuple[str, list[s
 class RetrievalComparisonHarness:
     """Runs current vs KG shadow retrieval side by side.
 
+    Phase 10D: supports optional third source (hybrid) for 3-way comparison.
+
     Usage:
-        harness = RetrievalComparisonHarness(current_source, shadow_source)
+        harness = RetrievalComparisonHarness(current_source, shadow_source, hybrid_source)
         result = harness.compare(domain="clean-energy", limit=20)
         harness.export_json(result, "comparison_output.json")
     """
@@ -194,19 +202,21 @@ class RetrievalComparisonHarness:
         self,
         current_source: EvidenceSource,
         shadow_source: EvidenceSource,
+        hybrid_source: Optional[EvidenceSource] = None,
     ):
         self.current_source = current_source
         self.shadow_source = shadow_source
+        self.hybrid_source = hybrid_source
 
     def compare(self, domain: str, limit: int = 20) -> ComparisonResult:
-        """Run both sources and compare results."""
+        """Run all sources and compare results."""
         result = ComparisonResult(
             domain=domain,
             limit=limit,
             timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
-        # Gather from both sources
+        # Gather from all sources
         try:
             current_items = self.current_source.gather(domain, limit=limit)
         except Exception as e:
@@ -221,25 +231,42 @@ class RetrievalComparisonHarness:
             shadow_items = []
             result.notes.append(f"Shadow source error: {e}")
 
+        hybrid_items: list[EvidenceItem] = []
+        if self.hybrid_source:
+            try:
+                hybrid_items = self.hybrid_source.gather(domain, limit=limit)
+            except Exception as e:
+                logger.warning("Hybrid source failed: %s", e)
+                result.notes.append(f"Hybrid source error: {e}")
+
         # Compute metrics
         result.current_metrics = _compute_metrics(current_items, "current")
         result.shadow_metrics = _compute_metrics(shadow_items, "kg_shadow")
+        if hybrid_items:
+            result.hybrid_metrics = _compute_metrics(hybrid_items, "hybrid")
 
-        # Compute overlap
+        # Compute overlap (current vs shadow)
         result.overlap_count, result.overlap_source_ids = _compute_overlap(
             current_items, shadow_items,
         )
 
-        # Determine verdict
+        # Determine verdicts
         result.verdict, verdict_notes = _verdict(
             result.current_metrics, result.shadow_metrics,
         )
         result.notes.extend(verdict_notes)
 
+        if result.hybrid_metrics and result.current_metrics:
+            result.hybrid_verdict, hybrid_notes = _verdict(
+                result.current_metrics, result.hybrid_metrics,
+            )
+            result.notes.extend([f"[hybrid] {n}" for n in hybrid_notes])
+
         logger.info(
-            "RetrievalComparison: domain=%s current=%d shadow=%d overlap=%d verdict=%s",
-            domain, len(current_items), len(shadow_items),
-            result.overlap_count, result.verdict,
+            "RetrievalComparison: domain=%s current=%d shadow=%d hybrid=%d "
+            "overlap=%d verdict=%s hybrid_verdict=%s",
+            domain, len(current_items), len(shadow_items), len(hybrid_items),
+            result.overlap_count, result.verdict, result.hybrid_verdict,
         )
 
         return result

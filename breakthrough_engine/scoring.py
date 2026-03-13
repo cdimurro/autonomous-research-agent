@@ -48,14 +48,38 @@ def score_candidate(
     score.impact_score = min(1.0, outcome_len / 150.0)
 
     # Evidence strength: from evidence pack
-    # Phase 7C calibration: apply a count-based coverage penalty so that
-    # 2 refs cannot produce the same score as 8 refs at equal relevance.
-    # Penalty multipliers: 1 ref→0.70, 2→0.82, 3→0.91, 4→0.96, 5+→1.0
+    # Phase 7C calibration: count-based coverage penalty
+    # Phase 10E: source-type-aware trust weighting
     _EVIDENCE_COUNT_PENALTY = {1: 0.70, 2: 0.82, 3: 0.91, 4: 0.96}
+    # Phase 10E-Prime: trust priors by source type — trusted findings get a boost,
+    # KG evidence competes via diversity and structural reasoning
+    _SOURCE_TRUST = {
+        "finding": 1.0, "paper": 0.95, "journal": 0.95,
+        "kg_segment": 0.85, "kg_graph": 0.80,
+        "graph_path": 0.75, "kg_synthesis": 0.70,
+        "kg_subgraph": 0.72,
+    }
     if evidence_pack and evidence_pack.items:
         n_items = len(evidence_pack.items)
-        avg_relevance = sum(i.relevance_score for i in evidence_pack.items) / n_items
-        diversity_bonus = min(0.2, evidence_pack.source_diversity_count * 0.05)
+        # Source-type-aware weighted average: trust * relevance
+        # Default trust 0.90 for unrecognized source types (external/neutral)
+        weighted_sum = sum(
+            i.relevance_score * _SOURCE_TRUST.get(i.source_type, 0.90)
+            for i in evidence_pack.items
+        )
+        avg_relevance = weighted_sum / n_items
+        # Phase 10E-Prime: enhanced diversity bonus — counts source IDs, source types,
+        # and cross-paper graph evidence
+        source_type_count = len({i.source_type for i in evidence_pack.items})
+        source_id_count = evidence_pack.source_diversity_count
+        # Cross-paper bonus: items derived from graph reasoning across papers
+        graph_types = {"graph_path", "kg_synthesis", "kg_subgraph"}
+        graph_item_count = sum(1 for i in evidence_pack.items if i.source_type in graph_types)
+        diversity_bonus = min(0.25, (
+            source_id_count * 0.04
+            + source_type_count * 0.03
+            + graph_item_count * 0.02  # small bonus for graph-native evidence
+        ))
         raw_score = min(1.0, avg_relevance + diversity_bonus)
         # Apply count penalty: saturates at 5+ refs
         count_penalty = _EVIDENCE_COUNT_PENALTY.get(n_items, 1.0) if n_items <= 4 else 1.0

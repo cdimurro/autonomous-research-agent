@@ -136,3 +136,65 @@ def list_shadow_findings(
 ) -> list[dict]:
     """List shadow KG findings (write-back candidates not yet active)."""
     return repo.list_kg_findings(domain=domain, status="shadow", limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Phase 10E-Prime: Graph memory loop preparation
+# ---------------------------------------------------------------------------
+
+def generate_write_back_payload(
+    candidate: CandidateHypothesis,
+    publication_id: str = "",
+    confidence: float = 0.5,
+    grounding_verdict: str = "",
+    grounding_score: float = 0.0,
+    evidence_ids: Optional[list[str]] = None,
+) -> dict:
+    """Generate a write-back payload without persisting.
+
+    Used for dry-run validation and readiness testing.
+    The payload follows the bt_kg_findings schema with additional
+    grounding metadata for the memory loop.
+    """
+    return {
+        "id": new_id(),
+        "candidate_id": candidate.id,
+        "publication_id": publication_id,
+        "title": candidate.title[:500],
+        "statement": candidate.statement[:2000],
+        "mechanism": candidate.mechanism[:2000],
+        "domain": candidate.domain,
+        "confidence": confidence,
+        "source_evidence_ids": evidence_ids or candidate.evidence_refs,
+        "grounding_verdict": grounding_verdict,
+        "grounding_score": round(grounding_score, 4),
+        "status": "shadow",
+    }
+
+
+def write_back_readiness_check(repo: Repository) -> dict:
+    """Check whether the write-back path is ready for activation.
+
+    Returns a readiness report without making any changes.
+    """
+    try:
+        active = repo.list_kg_findings(status="active", limit=1)
+        shadow = repo.list_kg_findings(status="shadow", limit=100)
+        total = len(active) + len(shadow)
+    except Exception:
+        return {
+            "ready": False,
+            "reason": "bt_kg_findings table not accessible",
+            "active_count": 0,
+            "shadow_count": 0,
+        }
+
+    return {
+        "ready": True,
+        "reason": "Write-back path operational (shadow-only mode)",
+        "active_count": len(active),
+        "shadow_count": len(shadow),
+        "total_findings": total,
+        "activation_blocked": True,  # Phase 10E-Prime: not yet enabled
+        "activation_reason": "Requires explicit promotion after downstream campaign validation",
+    }

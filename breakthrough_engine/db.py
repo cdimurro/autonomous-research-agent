@@ -1903,6 +1903,14 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def update_entity_canonical_name(self, entity_id: str, canonical_name: str) -> None:
+        """Update the canonical_name for an entity (used by canonicalization)."""
+        self.db.execute(
+            "UPDATE bt_kg_entities SET canonical_name=? WHERE id=?",
+            (canonical_name, entity_id),
+        )
+        self.db.commit()
+
     # -- Phase 10A: KG relations --
 
     def save_kg_relation(self, rel: dict) -> None:
