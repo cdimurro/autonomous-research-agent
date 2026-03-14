@@ -25,6 +25,9 @@ from enum import Enum
 from typing import Optional
 
 from .db import Repository, init_db
+from .evidence_source import ExistingFindingsSource
+from .hybrid_retrieval import HybridKGEvidenceSource
+from .kg_retrieval import KGEvidenceSource
 from .models import new_id
 from .preflight import PreflightEngine, PreflightReport
 
@@ -567,6 +570,25 @@ class CampaignManager:
 
         ladder_event = StageEvent(stage_name="daily_search_ladder", started_at=_utcnow())
 
+        # Phase 10K: Build graph-native evidence source as default retrieval.
+        # Combines ExistingFindingsSource (trusted) + KGEvidenceSource (graph)
+        # with source-aware pool construction (Phase 10J fixes).
+        # Rollback: set evidence_source_override=None, enable_graph_context=False.
+        trusted_source = ExistingFindingsSource(repo.db)
+        kg_source = KGEvidenceSource(repo)
+        graph_native_source = HybridKGEvidenceSource(
+            trusted_source=trusted_source,
+            kg_source=kg_source,
+            min_trusted_quota=12,
+            kg_diversification_quota=8,
+            min_kg_items=2,
+            max_per_paper=3,
+        )
+        logger.info(
+            "Campaign %s: using graph-native retrieval (HybridKGEvidenceSource)",
+            receipt.campaign_id[:8],
+        )
+
         ladder_config = LadderConfig(
             mode="benchmark" if profile.mode == "benchmark" else "production",
             program_name=profile.program_name,
@@ -588,6 +610,9 @@ class CampaignManager:
             # FIX (7D): evaluation profile sets this True for full finalist falsification
             falsify_all_finalists=profile.falsify_all_finalists,
             production_wall_clock_budget_minutes=profile.wall_clock_budget_minutes,
+            # Phase 10K: graph-native retrieval promotion
+            evidence_source_override=graph_native_source,
+            enable_graph_context=True,
         )
 
         max_retries = profile.max_retries_per_stage

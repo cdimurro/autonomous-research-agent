@@ -1,0 +1,13 @@
+campaign_id,candidate_id,candidate_title,candidate_role,decision,novelty_confidence,technical_plausibility,commercialization_relevance,key_flaw,reviewer_note,profile
+ef3ec260f7de4b31,ed7787f1b4544ba2,HEA-Based Thermal Conductivity Gradients for Solid-State Bat,champion,approve,1.0,0.75,0.656,,phase10k_burnin_evaluation,evaluation
+ef3ec260f7de4b31,99d29c3b2bfd44d4,Hierarchical HEA Anodes for Sulfide Solid-State Li Batteries,runner_up,approve,1.0,0.75,0.656,,phase10k_burnin_evaluation,evaluation
+2d064dbcafa0451e,4ca4b9e6c17e4dfa,NiFe-LDH Anode Integration into ZIF-8 MOF Reactors for Waste,champion,approve,1.0,0.75,0.656,,phase10k_burnin_evaluation,evaluation
+2d064dbcafa0451e,105eccbc3aed48f0,Topological Insulator Sensors for Real-Time Monitoring of MO,runner_up,approve,1.0,0.75,0.656,,phase10k_burnin_evaluation,evaluation
+3817fc2435ee4fda,67eee1f3da2d4966,MXene-MOF Membrane Hybrids for Isotope-Specific Hydrogen Sep,champion,approve,1.0,0.9,0.656,,phase10k_burnin_evaluation,evaluation
+3817fc2435ee4fda,70e8bca8598d4d1c,Topological Insulator Coatings for Electromagnetic Shielding,runner_up,approve,1.0,0.9,0.656,,phase10k_burnin_evaluation,evaluation
+98a6a15c50244325,5077ecaa113546e8,Topological Insulator Spin-Logic for Smart Grid Frequency Co,champion,approve,1.0,0.75,0.656,,phase10k_burnin_production,production
+98a6a15c50244325,22558667711d4349,Self-Healing Elastomer Seals for Hydrogen Electrolysis React,runner_up,approve,1.0,0.75,0.656,,phase10k_burnin_production,production
+d5dee63a99da4828,4a21e57edf4c46d9,Ultrafast Ionic Transport for Dehumidified Insulation,champion,approve,1.0,0.9,0.653,,phase10k_burnin_production,production
+d5dee63a99da4828,cda26b1004d14cbf,Self-Healing MXene Aerogel Facades for Thermal Shock Resista,runner_up,approve,1.0,0.9,0.656,,phase10k_burnin_production,production
+f5f368699ebe46ce,40a1cd38165c4cec,Ultrafast Ion Transport Sensors for Corrosion Monitoring,champion,approve,1.0,0.9,0.656,,phase10k_burnin_production,production
+f5f368699ebe46ce,4576cce5210c4c7e,Low-Power Spin-Orbit Torque Actuators for Marine Robots,runner_up,approve,1.0,0.9,0.656,,phase10k_burnin_production,production

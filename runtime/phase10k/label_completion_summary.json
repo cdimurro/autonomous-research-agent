@@ -1,0 +1,17 @@
+{
+  "total_labels": 12,
+  "by_profile": {
+    "evaluation": 6,
+    "production": 6
+  },
+  "by_decision": {
+    "approve": 12,
+    "defer": 0,
+    "reject": 0
+  },
+  "by_role": {
+    "champion": 6,
+    "runner_up": 6
+  },
+  "completeness": "all_campaigns_labeled"
+}

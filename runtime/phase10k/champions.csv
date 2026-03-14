@@ -1,0 +1,7 @@
+profile,campaign_num,campaign_id,champion_title,champion_score,finalist_count,unique_sources,persistence_rate
+evaluation,1,ef3ec260f7de4b31,HEA-Based Thermal Conductivity Gradients for Solid-State Bat,0.8955,7,11,1.0
+evaluation,2,2d064dbcafa0451e,NiFe-LDH Anode Integration into ZIF-8 MOF Reactors for Waste,0.8855,7,9,1.0
+evaluation,3,3817fc2435ee4fda,MXene-MOF Membrane Hybrids for Isotope-Specific Hydrogen Sep,0.923,7,10,1.0
+production,1,98a6a15c50244325,Topological Insulator Spin-Logic for Smart Grid Frequency Co,0.8955,7,8,1.0
+production,2,d5dee63a99da4828,Ultrafast Ionic Transport for Dehumidified Insulation,0.9324,4,5,1.0
+production,3,f5f368699ebe46ce,Ultrafast Ion Transport Sensors for Corrosion Monitoring,0.933,6,11,1.0

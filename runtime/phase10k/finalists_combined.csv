@@ -1,0 +1,39 @@
+profile,campaign_num,campaign_id,candidate_title,final_score
+evaluation,1,ef3ec260f7de4b31,Hierarchical HEA Anodes for Sulfide Solid-State Li Batteries,0.8855
+evaluation,1,ef3ec260f7de4b31,Topological Insulator Coatings for High-Temperature Waste He,0.7758
+evaluation,1,ef3ec260f7de4b31,HEA-Reinforced Nacre-Inspired Composites for Electrolyte Sep,0.7672
+evaluation,1,ef3ec260f7de4b31,Directional Conductivity Aerogel Interlayers for Thermal Man,0.8755
+evaluation,1,ef3ec260f7de4b31,MXene-Functionalized HEA Oxide Cathodes for Ultrafast Ion Tr,0.8055
+evaluation,1,ef3ec260f7de4b31,Topological Insulator Interfaces for Spin-Dependent Electrol,0.7971
+evaluation,1,ef3ec260f7de4b31,HEA-Based Thermal Conductivity Gradients for Solid-State Bat,0.8955
+evaluation,2,2d064dbcafa0451e,NiFe-LDH Anode Integration into ZIF-8 MOF Reactors for Waste,0.8855
+evaluation,2,2d064dbcafa0451e,MXene-Functionalized MOF Membranes for Ultrafast Proton Shut,0.8055
+evaluation,2,2d064dbcafa0451e,High-Entropy Alloy Current Collectors for Corrosion-Resistan,0.7855
+evaluation,2,2d064dbcafa0451e,Thermally Conductive MOF-Aerogel Composites for Isothermal E,0.7955
+evaluation,2,2d064dbcafa0451e,Topological Insulator Sensors for Real-Time Monitoring of MO,0.8855
+evaluation,2,2d064dbcafa0451e,Synergistic MOF-HEA Catalyst Supports for Enhanced Ammonia C,0.8855
+evaluation,2,2d064dbcafa0451e,Radiative Cooling MOF-Coatings for Night-Time Hydrogen Produ,0.8055
+evaluation,3,3817fc2435ee4fda,MOF-Porous Aerogel Hybrids for Ultra-Fast Hydrogen Release K,0.843
+evaluation,3,3817fc2435ee4fda,MXene-MOF Membrane Hybrids for Isotope-Specific Hydrogen Sep,0.923
+evaluation,3,3817fc2435ee4fda,Self-Healing Elastomer Encapsulated MOF Reactors for Cycle-L,0.843
+evaluation,3,3817fc2435ee4fda,Topological Insulator Coatings for Electromagnetic Shielding,0.923
+evaluation,3,3817fc2435ee4fda,Thermally Conductive Aerogel Interlayers for Gradient-Profil,0.843
+evaluation,3,3817fc2435ee4fda,MXene-Enhanced MOF Surface for Selective Ammonia Cracking in,0.833
+evaluation,3,3817fc2435ee4fda,Topological Insulator/MOF Heterostructures for Spin-Dependen,0.923
+production,1,98a6a15c50244325,MXene-Infused Aerogel for Radiative-Waste Heat Recovery,0.8055
+production,1,98a6a15c50244325,High-Entropy Alloy Structural Frames for High-Temp TPV Integ,0.8055
+production,1,98a6a15c50244325,Self-Healing Elastomer Seals for Hydrogen Electrolysis React,0.8855
+production,1,98a6a15c50244325,MXene-Coated Vacuum Insulation Panels for Cryogenic Hydrogen,0.7738
+production,1,98a6a15c50244325,Topological Insulator Spin-Logic for Smart Grid Frequency Co,0.8955
+production,1,98a6a15c50244325,Gradient Thermal Storage using HEA and MXene Composites,0.8755
+production,1,98a6a15c50244325,MXene-MOF Hybrid Membranes for Post-Combustion CO2 Capture i,0.8055
+production,2,d5dee63a99da4828,Topological Insulator Aerogel Skins for Radiative Sky-Coolin,0.8352
+production,2,d5dee63a99da4828,Self-Healing MXene Aerogel Facades for Thermal Shock Resista,0.923
+production,2,d5dee63a99da4828,Ultrafast Ionic Transport for Dehumidified Insulation,0.9324
+production,2,d5dee63a99da4828,MXene-Aerogel Hybrid for Selective Solar Radiation Managemen,0.9054
+production,3,f5f368699ebe46ce,Biofouling-Resistant Nacre-Inspired Offshore Structures,0.913
+production,3,f5f368699ebe46ce,Thermoelectric Waste Heat Recovery via Topological Insulator,0.7873
+production,3,f5f368699ebe46ce,Directional Thermal Management for Subsea Electronics,0.843
+production,3,f5f368699ebe46ce,Ultrafast Ion Transport Sensors for Corrosion Monitoring,0.933
+production,3,f5f368699ebe46ce,Low-Power Spin-Orbit Torque Actuators for Marine Robots,0.933
+production,3,f5f368699ebe46ce,Thermal-Electric Hybrid Coatings for Corrosion Mitigation,0.8424
