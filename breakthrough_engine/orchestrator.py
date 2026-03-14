@@ -794,6 +794,16 @@ class BreakthroughOrchestrator:
             if c.evidence_refs:
                 items = [e for e in evidence if e.id in c.evidence_refs]
 
+            # Phase 10J: Check diversity of evidence_refs matches.
+            # If all matched items share the same source_id, the evidence_refs
+            # path produces a monocultural pack. Fall through to ranked matching
+            # so select_diverse_top_k can enforce source diversity.
+            if items:
+                ref_sources = set(it.source_id for it in items)
+                top_k = max(self.program.evidence_minimum, 2)
+                if len(ref_sources) < min(top_k, len(items)) and evidence:
+                    items = []  # insufficient diversity — use ranked path
+
             if not items and evidence:
                 # Use ranked evidence matching based on mechanism keywords
                 # Phase 9: pass evidence_ranking_weights from policy_config if available

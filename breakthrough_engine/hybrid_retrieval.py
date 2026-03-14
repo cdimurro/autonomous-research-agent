@@ -66,6 +66,8 @@ class HybridKGEvidenceSource(EvidenceSource):
         max_single_source_pct: float = 0.50,
         kg_diversification_quota: int = 10,
         calibrator: Optional[EvidenceCalibrator] = None,
+        min_kg_items: int = 2,
+        max_per_paper: int = 3,
     ):
         self.trusted_source = trusted_source
         self.kg_source = kg_source
@@ -73,6 +75,8 @@ class HybridKGEvidenceSource(EvidenceSource):
         self.max_single_source_pct = max_single_source_pct
         self.kg_diversification_quota = kg_diversification_quota
         self.calibrator = calibrator or EvidenceCalibrator()
+        self.min_kg_items = min_kg_items
+        self.max_per_paper = max_per_paper
         self._last_diagnostics: Optional[HybridMixDiagnostics] = None
 
     @property
@@ -80,7 +84,13 @@ class HybridKGEvidenceSource(EvidenceSource):
         return self._last_diagnostics
 
     def gather(self, domain: str, limit: int = 20) -> list[EvidenceItem]:
-        """Gather hybrid evidence: trusted anchors + KG diversification."""
+        """Gather hybrid evidence: trusted anchors + KG diversification.
+
+        Phase 10J: Source-aware pool construction guarantees KG items in the
+        pool and caps per-paper concentration. Previously KG items were trimmed
+        because their calibrated relevance was below trusted findings, and the
+        pure relevance sort excluded them entirely.
+        """
         diag = HybridMixDiagnostics()
 
         # 1. Get trusted items (production findings)
@@ -96,26 +106,40 @@ class HybridKGEvidenceSource(EvidenceSource):
             self.calibrator.calibrate(kg_items)
             diag.calibration_applied = True
 
-        # 4. Enforce single-source concentration cap on trusted items
-        trusted_capped = self._cap_single_source(trusted_items, limit)
+        # 4. Phase 10J: Apply per-paper cap to trusted items to prevent
+        # any single paper from dominating the pool
+        trusted_capped = self._cap_per_paper(trusted_items)
 
-        # 5. Take at least min_trusted_quota from trusted
-        trusted_take = trusted_capped[:max(self.min_trusted_quota, limit - self.kg_diversification_quota)]
-
-        # 6. Deduplicate KG items against trusted source_ids
-        trusted_source_ids = {it.source_id for it in trusted_take}
+        # 5. Deduplicate KG items against trusted source_ids
+        trusted_source_ids = {it.source_id for it in trusted_capped}
         kg_deduped = [it for it in kg_items if it.source_id not in trusted_source_ids]
         dedup_count = len(kg_items) - len(kg_deduped)
 
-        # 7. Take KG diversification quota
-        kg_take = kg_deduped[:self.kg_diversification_quota]
+        # 6. Phase 10J: Source-aware pool construction
+        # Reserve slots for KG items to guarantee they're not all excluded
+        # by pure relevance sorting
+        kg_reserved = min(self.min_kg_items, len(kg_deduped))
+        trusted_slots = limit - kg_reserved
+        trusted_take = trusted_capped[:trusted_slots]
 
-        # 8. Combine and sort by relevance
+        # Select KG items: prefer items from diverse sources
+        kg_take = self._select_diverse_kg(kg_deduped, kg_reserved)
+
+        # 7. Combine: trusted first (by relevance), then reserved KG
         combined = trusted_take + kg_take
+        # Fill remaining slots from any leftover items if under limit
+        if len(combined) < limit:
+            used_ids = {it.id for it in combined}
+            remaining = [it for it in trusted_capped + kg_deduped
+                         if it.id not in used_ids]
+            remaining.sort(key=lambda x: x.relevance_score, reverse=True)
+            combined.extend(remaining[:limit - len(combined)])
+
+        # Sort final pool by relevance for downstream ranking
         combined.sort(key=lambda x: x.relevance_score, reverse=True)
         result = combined[:limit]
 
-        # 9. Build diagnostics
+        # 8. Build diagnostics
         diag.total_items = len(result)
         diag.trusted_items = sum(1 for it in result if it.source_type in ("finding", "paper"))
         diag.kg_items = sum(1 for it in result if it.source_type in ("kg_segment", "kg_graph"))
@@ -144,18 +168,39 @@ class HybridKGEvidenceSource(EvidenceSource):
         )
         return result
 
-    def _cap_single_source(
-        self, items: list[EvidenceItem], total_limit: int,
-    ) -> list[EvidenceItem]:
-        """Cap any single source_id to max_single_source_pct of total_limit."""
-        max_per_source = max(1, int(total_limit * self.max_single_source_pct))
+    def _cap_per_paper(self, items: list[EvidenceItem]) -> list[EvidenceItem]:
+        """Cap items per paper/source_id to max_per_paper."""
         source_counts: dict[str, int] = {}
         result: list[EvidenceItem] = []
-
         for it in items:
             cnt = source_counts.get(it.source_id, 0)
-            if cnt < max_per_source:
+            if cnt < self.max_per_paper:
                 result.append(it)
                 source_counts[it.source_id] = cnt + 1
-
         return result
+
+    def _select_diverse_kg(
+        self, kg_items: list[EvidenceItem], k: int,
+    ) -> list[EvidenceItem]:
+        """Select k KG items preferring items from distinct sources."""
+        if not kg_items or k <= 0:
+            return []
+        selected: list[EvidenceItem] = []
+        seen_sources: set[str] = set()
+        # First pass: one item per source
+        for it in kg_items:
+            if len(selected) >= k:
+                break
+            if it.source_id not in seen_sources:
+                selected.append(it)
+                seen_sources.add(it.source_id)
+        # Second pass: fill remaining from any source
+        if len(selected) < k:
+            selected_ids = {it.id for it in selected}
+            for it in kg_items:
+                if len(selected) >= k:
+                    break
+                if it.id not in selected_ids:
+                    selected.append(it)
+        return selected
+
