@@ -37,6 +37,7 @@ from .models import (
     CandidateHypothesis,
     CandidateScore,
     CandidateStatus,
+    EvidenceItem,
     EvidencePack,
     NoveltyDecision,
     PublicationRecord,
@@ -63,7 +64,7 @@ from .domain_fit import DomainFitEvaluator
 from .embedding_monitor import EmbeddingMonitor
 from .embeddings import EmbeddingNoveltyEngine, MockEmbeddingProvider, EmbeddingProvider
 from .novelty import NoveltyEngine
-from .retrieval import rank_evidence
+from .retrieval import rank_evidence, select_diverse_top_k
 from .review import create_draft
 from .scoring import rank_candidates, score_candidate
 from .simulator import MockSimulatorAdapter, SimulatorAdapter, get_simulator
@@ -805,7 +806,13 @@ class BreakthroughOrchestrator:
                     mechanism=c.mechanism,
                     evidence_ranking_weights=_erw,
                 )
-                items = [item for item, _ in ranked[:max(self.program.evidence_minimum, 2)]]
+                # Phase 10I: Use diversity-aware selection instead of naive top-k
+                # This prevents ranking-layer concentration on a single source
+                top_k = max(self.program.evidence_minimum, 2)
+                diverse_selected = select_diverse_top_k(
+                    ranked, k=top_k, max_per_source=1,
+                )
+                items = [item for item, _ in diverse_selected]
                 # Update evidence_refs to reflect actual links
                 c.evidence_refs = [e.id for e in items]
 
@@ -821,10 +828,24 @@ class BreakthroughOrchestrator:
                     except Exception:
                         pass  # v003 migration may not be applied
 
+            # Phase 10I: Create per-candidate item copies with fresh IDs to avoid
+            # INSERT OR REPLACE collisions when multiple packs share the same items.
+            pack_items = [
+                EvidenceItem(
+                    id=new_id(),
+                    source_type=item.source_type,
+                    source_id=item.source_id,
+                    title=item.title,
+                    quote=item.quote,
+                    citation=item.citation,
+                    relevance_score=item.relevance_score,
+                )
+                for item in items
+            ]
             pack = EvidencePack(
                 candidate_id=c.id,
-                items=items,
-                source_diversity_count=len(set(i.source_id for i in items)),
+                items=pack_items,
+                source_diversity_count=len(set(i.source_id for i in pack_items)),
             )
             self.repo.save_evidence_pack(pack)
             evidence_packs[c.id] = pack

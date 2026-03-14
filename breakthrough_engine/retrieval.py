@@ -775,4 +775,100 @@ def rank_evidence(
 
     # Sort by composite score descending
     scored.sort(key=lambda x: x[2], reverse=True)
+
+    # Phase 10I: Annotate with source_id for downstream diversity selection
+    for item, detail, _ in scored:
+        detail["source_id"] = item.source_id
+
     return [(item, detail) for item, detail, _ in scored]
+
+
+def select_diverse_top_k(
+    ranked: list[tuple[EvidenceItem, dict]],
+    k: int,
+    max_per_source: int = 1,
+    diversity_penalty: float = 0.05,
+) -> list[tuple[EvidenceItem, dict]]:
+    """Select top-k items from ranked list with source diversity awareness.
+
+    Phase 10I: Prevents ranking-layer concentration where all top-k items
+    come from the same source_id. Uses a greedy selection with per-source
+    cap and diversity penalty for already-seen sources.
+
+    Algorithm:
+    1. Start with the full ranked list (by composite score).
+    2. Greedily select items: if a source is already represented,
+       apply a diversity penalty to its effective score.
+    3. Enforce max_per_source cap: skip items exceeding the cap.
+    4. Extremely strong items (composite > 2nd-best by >=0.15) bypass the cap.
+
+    Returns top-k (item, detail) pairs with updated ranking details.
+    """
+    if not ranked or k <= 0:
+        return []
+
+    # Annotate all items even for early return
+    if len(ranked) <= k:
+        result = []
+        for item, detail in ranked:
+            detail = dict(detail)
+            detail["diversity_penalty"] = 0.0
+            detail["effective_score"] = detail.get("composite_score", 0)
+            detail["source_capped"] = False
+            result.append((item, detail))
+        return result
+
+    selected: list[tuple[EvidenceItem, dict]] = []
+    source_counts: dict[str, int] = {}
+    bypass_threshold = 0.15  # score margin for cap bypass
+
+    for item, detail in ranked:
+        if len(selected) >= k:
+            break
+
+        source = item.source_id
+        count = source_counts.get(source, 0)
+        score = detail.get("composite_score", 0)
+
+        # Check if this item should bypass the cap (exceptionally strong)
+        # Only bypass when other sources ARE already represented in selected
+        bypass = False
+        if count >= max_per_source:
+            other_scores = [
+                d.get("composite_score", 0) for it, d in selected
+                if it.source_id != source
+            ]
+            if other_scores:
+                best_other_score = max(other_scores)
+                if score - best_other_score >= bypass_threshold:
+                    bypass = True
+
+        if count >= max_per_source and not bypass:
+            continue
+
+        # Apply diversity penalty for repeated sources
+        effective_score = score - (diversity_penalty * count)
+        detail = dict(detail)  # copy to avoid mutating original
+        detail["diversity_penalty"] = round(diversity_penalty * count, 3)
+        detail["effective_score"] = round(effective_score, 3)
+        detail["source_capped"] = count >= max_per_source
+
+        selected.append((item, detail))
+        source_counts[source] = count + 1
+
+    # If we couldn't fill k items due to caps, relax and fill from remaining
+    if len(selected) < k:
+        selected_ids = {item.id for item, _ in selected}
+        for item, detail in ranked:
+            if len(selected) >= k:
+                break
+            if item.id not in selected_ids:
+                detail = dict(detail)
+                detail["diversity_penalty"] = 0.0
+                detail["effective_score"] = detail.get("composite_score", 0)
+                detail["source_capped"] = False
+                detail["diversity_relaxed"] = True
+                selected.append((item, detail))
+                selected_ids.add(item.id)
+
+    return selected
