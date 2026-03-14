@@ -65,4 +65,4 @@ Then rerun a confirmatory 7+7 limited A/B under the same locked conditions.
 | I | Rollback readiness | COMPLETE |
 | J | Testing | COMPLETE (1160 passing) |
 | K | Artifact packaging | COMPLETE |
-| L | Commit | PENDING |
+| L | Commit | COMPLETE (`47ac28b`) |
