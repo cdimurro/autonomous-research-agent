@@ -91,13 +91,17 @@ class KGEvidenceSource(EvidenceSource):
             if not text or len(text.strip()) < 20:
                 continue
 
+            # Use segment ID for source_id to avoid paper-level diversity
+            # collapse. Prior: all segments from one paper shared one source_id.
+            seg_id = seg.get("id", seg.get("paper_id", ""))
+            paper_id = seg.get("paper_id", "")
             items.append(EvidenceItem(
                 id=new_id(),
                 source_type="kg_segment",
-                source_id=seg.get("source_id", seg.get("paper_id", "")),
+                source_id=f"kg_seg:{seg_id}",
                 title=text[:120].rstrip(". ") + "...",
                 quote=text[:500],
-                citation=f"KG segment (paper={seg.get('paper_id', '')[:16]})",
+                citation=f"KG segment (paper={paper_id[:16]})",
                 relevance_score=relevance,
             ))
 

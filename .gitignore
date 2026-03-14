@@ -24,3 +24,6 @@ __pycache__/
 
 # Claude Code
 .claude/
+
+# Project summary (generated, not source)
+project_summary.md

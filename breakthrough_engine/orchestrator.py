@@ -1104,36 +1104,76 @@ class BreakthroughOrchestrator:
             failed_rules=failed_rules,
         )
 
+    # Module-level graph cache: canonical map, graph, and paths are deterministic
+    # on stable KG data within a daily cycle. Cache keyed by (domain, entity_count,
+    # relation_count) — invalidated if underlying data changes.
+    _graph_cache: dict = {}
+
+    @classmethod
+    def _invalidate_graph_cache(cls):
+        """Explicitly clear the graph cache (e.g. after new KG extraction)."""
+        cls._graph_cache.clear()
+
     def _build_graph_context(self, run_id: str, evidence: list) -> Optional[str]:
         """Phase 10F: Build graph context string for graph-conditioned generation.
 
         Constructs canonical graph from KG entities/relations, finds multi-hop
         reasoning paths, and builds a topic subgraph. Returns a formatted string
         for the GRAPH_CONDITIONED_TEMPLATE, or None if graph is too small.
+
+        Phase 10H: Caches canonical map, graph, and reasoning paths by domain.
+        Only the topic subgraph (evidence-dependent) is rebuilt per run.
         """
+        import time as _time
         try:
             from .kg_canonicalization import ConceptCanonicalizer, CanonicalGraph
             from .kg_reasoning import CanonicalMultiHopReasoner
             from .kg_subgraph import SubgraphBuilder
 
             domain = self.program.domain
+            t0 = _time.monotonic()
 
-            # 1. Canonicalize entities
-            canonicalizer = ConceptCanonicalizer(self.repo)
-            canonical_map, stats = canonicalizer.canonicalize(domain=domain, limit=5000)
-            if len(canonical_map) < 3:
-                logger.info("[%s] Graph context: too few canonical concepts (%d), skipping",
-                            run_id[:8], len(canonical_map))
-                return None
+            # Check cache for canonical map + graph + paths
+            entity_count = len(self.repo.list_kg_entities(domain=domain, limit=1))
+            relation_count = len(self.repo.list_kg_relations(domain=domain, limit=1))
+            cache_key = (domain, entity_count, relation_count)
+            cached = self._graph_cache.get(cache_key)
 
-            entity_id_map = canonicalizer.build_entity_id_to_canonical(canonical_map)
-            relations = self.repo.list_kg_relations(domain=domain, limit=5000)
-            graph = CanonicalGraph()
-            graph.build(canonical_map, entity_id_map, relations)
+            if cached:
+                canonical_map = cached["canonical_map"]
+                stats = cached["stats"]
+                graph = cached["graph"]
+                paths = cached["paths"]
+                cache_hit = True
+            else:
+                # 1. Canonicalize entities
+                canonicalizer = ConceptCanonicalizer(self.repo)
+                canonical_map, stats = canonicalizer.canonicalize(domain=domain, limit=5000)
+                if len(canonical_map) < 3:
+                    logger.info("[%s] Graph context: too few canonical concepts (%d), skipping",
+                                run_id[:8], len(canonical_map))
+                    return None
 
-            # 2. Find reasoning paths
-            reasoner = CanonicalMultiHopReasoner(graph, max_hops=3, min_path_confidence=0.1)
-            paths = reasoner.find_paths(limit=10)
+                entity_id_map = canonicalizer.build_entity_id_to_canonical(canonical_map)
+                relations = self.repo.list_kg_relations(domain=domain, limit=5000)
+                graph = CanonicalGraph()
+                graph.build(canonical_map, entity_id_map, relations)
+
+                # 2. Find reasoning paths
+                reasoner = CanonicalMultiHopReasoner(graph, max_hops=3, min_path_confidence=0.1)
+                paths = reasoner.find_paths(limit=10)
+
+                # Cache for reuse within daily cycle
+                self._graph_cache[cache_key] = {
+                    "canonical_map": canonical_map,
+                    "stats": stats,
+                    "graph": graph,
+                    "paths": paths,
+                }
+                cache_hit = False
+
+            t_cached = _time.monotonic()
+
             path_strs = []
             for p in paths[:6]:
                 cross = " [CROSS-PAPER]" if p.is_cross_paper else ""
@@ -1142,10 +1182,9 @@ class BreakthroughOrchestrator:
                     f"  {' → '.join(p.concepts)} (conf={p.path_confidence:.2f}){cross}{tpl}"
                 )
 
-            # 3. Build topic subgraph from evidence titles
+            # 3. Build topic subgraph from evidence titles (not cached — varies per run)
             topic = domain.replace("-", " ")
             if evidence:
-                # Use most common words from evidence titles as topic seed
                 title_words = " ".join(e.title for e in evidence[:5])
                 topic = title_words[:100]
 
@@ -1167,10 +1206,14 @@ class BreakthroughOrchestrator:
             context = "\n".join(lines)
             self._graph_context_str = context
 
+            t_end = _time.monotonic()
             logger.info(
-                "[%s] Graph context built: concepts=%d paths=%d subgraph_nodes=%d context_chars=%d",
+                "[%s] Graph context built: concepts=%d paths=%d subgraph_nodes=%d "
+                "context_chars=%d cache=%s graph_ms=%.0f subgraph_ms=%.0f",
                 run_id[:8], len(canonical_map), len(paths),
                 sg.node_count if sg else 0, len(context),
+                "HIT" if cache_hit else "MISS",
+                (t_cached - t0) * 1000, (t_end - t_cached) * 1000,
             )
             return context
 
