@@ -1,0 +1,5 @@
+# PyBaMM sidecar dependencies
+# Install in a separate Python 3.12 venv:
+#   python3.12 -m venv .venv-pybamm
+#   .venv-pybamm/bin/pip install -r battery_sidecar/requirements.txt
+pybamm>=24.1
