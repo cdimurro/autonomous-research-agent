@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useBriefs } from "@/hooks/useBriefs";
 import DecisionBriefCard from "@/components/results/DecisionBriefCard";
 import ArtifactGrid from "@/components/results/ArtifactGrid";
+import ExportButton from "@/components/results/ExportButton";
 import type { BriefType, ResearchBrief, DiligenceBrief } from "@/lib/types";
 
 type TabId = "briefs" | "compare" | "artifacts";
@@ -561,6 +562,10 @@ export default function ResultsPage() {
                           compact
                         />
                         <div className="absolute top-2 right-2 flex gap-1.5">
+                          <ExportButton
+                            briefId={brief.id as string}
+                            className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-card)] transition-colors"
+                          />
                           <button
                             onClick={() => setInspectBrief(brief)}
                             className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-card)] transition-colors"

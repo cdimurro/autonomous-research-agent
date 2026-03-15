@@ -5,6 +5,8 @@ import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
 import ReviewControls from "@/components/results/ReviewControls";
+import ExportButton from "@/components/results/ExportButton";
+import ProvenancePanel from "@/components/results/ProvenancePanel";
 import type { DiligenceBrief } from "@/lib/types";
 
 const REVIEW_LABELS: Record<string, { color: string; label: string }> = {
@@ -74,10 +76,22 @@ function DiligenceBriefCard({ brief, onReviewUpdated }: { brief: DiligenceBrief;
         <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-snug">
           {brief.summary}
         </p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">
-          Subject: {brief.subject} &middot;{" "}
-          {new Date(brief.created_at).toLocaleDateString()}
-        </p>
+        <div className="flex items-center gap-2 mt-1.5">
+          <p className="text-[10px] text-[var(--text-muted)]">
+            Subject: {brief.subject} &middot;{" "}
+            {new Date(brief.created_at).toLocaleDateString()}
+          </p>
+          <ExportButton briefId={brief.id} />
+        </div>
+      </div>
+
+      {/* Provenance */}
+      <div className="px-5 py-3 border-t border-[var(--border)]">
+        <ProvenancePanel
+          briefType="diligence"
+          groundingSources={brief.grounding_sources}
+          confidenceNote={brief.confidence_note}
+        />
       </div>
 
       {/* Strongest Signals */}

@@ -5,6 +5,8 @@ import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
 import ReviewControls from "@/components/results/ReviewControls";
+import ExportButton from "@/components/results/ExportButton";
+import ProvenancePanel from "@/components/results/ProvenancePanel";
 import type { ResearchBrief } from "@/lib/types";
 
 const REVIEW_LABELS: Record<string, { color: string; label: string }> = {
@@ -72,10 +74,22 @@ function ResearchBriefCard({ brief, onReviewUpdated }: { brief: ResearchBrief; o
         <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-snug">
           {brief.summary}
         </p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">
-          Topic: {brief.topic} &middot;{" "}
-          {new Date(brief.created_at).toLocaleDateString()}
-        </p>
+        <div className="flex items-center gap-2 mt-1.5">
+          <p className="text-[10px] text-[var(--text-muted)]">
+            Topic: {brief.topic} &middot;{" "}
+            {new Date(brief.created_at).toLocaleDateString()}
+          </p>
+          <ExportButton briefId={brief.id} />
+        </div>
+      </div>
+
+      {/* Provenance */}
+      <div className="px-5 py-3 border-t border-[var(--border)]">
+        <ProvenancePanel
+          briefType="research"
+          groundingSources={brief.grounding_sources}
+          evidenceQuality={brief.evidence_quality}
+        />
       </div>
 
       {/* Promising Directions */}
