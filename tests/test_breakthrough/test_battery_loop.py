@@ -22,6 +22,7 @@ from breakthrough_engine.battery_loop import (
     compute_robustness_profile,
     generate_battery_candidates,
     generate_candidate_caveats,
+    generate_rejection_reason,
     run_battery_benchmark,
     score_battery_candidate,
 )
@@ -308,7 +309,7 @@ class TestCaveatGeneration:
         from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
         candidate = CandidateSpec(
             domain_name="battery_ecm",
-            title="test",
+            title="Battery reduced_resistance test",
             parameters=dict(DEFAULT_CELL_PARAMS, R0_mohm=15.0),
         )
         evaluation = EvaluationResult(
@@ -321,6 +322,8 @@ class TestCaveatGeneration:
         cand_metrics = run_experiment("baseline_cycle", candidate.parameters).metrics
         caveats = generate_candidate_caveats(candidate, evaluation, baseline, cand_metrics)
         assert any("R0_mohm" in c for c in caveats)
+        # Should include percentage change
+        assert any("%" in c for c in caveats if "R0_mohm" in c)
 
     def test_caveats_include_score_concentration(self):
         from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
@@ -336,6 +339,86 @@ class TestCaveatGeneration:
         baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS).metrics
         caveats = generate_candidate_caveats(candidate, evaluation, baseline, baseline)
         assert any("concentrated" in c.lower() or "weakness" in c.lower() for c in caveats)
+
+    def test_caveats_include_tradeoff_risk(self):
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm",
+            title="Battery reduced_resistance test",
+            parameters=dict(DEFAULT_CELL_PARAMS, R0_mohm=20.0),
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={}, final_score=0.6,
+        )
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS).metrics
+        caveats = generate_candidate_caveats(candidate, evaluation, baseline, baseline)
+        assert any("tradeoff" in c.lower() for c in caveats)
+
+    def test_stress_informed_caveats(self):
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test",
+            parameters=dict(DEFAULT_CELL_PARAMS),
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={}, final_score=0.6,
+        )
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS).metrics
+        # Simulate a profile where stress erodes benefit
+        profile = {
+            "fade_rate": 0.03, "fast_charge_fade_rate": 0.08,
+            "thermal_stress_fade_rate": 0.07,
+            "worst_stress_retention": 85.0, "capacity_retention": 95.0,
+        }
+        caveats = generate_candidate_caveats(
+            candidate, evaluation, baseline, baseline, robustness_profile=profile,
+        )
+        assert any("stress" in c.lower() or "erodes" in c.lower() for c in caveats)
+
+
+class TestRejectionReasons:
+    def test_hard_fail_rejection(self):
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            hard_fail=True, hard_fail_reasons=["CE below 90%"],
+        )
+        reason = generate_rejection_reason(candidate, evaluation, 0.55)
+        assert "Hard fail" in reason
+
+    def test_below_threshold_rejection(self):
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={"robustness": 0.2, "rate_capability": 0.8},
+            final_score=0.45,
+        )
+        reason = generate_rejection_reason(candidate, evaluation, 0.55)
+        assert "0.45" in reason
+        assert "gap" in reason.lower()
+        assert "robustness" in reason
+
+    def test_stress_fragile_rejection(self):
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={"stress_resilience": 0.3},
+            final_score=0.50,
+        )
+        profile = {"worst_stress_retention": 75.0}
+        reason = generate_rejection_reason(candidate, evaluation, 0.55, profile)
+        assert "stress" in reason.lower()
 
 
 # ---------------------------------------------------------------------------

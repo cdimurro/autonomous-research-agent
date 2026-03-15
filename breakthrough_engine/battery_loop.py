@@ -640,21 +640,31 @@ def generate_candidate_caveats(
     candidate_metrics: dict,
     robustness_profile: Optional[dict] = None,
 ) -> list[str]:
-    """Generate explicit caveats for a promoted or alternate candidate."""
+    """Generate explicit decision-grade caveats for a promoted or alternate candidate.
+
+    Caveats cover:
+    1. What parameters changed and by how much
+    2. Where score gains are concentrated vs weak
+    3. Whether fast-charge or thermal stress erodes the benefit
+    4. Whether gains are regime-specific (only at 1C/25C)
+    5. Degradation warnings vs baseline
+    6. Tradeoff risk from the candidate's family
+    """
     caveats: list[str] = list(evaluation.caveats)
 
-    # What changed
+    # 1. What changed
     changed_params = []
     base = DEFAULT_CELL_PARAMS
     for param in ("R0_mohm", "R1_mohm", "capacity_ah", "coulombic_eff", "fade_rate_per_cycle", "C1_F"):
         base_val = base.get(param, 0)
         cand_val = candidate.parameters.get(param, base_val)
         if base_val and abs(cand_val - base_val) / max(abs(base_val), 1e-15) > 0.01:
-            changed_params.append(f"{param}: {base_val} → {cand_val:.4g}")
+            pct = (cand_val - base_val) / abs(base_val) * 100
+            changed_params.append(f"{param}: {base_val} → {cand_val:.4g} ({pct:+.1f}%)")
     if changed_params:
         caveats.append(f"Parameter changes: {'; '.join(changed_params)}")
 
-    # Score concentration
+    # 2. Score concentration and weakness
     components = evaluation.score_components
     if components:
         strongest = max(components, key=lambda k: components[k])
@@ -664,7 +674,30 @@ def generate_candidate_caveats(
         if components[weakest] < 0.3:
             caveats.append(f"Weakness in {weakest} (score={components[weakest]:.2f})")
 
-    # Degradation warnings
+    # 3. Stress-informed caveats: does fast-charge or thermal stress erode the benefit?
+    if robustness_profile:
+        fc_fade = robustness_profile.get("fast_charge_fade_rate", 0)
+        standard_fade = robustness_profile.get("fade_rate", 0)
+        if fc_fade > 0 and standard_fade > 0 and fc_fade > standard_fade * 1.5:
+            caveats.append(
+                f"Fast-charge erodes benefit: fade at 2C ({fc_fade:.4f}%/cycle) is "
+                f"{fc_fade/standard_fade:.1f}x worse than standard ({standard_fade:.4f}%/cycle)"
+            )
+        ts_fade = robustness_profile.get("thermal_stress_fade_rate", 0)
+        if ts_fade > 0 and standard_fade > 0 and ts_fade > standard_fade * 1.5:
+            caveats.append(
+                f"Thermal stress erodes benefit: fade at 45C ({ts_fade:.4f}%/cycle) is "
+                f"{ts_fade/standard_fade:.1f}x worse than standard ({standard_fade:.4f}%/cycle)"
+            )
+        wsr = robustness_profile.get("worst_stress_retention", 100)
+        standard_ret = robustness_profile.get("capacity_retention", 100)
+        if wsr < standard_ret - 5.0:
+            caveats.append(
+                f"Stress-sensitive: worst retention under stress ({wsr:.1f}%) vs "
+                f"standard aging ({standard_ret:.1f}%) — gains may be regime-specific"
+            )
+
+    # 4. Degradation warnings
     base_cap = baseline_metrics.get("discharge_capacity", 0)
     cand_cap = candidate_metrics.get("discharge_capacity", 0)
     if base_cap > 0 and cand_cap < base_cap * 0.95:
@@ -675,7 +708,41 @@ def generate_candidate_caveats(
     if base_coul > 0 and cand_coul < base_coul - 0.5:
         caveats.append(f"Coulombic efficiency decreased: {cand_coul:.2f}% vs baseline {base_coul:.2f}%")
 
+    # 5. Family tradeoff risk
+    for fam_def in CANDIDATE_FAMILIES:
+        if fam_def["family"] in candidate.title:
+            caveats.append(f"Tradeoff risk ({fam_def['family']}): {fam_def['tradeoff_risk']}")
+            break
+
     return caveats
+
+
+def generate_rejection_reason(
+    candidate: CandidateSpec,
+    evaluation: EvaluationResult,
+    promotion_threshold: float,
+    robustness_profile: Optional[dict] = None,
+) -> str:
+    """Generate an explicit rejection reason for a near-miss or rejected candidate."""
+    score = evaluation.final_score
+    gap = promotion_threshold - score
+
+    if evaluation.hard_fail:
+        return f"Hard fail: {'; '.join(evaluation.hard_fail_reasons)}"
+
+    components = evaluation.score_components or {}
+    parts = [f"Score {score:.4f} below threshold {promotion_threshold:.2f} (gap: {gap:.4f})"]
+
+    if components:
+        weakest = min(components, key=lambda k: components[k])
+        parts.append(f"weakest component: {weakest} ({components[weakest]:.2f})")
+
+    if robustness_profile:
+        wsr = robustness_profile.get("worst_stress_retention", 100)
+        if wsr < 90:
+            parts.append(f"stress-fragile (worst retention {wsr:.1f}%)")
+
+    return "; ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -810,7 +877,11 @@ class BatteryOptimizationLoop:
         promoted_count = 0
 
         for r in scorable:
-            if r.evaluation.final_score >= self.promotion_threshold:
+            passes_threshold = r.evaluation.final_score >= self.promotion_threshold
+            # Stress gate: stress_resilience must be at least 0.4 to promote
+            stress_ok = r.evaluation.score_components.get("stress_resilience", 1.0) >= 0.4
+
+            if passes_threshold and stress_ok:
                 if best is None:
                     best = r
                     r.decision = PromotionDecision.PROMOTED
@@ -839,11 +910,22 @@ class BatteryOptimizationLoop:
                 else:
                     r.decision = PromotionDecision.REJECTED
                     r.candidate.status = CandidateStatus.REJECTED
-                    r.candidate.rejection_reason = (
-                        f"Score {r.evaluation.final_score:.4f} above threshold "
-                        f"but not selected (selective promotion)"
+                    r.candidate.rejection_reason = generate_rejection_reason(
+                        r.candidate, r.evaluation, self.promotion_threshold,
+                        r.robustness_profile,
                     )
                     self.repo.save_domain_candidate(r.candidate)
+            elif passes_threshold and not stress_ok:
+                # Above threshold but stress-fragile — reject with explicit reason
+                r.decision = PromotionDecision.REJECTED
+                r.candidate.status = CandidateStatus.REJECTED
+                stress_score = r.evaluation.score_components.get("stress_resilience", 0)
+                r.candidate.rejection_reason = (
+                    f"Score {r.evaluation.final_score:.4f} above threshold but "
+                    f"stress_resilience {stress_score:.2f} below 0.40 minimum — "
+                    "candidate is fragile under fast-charge or thermal stress"
+                )
+                self.repo.save_domain_candidate(r.candidate)
 
         return BatteryLoopResult(
             run_id=run_id,
@@ -943,7 +1025,9 @@ class BatteryOptimizationLoop:
         else:
             decision = PromotionDecision.REJECTED
             candidate.status = CandidateStatus.REJECTED
-            candidate.rejection_reason = f"Score {eval_result.final_score:.4f} below threshold {self.promotion_threshold}"
+            candidate.rejection_reason = generate_rejection_reason(
+                candidate, eval_result, self.promotion_threshold, robustness,
+            )
 
         self.repo.save_domain_candidate(candidate)
 
