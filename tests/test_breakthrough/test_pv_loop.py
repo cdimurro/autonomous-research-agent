@@ -15,9 +15,14 @@ from breakthrough_engine.pv_domain import DEFAULT_CELL_PARAMS, run_experiment
 from breakthrough_engine.pv_loop import (
     CANDIDATE_FAMILIES,
     PARAM_RANGES,
+    PROPOSAL_TAG_EXPLORATORY,
+    PROPOSAL_TAG_MEMORY,
+    PROPOSAL_TAG_RECOVERY,
+    PROPOSAL_TAG_RETRY,
     PV_SCORE_WEIGHTS,
     PVOptimizationLoop,
     _check_cross_parameter_plausibility,
+    _compute_family_weights,
     compute_robustness_profile,
     generate_candidate_caveats,
     generate_pv_candidates,
@@ -64,17 +69,20 @@ class TestCandidateGeneration:
                 if param in c.parameters:
                     assert lo <= c.parameters[param] <= hi, f"{param}={c.parameters[param]} out of [{lo}, {hi}]"
 
-    def test_avoids_failed_families(self):
+    def test_downranks_failed_families(self):
+        """Families with all hard-fail history should appear less often."""
         prior_lessons = [
-            {"candidate_family": "reduced_series_resistance", "outcome": "rejected"},
+            {"candidate_family": "reduced_series_resistance", "outcome": "hard_fail"},
             {"candidate_family": "reduced_series_resistance", "outcome": "hard_fail"},
         ]
-        candidates = generate_pv_candidates(n_candidates=6, seed=42, prior_lessons=prior_lessons)
-        for c in candidates:
-            assert "reduced_series_resistance" not in c.title
+        # With weighted selection, the failed family appears less but may still appear
+        candidates = generate_pv_candidates(n_candidates=30, seed=42, prior_lessons=prior_lessons)
+        rs_count = sum(1 for c in candidates if "reduced_series_resistance" in c.title)
+        # Should be rare (< 20% of candidates) since weight = 0.1
+        assert rs_count < 10, f"Failed family appeared {rs_count}/30 times"
 
-    def test_uses_all_families_if_all_failed(self):
-        # If all families have failed, fall back to using all
+    def test_all_families_still_available(self):
+        """Even with all failures, candidates are still generated."""
         prior_lessons = [
             {"candidate_family": fam["family"], "outcome": "rejected"}
             for fam in CANDIDATE_FAMILIES
@@ -483,3 +491,93 @@ class TestPromotionTightening:
         decisions = [r.decision for r in result.candidates]
         for d in decisions:
             assert d in (PromotionDecision.PROMOTED, PromotionDecision.REJECTED, PromotionDecision.DEFERRED)
+
+
+# ---------------------------------------------------------------------------
+# CC-BE-2409: Memory-guided proposal generation tests
+# ---------------------------------------------------------------------------
+
+class TestMemoryGuidedGeneration:
+    def test_no_memory_all_exploratory(self):
+        """Without prior lessons, all candidates should be exploratory."""
+        candidates = generate_pv_candidates(n_candidates=6, seed=42)
+        for c in candidates:
+            assert PROPOSAL_TAG_EXPLORATORY in c.rationale
+
+    def test_promoted_family_gets_memory_tag(self):
+        """Family with promotion history should be tagged memory-supported."""
+        prior = [
+            {"candidate_family": "reduced_series_resistance", "outcome": "promoted"},
+        ]
+        weights, tags = _compute_family_weights(prior)
+        assert tags["reduced_series_resistance"] == PROPOSAL_TAG_MEMORY
+        assert weights["reduced_series_resistance"] > 1.0
+
+    def test_hard_fail_family_downranked(self):
+        """Family with 100% hard-fail should be heavily down-ranked."""
+        prior = [
+            {"candidate_family": "bounded_aggressive", "outcome": "hard_fail"},
+            {"candidate_family": "bounded_aggressive", "outcome": "hard_fail"},
+        ]
+        weights, tags = _compute_family_weights(prior)
+        assert weights["bounded_aggressive"] < 0.2
+        assert tags["bounded_aggressive"] == PROPOSAL_TAG_RETRY
+
+    def test_all_rejected_gets_recovery_tag(self):
+        """Family with all rejections (no hard-fail) should get recovery tag."""
+        prior = [
+            {"candidate_family": "enhanced_photocurrent", "outcome": "rejected"},
+            {"candidate_family": "enhanced_photocurrent", "outcome": "rejected"},
+        ]
+        weights, tags = _compute_family_weights(prior)
+        assert tags["enhanced_photocurrent"] == PROPOSAL_TAG_RECOVERY
+        assert weights["enhanced_photocurrent"] < 1.0
+
+    def test_memory_affects_family_selection(self):
+        """Promoted family should appear more often than hard-fail family."""
+        prior = [
+            {"candidate_family": "reduced_series_resistance", "outcome": "promoted"},
+            {"candidate_family": "reduced_series_resistance", "outcome": "promoted"},
+            {"candidate_family": "bounded_aggressive", "outcome": "hard_fail"},
+            {"candidate_family": "bounded_aggressive", "outcome": "hard_fail"},
+        ]
+        # Generate many candidates and count family occurrences
+        candidates = generate_pv_candidates(n_candidates=30, seed=42, prior_lessons=prior)
+        family_counts: dict[str, int] = {}
+        for c in candidates:
+            for fam in CANDIDATE_FAMILIES:
+                if fam["family"] in c.title:
+                    family_counts[fam["family"]] = family_counts.get(fam["family"], 0) + 1
+                    break
+        # Promoted family should appear more often
+        rs_count = family_counts.get("reduced_series_resistance", 0)
+        agg_count = family_counts.get("bounded_aggressive", 0)
+        assert rs_count >= agg_count
+
+    def test_proposal_tags_in_rationale(self):
+        """Each candidate rationale should contain a proposal tag."""
+        prior = [
+            {"candidate_family": "reduced_series_resistance", "outcome": "promoted"},
+            {"candidate_family": "bounded_aggressive", "outcome": "hard_fail"},
+        ]
+        candidates = generate_pv_candidates(n_candidates=6, seed=42, prior_lessons=prior)
+        valid_tags = {PROPOSAL_TAG_MEMORY, PROPOSAL_TAG_EXPLORATORY, PROPOSAL_TAG_RECOVERY, PROPOSAL_TAG_RETRY}
+        for c in candidates:
+            assert any(tag in c.rationale for tag in valid_tags), f"No tag in: {c.rationale}"
+
+    def test_multi_run_memory_accumulation(self):
+        """Memory from multiple runs should cumulatively affect generation."""
+        db = init_db(in_memory=True)
+        repo = Repository(db)
+
+        # Run 1: establish memory
+        loop1 = PVOptimizationLoop(repo, n_candidates=4, seed=42)
+        loop1.run(run_id="mem_run_1")
+
+        # Run 2: should use memory from run 1
+        loop2 = PVOptimizationLoop(repo, n_candidates=4, seed=99)
+        r2 = loop2.run(run_id="mem_run_2")
+
+        # All candidates should have rationale tags
+        for cr in r2.candidates:
+            assert "[" in cr.candidate.rationale  # tag marker

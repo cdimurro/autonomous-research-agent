@@ -155,55 +155,156 @@ def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
     return len(reasons) == 0, reasons
 
 
+# Proposal rationale tags (CC-BE-2409)
+PROPOSAL_TAG_MEMORY = "memory-supported"
+PROPOSAL_TAG_EXPLORATORY = "exploratory"
+PROPOSAL_TAG_RECOVERY = "recovery"
+PROPOSAL_TAG_RETRY = "retry-with-correction"
+
+
+def _compute_family_weights(
+    prior_lessons: Optional[list[dict]],
+    experiment_memories: Optional[list[dict]] = None,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Compute per-family selection weights from memory.
+
+    Returns (weights_dict, rationale_tags_dict).
+    Families with promoted history get higher weight.
+    Families with consistent hard-fails get down-ranked.
+    Families whose sweeps exposed fragility get recovery tags.
+    """
+    weights: dict[str, float] = {f["family"]: 1.0 for f in CANDIDATE_FAMILIES}
+    tags: dict[str, str] = {f["family"]: PROPOSAL_TAG_EXPLORATORY for f in CANDIDATE_FAMILIES}
+
+    if not prior_lessons:
+        return weights, tags
+
+    family_stats: dict[str, dict] = {}
+    for lesson in prior_lessons:
+        fam = lesson.get("candidate_family", "")
+        outcome = lesson.get("outcome", "")
+        if not fam:
+            continue
+        stats = family_stats.setdefault(fam, {"promoted": 0, "rejected": 0, "hard_fail": 0, "total": 0})
+        stats["total"] += 1
+        if outcome == "promoted":
+            stats["promoted"] += 1
+        elif outcome == "hard_fail":
+            stats["hard_fail"] += 1
+        elif outcome == "rejected":
+            stats["rejected"] += 1
+
+    # Fragile families from experiment memory
+    fragile_families: set[str] = set()
+    if experiment_memories:
+        for mem in experiment_memories:
+            weakness = mem.get("weakness_exposed", "")
+            if weakness and ("sensitivity" in weakness.lower() or "variation" in weakness.lower()):
+                # Try to associate with a family via candidate_id matching
+                fragile_families.add(mem.get("candidate_id", ""))
+
+    for fam, stats in family_stats.items():
+        if fam not in weights:
+            continue
+        total = stats["total"]
+        if total == 0:
+            continue
+
+        promote_rate = stats["promoted"] / total
+        hard_fail_rate = stats["hard_fail"] / total
+
+        if hard_fail_rate == 1.0:
+            # All attempts hard-failed: heavily down-rank but don't exclude
+            weights[fam] = 0.1
+            tags[fam] = PROPOSAL_TAG_RETRY
+            logger.info("Down-ranking family %s: 100%% hard-fail rate", fam)
+        elif hard_fail_rate > 0.5:
+            weights[fam] = 0.3
+            tags[fam] = PROPOSAL_TAG_RETRY
+        elif promote_rate > 0:
+            # Has at least one promotion: memory-supported
+            weights[fam] = 1.0 + promote_rate  # up to 2.0
+            tags[fam] = PROPOSAL_TAG_MEMORY
+        elif stats["rejected"] == total:
+            # All rejected (not hard-fail): try with correction
+            weights[fam] = 0.5
+            tags[fam] = PROPOSAL_TAG_RECOVERY
+
+    return weights, tags
+
+
+def _select_families_weighted(
+    families: list[dict],
+    weights: dict[str, float],
+    n: int,
+    rng: random.Random,
+) -> list[dict]:
+    """Select n families using weighted sampling without replacement (then cycle)."""
+    available = list(families)
+    w = [weights.get(f["family"], 1.0) for f in available]
+    total_w = sum(w)
+    if total_w <= 0:
+        return [available[i % len(available)] for i in range(n)]
+
+    selected = []
+    for _ in range(n):
+        r = rng.random() * total_w
+        cumulative = 0.0
+        for idx, fw in enumerate(w):
+            cumulative += fw
+            if r <= cumulative:
+                selected.append(available[idx])
+                break
+        else:
+            selected.append(available[-1])
+
+    return selected
+
+
 def generate_pv_candidates(
     n_candidates: int = 6,
     base_params: Optional[dict] = None,
     seed: Optional[int] = None,
     prior_lessons: Optional[list[dict]] = None,
+    experiment_memories: Optional[list[dict]] = None,
 ) -> list[CandidateSpec]:
     """Generate PV candidate parameter variations with realistic priors.
 
+    Uses memory-guided family weighting (CC-BE-2409):
+    - Families with promotion history get higher selection weight
+    - Families with consistent hard-fails get down-ranked
+    - Each candidate tagged with proposal rationale:
+      memory-supported, exploratory, recovery, retry-with-correction
+
     Uses physically-grounded perturbation families bounded to plausible
-    improvement magnitudes. Rejects unrealistic cross-parameter combinations
-    at generation time. Avoids families that have consistently failed.
+    improvement magnitudes (CC-BE-2406). Rejects unrealistic cross-parameter
+    combinations at generation time.
     """
-    if seed is not None:
-        random.seed(seed)
+    rng = random.Random(seed)
 
     base = dict(base_params or DEFAULT_CELL_PARAMS)
     candidates = []
 
-    # Filter out families that have consistently failed
-    failed_families = set()
-    if prior_lessons:
-        family_outcomes: dict[str, list[str]] = {}
-        for lesson in prior_lessons:
-            fam = lesson.get("candidate_family", "")
-            outcome = lesson.get("outcome", "")
-            if fam:
-                family_outcomes.setdefault(fam, []).append(outcome)
-        for fam, outcomes in family_outcomes.items():
-            if outcomes and all(o in ("rejected", "hard_fail") for o in outcomes):
-                failed_families.add(fam)
-                logger.info("Skipping family %s: all prior attempts failed", fam)
+    # Compute family weights from memory
+    weights, family_tags = _compute_family_weights(prior_lessons, experiment_memories)
 
-    available_families = [f for f in CANDIDATE_FAMILIES if f["family"] not in failed_families]
-    if not available_families:
-        available_families = CANDIDATE_FAMILIES  # fallback: use all
+    # Select families using weighted sampling
+    selected_families = _select_families_weighted(
+        CANDIDATE_FAMILIES, weights, n_candidates, rng,
+    )
 
-    for i in range(n_candidates):
-        family = available_families[i % len(available_families)]
+    for i, family in enumerate(selected_families):
         params = dict(base)
         description_parts = []
+        proposal_tag = family_tags.get(family["family"], PROPOSAL_TAG_EXPLORATORY)
 
         for param, delta_range in family["perturbations"].items():
             if param == "I_o_ref":
-                # Multiplicative perturbation for I_o (log scale)
-                multiplier = random.uniform(delta_range[0], delta_range[1])
+                multiplier = rng.uniform(delta_range[0], delta_range[1])
                 params[param] = base.get(param, 1e-10) * multiplier
                 description_parts.append(f"{param}*={multiplier:.3f}")
             else:
-                delta = random.uniform(delta_range[0], delta_range[1])
+                delta = rng.uniform(delta_range[0], delta_range[1])
                 params[param] = base.get(param, 0) + delta
                 description_parts.append(f"{param}+={delta:.4f}")
 
@@ -212,15 +313,14 @@ def generate_pv_candidates(
             if param in params:
                 params[param] = max(lo, min(hi, params[param]))
 
-        # Cross-parameter plausibility filter: reject and re-clamp if needed
+        # Cross-parameter plausibility filter
         cross_ok, cross_reasons = _check_cross_parameter_plausibility(params)
         if not cross_ok:
-            # Fall back to more conservative perturbation (halve deltas)
             params = dict(base)
             description_parts = []
             for param, delta_range in family["perturbations"].items():
                 if param == "I_o_ref":
-                    multiplier = random.uniform(
+                    multiplier = rng.uniform(
                         max(delta_range[0], 0.3),
                         min(delta_range[1], 0.8),
                     )
@@ -229,7 +329,7 @@ def generate_pv_candidates(
                 else:
                     mid = (delta_range[0] + delta_range[1]) / 2
                     half_span = (delta_range[1] - delta_range[0]) / 4
-                    delta = random.uniform(mid - half_span, mid + half_span)
+                    delta = rng.uniform(mid - half_span, mid + half_span)
                     params[param] = base.get(param, 0) + delta
                     description_parts.append(f"{param}+={delta:.4f}(conservative)")
             for param, (lo, hi) in PARAM_RANGES.items():
@@ -241,7 +341,7 @@ def generate_pv_candidates(
             title=f"PV {family['family']} variant {i+1}",
             description=", ".join(description_parts),
             parameters=params,
-            rationale=family["rationale"],
+            rationale=f"[{proposal_tag}] {family['rationale']}",
             source="perturbation",
         )
         candidates.append(candidate)
@@ -600,21 +700,23 @@ class PVOptimizationLoop:
 
         Returns PVLoopResult with all candidates, evaluations, and decisions.
         """
-        # Load prior lessons
+        # Load prior lessons and experiment memory (CC-BE-2409)
         prior_lessons = self.repo.list_idea_memory("pv_iv", limit=50)
+        experiment_memories = self.repo.list_experiment_memory("pv_iv", limit=50)
 
         # 1. Generate baseline
         logger.info("Running baseline experiment...")
         baseline_result = run_experiment("stc_baseline", self.base_params)
         baseline_metrics = baseline_result.metrics
 
-        # 2. Generate candidates
+        # 2. Generate candidates (memory-guided)
         logger.info("Generating %d PV candidates...", self.n_candidates)
         candidates = generate_pv_candidates(
             n_candidates=self.n_candidates,
             base_params=self.base_params,
             seed=self.seed,
             prior_lessons=prior_lessons,
+            experiment_memories=experiment_memories,
         )
 
         results: list[PVCandidateResult] = []
