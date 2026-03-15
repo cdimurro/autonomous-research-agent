@@ -363,6 +363,8 @@ def _compute_family_weights(
     if experiment_memories:
         weakness_counts: dict[str, int] = {}
         stress_fragile: dict[str, int] = {}
+        fast_charge_weak: dict[str, int] = {}
+        resistance_growth_weak: dict[str, int] = {}
         for mem in experiment_memories:
             cid = mem.get("candidate_id", "")
             weakness = mem.get("weakness_exposed", "")
@@ -372,8 +374,13 @@ def _compute_family_weights(
             fam = _candidate_id_to_family(cid, prior_lessons)
             if fam:
                 weakness_counts[fam] = weakness_counts.get(fam, 0) + 1
-                if "stress" in weakness.lower() or "fragile" in weakness.lower():
+                wl = weakness.lower()
+                if "stress" in wl or "fragile" in wl:
                     stress_fragile[fam] = stress_fragile.get(fam, 0) + 1
+                if "fast-charge" in wl or "fast_charge" in wl or "3c" in wl:
+                    fast_charge_weak[fam] = fast_charge_weak.get(fam, 0) + 1
+                if "resistance" in wl and "growth" in wl:
+                    resistance_growth_weak[fam] = resistance_growth_weak.get(fam, 0) + 1
 
         for fam, count in weakness_counts.items():
             if fam in weights and count >= 2:
@@ -382,6 +389,14 @@ def _compute_family_weights(
                 if fam in stress_fragile and stress_fragile[fam] >= 2:
                     weights[fam] *= 0.5
                     tags[fam] = PROPOSAL_TAG_STRESS_INFORMED
+                # Fast-charge-specific weakness: steer toward rate-optimized
+                if fam in fast_charge_weak and fast_charge_weak[fam] >= 2:
+                    weights[fam] *= 0.6
+                    tags[fam] = PROPOSAL_TAG_STRESS_INFORMED
+                # Resistance growth weakness: penalize families that
+                # repeatedly show impedance rise
+                if fam in resistance_growth_weak and resistance_growth_weak[fam] >= 2:
+                    weights[fam] *= 0.6
 
     return weights, tags
 
@@ -1312,15 +1327,28 @@ class BatteryOptimizationLoop:
             worst_component = min(components, key=components.get) if components else "unknown"
             lesson = f"Rejected (score {evaluation.final_score:.4f}). Weakest component: {worst_component}"
 
-        # Add stress summary to lesson if available
+        # Battery-specific lesson extraction from robustness profile
         if robustness_profile:
             wsr = robustness_profile.get("worst_stress_retention", 100)
             fc_fade = robustness_profile.get("fast_charge_fade_rate", 0)
             ts_fade = robustness_profile.get("thermal_stress_fade_rate", 0)
+            rfc_ret = robustness_profile.get("repeated_fast_charge_retention", 100)
+            r_growth = robustness_profile.get("resistance_growth_pct", 0)
+            standard_fade = robustness_profile.get("fade_rate", 0)
+
             if wsr < 90:
                 lesson += f". Stress-fragile: worst retention {wsr:.1f}%"
             if fc_fade > 0.05:
                 lesson += f". Fast-charge fade: {fc_fade:.3f}%/cycle"
+            if rfc_ret < 95:
+                lesson += f". Poor 3C durability: {rfc_ret:.1f}% retention"
+            if r_growth > 5.0:
+                lesson += f". Resistance growth: {r_growth:.1f}% under fast-charge"
+            # Tradeoff lessons: improved in one dimension but degraded in another
+            if standard_fade < 0.03 and fc_fade > 0.06:
+                lesson += ". Tradeoff: good nominal fade but poor fast-charge durability"
+            if components.get("resistance_improvement", 0) > 0.7 and components.get("rate_capability", 0.5) < 0.3:
+                lesson += ". Tradeoff: low resistance but poor rate capability"
 
         family = candidate.family
         if not family:
@@ -1354,11 +1382,18 @@ class BatteryOptimizationLoop:
             elif cap < 2.5:
                 weakness = f"Low discharge capacity: {cap:.3f} Ah"
 
-        # Stress-informed weakness detection
+        # Battery-specific weakness detection from robustness profile
         if robustness_profile and not weakness:
             wsr = robustness_profile.get("worst_stress_retention", 100)
+            rfc_ret = robustness_profile.get("repeated_fast_charge_retention", 100)
+            r_growth = robustness_profile.get("resistance_growth_pct", 0)
+
             if wsr < 85:
                 weakness = f"Stress-fragile: worst retention {wsr:.1f}% under stress"
+            elif rfc_ret < 92:
+                weakness = f"Fast-charge weak: 3C retention {rfc_ret:.1f}%"
+            elif r_growth > 8.0:
+                weakness = f"Resistance growth: {r_growth:.1f}% impedance rise under fast-charge"
 
         template_name = "baseline_cycle+cycle_aging+crate_sweep+fast_charge_stress+thermal_stress_aging"
 
