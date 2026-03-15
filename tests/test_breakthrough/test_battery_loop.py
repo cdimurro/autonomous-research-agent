@@ -807,6 +807,34 @@ class TestBatteryBenchmark:
         for r in rejected:
             assert "rejection_reason" in r or r.get("hard_fail", False)
 
+    def test_benchmark_has_family_summary(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=6, seed=42)
+        assert "family_summary" in report
+        fs = report["family_summary"]
+        assert len(fs) > 0
+        for fam, data in fs.items():
+            assert "count" in data
+            assert "mean_score" in data
+            assert "max_score" in data
+
+    def test_benchmark_degradation_profile(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=6, seed=42)
+        if report["promotion_decision"] == "promoted":
+            dp = report["degradation_profile"]
+            assert dp is not None
+            assert "standard_fade_rate" in dp
+            assert "fast_charge_fade_rate_2c" in dp
+            assert "fast_charge_fade_rate_3c" in dp
+            assert "resistance_growth_pct" in dp
+            assert "degradation_ratio_fc_vs_standard" in dp
+
+    def test_benchmark_promoted_has_rationale(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=6, seed=42)
+        if report["promotion_decision"] == "promoted":
+            bc = report["best_candidate"]
+            assert "rationale" in bc
+            assert len(bc["rationale"]) > 0
+
 
 class TestBaselineFreeze:
     """Verify the frozen v1 baseline artifact exists and is valid."""

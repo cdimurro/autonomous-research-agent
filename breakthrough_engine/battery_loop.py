@@ -1520,6 +1520,46 @@ def run_battery_benchmark(
             )
         candidate_breakdown.append(entry)
 
+    # Degradation profile: summarize degradation behavior across stress scenarios
+    degradation_profile: Optional[dict] = None
+    if result.best_promoted and result.best_promoted.robustness_profile:
+        rp = result.best_promoted.robustness_profile
+        degradation_profile = {
+            "standard_fade_rate": rp.get("fade_rate", 0),
+            "fast_charge_fade_rate_2c": rp.get("fast_charge_fade_rate", 0),
+            "fast_charge_fade_rate_3c": rp.get("repeated_fast_charge_fade_rate", 0),
+            "thermal_stress_fade_rate": rp.get("thermal_stress_fade_rate", 0),
+            "resistance_growth_pct": rp.get("resistance_growth_pct", 0),
+            "degradation_ratio_fc_vs_standard": (
+                round(rp.get("fast_charge_fade_rate", 0) / rp["fade_rate"], 2)
+                if rp.get("fade_rate", 0) > 0 else None
+            ),
+            "degradation_ratio_thermal_vs_standard": (
+                round(rp.get("thermal_stress_fade_rate", 0) / rp["fade_rate"], 2)
+                if rp.get("fade_rate", 0) > 0 else None
+            ),
+        }
+
+    # Family/rationale summary across all candidates
+    family_summary: dict[str, dict] = {}
+    for cr in result.candidates:
+        fam = cr.candidate.family or "unknown"
+        if fam not in family_summary:
+            family_summary[fam] = {"count": 0, "promoted": 0, "rejected": 0, "hard_fail": 0, "scores": []}
+        family_summary[fam]["count"] += 1
+        family_summary[fam]["scores"].append(cr.evaluation.final_score)
+        if cr.decision == PromotionDecision.PROMOTED:
+            family_summary[fam]["promoted"] += 1
+        elif cr.evaluation.hard_fail:
+            family_summary[fam]["hard_fail"] += 1
+        else:
+            family_summary[fam]["rejected"] += 1
+    for fam_data in family_summary.values():
+        scores = fam_data["scores"]
+        fam_data["mean_score"] = round(sum(scores) / len(scores), 4) if scores else 0
+        fam_data["max_score"] = round(max(scores), 4) if scores else 0
+        del fam_data["scores"]
+
     report: dict = {
         "benchmark_version": BENCHMARK_REPORT_VERSION,
         "benchmark_domain": "battery_ecm",
@@ -1532,11 +1572,13 @@ def run_battery_benchmark(
         },
         "best_candidate": None,
         "stress_profile": stress_profile,
+        "degradation_profile": degradation_profile,
         "robustness_profile": None,
         "caveats": [],
         "promotion_decision": "none",
         "reference_comparison": reference_comparison,
         "candidate_breakdown": candidate_breakdown,
+        "family_summary": family_summary,
         "summary": result.summary(),
     }
 
@@ -1548,6 +1590,7 @@ def run_battery_benchmark(
             "metrics": bp.experiment_metrics,
             "family": bp.candidate.family or bp.candidate.title.split("variant")[0].replace("Battery ", "").strip(),
             "score_components": bp.evaluation.score_components,
+            "rationale": bp.candidate.rationale,
         }
         report["robustness_profile"] = {
             k: v for k, v in bp.robustness_profile.items() if k != "sweep_data"
