@@ -536,11 +536,14 @@ class TestSidecarLoopIntegration:
         assert loop_with_mock_sidecar._apply_sidecar_verdict(dummy, error_result) is True
         assert any("sidecar" in c.lower() for c in dummy.promotion_caveats)
 
-    def test_benchmark_deterministic_without_sidecar(self, repo):
+    def test_benchmark_deterministic_without_sidecar(self):
         """Existing benchmark (no sidecar) is deterministic."""
         from breakthrough_engine.battery_loop import run_battery_benchmark
-        r1 = run_battery_benchmark(repo, n_candidates=3, seed=42)
-        r2 = run_battery_benchmark(repo, n_candidates=3, seed=42)
+        from breakthrough_engine.db import Repository, init_db
+        repo1 = Repository(init_db(in_memory=True))
+        repo2 = Repository(init_db(in_memory=True))
+        r1 = run_battery_benchmark(repo1, n_candidates=3, seed=42)
+        r2 = run_battery_benchmark(repo2, n_candidates=3, seed=42)
         assert r1["promotion_decision"] == r2["promotion_decision"]
         if r1["best_candidate"]:
             assert r1["best_candidate"]["score"] == r2["best_candidate"]["score"]

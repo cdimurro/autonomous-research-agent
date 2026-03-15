@@ -213,7 +213,126 @@ CANDIDATE_FAMILIES = [
                          "advanced manufacturing (tab-less + high-Ni + premium electrolyte); "
                          "fast-charge stress performance unverified",
     },
+    # ── Cathode-focused candidate families ───────────────────────────────
+    # These use chemistry-specific base params from CATHODE_ECM_PROFILES
+    # instead of DEFAULT_CELL_PARAMS, then apply perturbations on top.
+    {
+        "family": "cathode_high_ni",
+        "rationale": "NMC-811/NCA cathode with high Ni content for increased "
+                     "energy density. Higher capacity but faster degradation, "
+                     "especially under fast-charge and thermal stress. "
+                     "Grounded in Noh et al. 2013 + PyBaMM Chen2020",
+        "perturbations": {
+            "capacity_ah": (0.3, 0.5),
+            "fade_rate_per_cycle": (0.0002, 0.0004),
+            "R0_mohm": (-8.0, -3.0),
+        },
+        "tradeoff_risk": "High-Ni cathodes suffer from structural transformation "
+                         "and oxygen release at high temperature; fast-charge "
+                         "accelerates degradation; thermal runaway risk increases",
+        "chemistry": "NMC_811",
+    },
+    {
+        "family": "cathode_lfp",
+        "rationale": "LFP cathode with superior cycle life and thermal stability "
+                     "but lower energy density and higher impedance. "
+                     "Grounded in PyBaMM Prada2013 + A123 ANR26650 datasheet",
+        "perturbations": {
+            "capacity_ah": (-0.5, -0.3),
+            "fade_rate_per_cycle": (-0.0003, -0.0001),
+            "R0_mohm": (5.0, 15.0),
+        },
+        "tradeoff_risk": "LFP has inherently lower energy density; high impedance "
+                         "limits fast-charge capability; poor rate capability at "
+                         "low temperatures",
+        "chemistry": "LFP",
+    },
+    {
+        "family": "cathode_lmfp",
+        "rationale": "LMFP (Mn-doped LFP) cathode bridging LFP and NMC: "
+                     "higher voltage from Mn redox without Ni instability. "
+                     "Based on CATL M3P press data; limited peer-reviewed data",
+        "perturbations": {
+            "capacity_ah": (-0.3, -0.1),
+            "fade_rate_per_cycle": (-0.0002, -0.0001),
+            "R0_mohm": (3.0, 8.0),
+        },
+        "tradeoff_risk": "LMFP is less proven than LFP or NMC; Mn dissolution "
+                         "may cause long-term fade; limited published cycling data",
+        "chemistry": "LMFP",
+    },
+    {
+        "family": "cathode_nmc532",
+        "rationale": "NMC-532 cathode: conservative Ni content for better "
+                     "cycle life than NMC-622/811 at modest capacity tradeoff. "
+                     "Grounded in OKane2022 (PyBaMM) adapted for 532 stoichiometry",
+        "perturbations": {
+            "capacity_ah": (-0.2, 0.0),
+            "fade_rate_per_cycle": (-0.00015, -0.00005),
+            "R0_mohm": (2.0, 5.0),
+        },
+        "tradeoff_risk": "Lower energy density than high-Ni alternatives; "
+                         "may not meet aggressive capacity targets; "
+                         "resistance slightly higher than NMC-622",
+        "chemistry": "NMC_532",
+    },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Cathode ECM profiles — chemistry-specific base parameters
+# ---------------------------------------------------------------------------
+
+CATHODE_ECM_PROFILES = {
+    "NMC_811": {
+        "base_params": {
+            "capacity_ah": 3.5, "R0_mohm": 22.0, "R1_mohm": 11.0,
+            "C1_F": 450.0, "coulombic_eff": 0.993,
+            "fade_rate_per_cycle": 0.0008, "v_max": 4.25, "v_min": 2.5,
+            "temp_coeff_r0": 0.004,
+            "ocv_coeffs": [3.0, 1.6, -1.3, 0.9],
+        },
+        "profile_source": "Noh et al. 2013 + PyBaMM Chen2020 parameter set",
+        "profile_confidence": "literature-backed",
+        "pybamm_parameter_set": "Chen2020",
+    },
+    "LFP": {
+        "base_params": {
+            "capacity_ah": 2.5, "R0_mohm": 42.0, "R1_mohm": 22.0,
+            "C1_F": 800.0, "coulombic_eff": 0.999,
+            "fade_rate_per_cycle": 0.00015, "v_max": 3.65, "v_min": 2.0,
+            "temp_coeff_r0": 0.002,
+            "ocv_coeffs": [2.5, 1.8, -1.5, 0.55],
+        },
+        "profile_source": "PyBaMM Prada2013 + A123 ANR26650 datasheet",
+        "profile_confidence": "literature-backed",
+        "pybamm_parameter_set": "Prada2013",
+    },
+    "LMFP": {
+        "base_params": {
+            "capacity_ah": 2.8, "R0_mohm": 35.0, "R1_mohm": 18.0,
+            "C1_F": 650.0, "coulombic_eff": 0.998,
+            "fade_rate_per_cycle": 0.0002, "v_max": 4.1, "v_min": 2.0,
+            "temp_coeff_r0": 0.003,
+            "ocv_coeffs": [2.8, 1.7, -1.4, 0.7],
+        },
+        "profile_source": "CATL M3P press releases, limited peer-reviewed data",
+        "profile_confidence": "heuristic",
+        "pybamm_parameter_set": None,
+    },
+    "NMC_532": {
+        "base_params": {
+            "capacity_ah": 2.9, "R0_mohm": 32.0, "R1_mohm": 14.0,
+            "C1_F": 550.0, "coulombic_eff": 0.996,
+            "fade_rate_per_cycle": 0.0003, "v_max": 4.2, "v_min": 2.5,
+            "temp_coeff_r0": 0.003,
+            "ocv_coeffs": [3.0, 1.5, -1.2, 0.85],
+        },
+        "profile_source": "OKane2022 (PyBaMM) adapted for 532 stoichiometry",
+        "profile_confidence": "literature-backed",
+        "pybamm_parameter_set": "OKane2022",
+    },
+}
 
 
 def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
@@ -291,6 +410,17 @@ def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
             f"Suspicious: very low fade ({fade*100:.3f}%/cycle) with high R0 "
             f"({r0:.1f} mOhm) — low fade unlikely to survive fast-charge stress "
             "due to resistive heating"
+        )
+
+    # 8. Chemistry-aware: LFP-like impedance with NMC voltage range.
+    #    LFP operates at 3.2-3.4V plateau; v_max > 3.8V with high R0
+    #    and low capacity suggests LFP parameters with wrong voltage limits.
+    v_max = params.get("v_max", 4.2)
+    if cap < 2.8 and r0 > 35.0 and v_max > 3.8:
+        reasons.append(
+            f"Contradictory: LFP-like parameters (cap={cap:.1f}Ah, R0={r0:.1f}mOhm) "
+            f"with NMC voltage range (v_max={v_max:.2f}V) — "
+            "LFP cells operate below 3.65V"
         )
 
     return len(reasons) == 0, reasons
@@ -388,6 +518,19 @@ def _compute_family_weights(
                 if "resistance" in wl and "growth" in wl:
                     resistance_growth_weak[fam] = resistance_growth_weak.get(fam, 0) + 1
 
+        # Cathode-specific weakness tracking
+        cathode_thermal_weak: dict[str, int] = {}
+        for mem in experiment_memories:
+            cid = mem.get("candidate_id", "")
+            weakness = mem.get("weakness_exposed", "")
+            if not weakness:
+                continue
+            fam = _candidate_id_to_family(cid, prior_lessons)
+            if fam:
+                wl = weakness.lower()
+                if "cathode" in wl or "thermal_instability" in wl or "thermal instability" in wl:
+                    cathode_thermal_weak[fam] = cathode_thermal_weak.get(fam, 0) + 1
+
         for fam, count in weakness_counts.items():
             if fam in weights and count >= 2:
                 # Repeated weakness → down-weight further
@@ -403,6 +546,10 @@ def _compute_family_weights(
                 # repeatedly show impedance rise
                 if fam in resistance_growth_weak and resistance_growth_weak[fam] >= 2:
                     weights[fam] *= 0.6
+                # Cathode-specific thermal instability
+                if fam in cathode_thermal_weak and cathode_thermal_weak[fam] >= 2:
+                    weights[fam] *= 0.6
+                    tags[fam] = PROPOSAL_TAG_STRESS_INFORMED
 
     return weights, tags
 
@@ -470,13 +617,23 @@ def generate_battery_candidates(
     )
 
     for i, family in enumerate(selected_families):
-        params = dict(base)
+        # Chemistry-anchored generation: cathode families use chemistry-specific
+        # base params instead of DEFAULT_CELL_PARAMS
+        chemistry = family.get("chemistry")
+        if chemistry and chemistry in CATHODE_ECM_PROFILES:
+            profile = CATHODE_ECM_PROFILES[chemistry]
+            params = dict(profile["base_params"])
+            profile_confidence = profile.get("profile_confidence", "heuristic")
+        else:
+            params = dict(base)
+            profile_confidence = None
+
         description_parts = []
         proposal_tag = family_tags.get(family["family"], PROPOSAL_TAG_EXPLORATORY)
 
         for param, delta_range in family["perturbations"].items():
             delta = rng.uniform(delta_range[0], delta_range[1])
-            params[param] = base.get(param, 0) + delta
+            params[param] = params.get(param, base.get(param, 0)) + delta
             description_parts.append(f"{param}+={delta:.6f}")
 
         # Clamp to physical bounds
@@ -487,18 +644,25 @@ def generate_battery_candidates(
         # Cross-parameter plausibility filter
         cross_ok, cross_reasons = _check_cross_parameter_plausibility(params)
         if not cross_ok:
-            # Regenerate with conservative perturbations
-            params = dict(base)
+            # Regenerate with conservative perturbations from the same base
+            if chemistry and chemistry in CATHODE_ECM_PROFILES:
+                params = dict(CATHODE_ECM_PROFILES[chemistry]["base_params"])
+            else:
+                params = dict(base)
             description_parts = []
             for param, delta_range in family["perturbations"].items():
                 mid = (delta_range[0] + delta_range[1]) / 2
                 half_span = (delta_range[1] - delta_range[0]) / 4
                 delta = rng.uniform(mid - half_span, mid + half_span)
-                params[param] = base.get(param, 0) + delta
+                params[param] = params.get(param, base.get(param, 0)) + delta
                 description_parts.append(f"{param}+={delta:.6f}(conservative)")
             for param, (lo, hi) in PARAM_RANGES.items():
                 if param in params:
                     params[param] = max(lo, min(hi, params[param]))
+
+        rationale = f"[{proposal_tag}] {family['rationale']}"
+        if profile_confidence:
+            rationale += f" [profile: {profile_confidence}]"
 
         candidate = CandidateSpec(
             domain_name="battery_ecm",
@@ -506,7 +670,7 @@ def generate_battery_candidates(
             description=", ".join(description_parts),
             family=family["family"],
             parameters=params,
-            rationale=f"[{proposal_tag}] {family['rationale']}",
+            rationale=rationale,
             source="perturbation",
         )
         candidates.append(candidate)
