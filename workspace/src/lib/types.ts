@@ -123,6 +123,8 @@ export interface ResearchBrief {
   caveats: string[];
   grounding_sources: string[];
   raw_analysis: string;
+  review_state: ReviewState;
+  review_notes: string;
 }
 
 // ── Diligence Brief ─────────────────────────────────────────────────────
@@ -158,6 +160,8 @@ export interface DiligenceBrief {
   caveats: string[];
   grounding_sources: string[];
   raw_analysis: string;
+  review_state: ReviewState;
+  review_notes: string;
 }
 
 // ── Unified brief type ──────────────────────────────────────────────────

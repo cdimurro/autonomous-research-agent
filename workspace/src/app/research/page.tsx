@@ -4,7 +4,16 @@ import { useState } from "react";
 import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
+import ReviewControls from "@/components/results/ReviewControls";
 import type { ResearchBrief } from "@/lib/types";
+
+const REVIEW_LABELS: Record<string, { color: string; label: string }> = {
+  awaiting_review: { color: "var(--accent-amber)", label: "Awaiting Review" },
+  approved_for_validation: { color: "var(--accent-green)", label: "Approved" },
+  rejected_by_operator: { color: "var(--accent-red)", label: "Rejected" },
+  needs_more_analysis: { color: "var(--accent-purple)", label: "Needs Analysis" },
+  exported: { color: "var(--text-muted)", label: "Exported" },
+};
 
 const EVIDENCE_COLORS: Record<string, string> = {
   strong: "var(--accent-green)",
@@ -19,8 +28,10 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: "var(--accent-red)",
 };
 
-function ResearchBriefCard({ brief }: { brief: ResearchBrief }) {
+function ResearchBriefCard({ brief, onReviewUpdated }: { brief: ResearchBrief; onReviewUpdated?: () => void }) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const reviewStyle = REVIEW_LABELS[brief.review_state] ?? REVIEW_LABELS.awaiting_review;
 
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
@@ -44,6 +55,12 @@ function ResearchBriefCard({ brief }: { brief: ResearchBrief }) {
             }}
           >
             Evidence: {brief.evidence_quality}
+          </span>
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded-full border"
+            style={{ color: reviewStyle.color, borderColor: reviewStyle.color }}
+          >
+            {reviewStyle.label}
           </span>
           <span className="text-[9px] text-[var(--text-muted)]">
             {brief.domain}
@@ -153,6 +170,26 @@ function ResearchBriefCard({ brief }: { brief: ResearchBrief }) {
           </ul>
         </div>
       )}
+
+      {/* Review Controls */}
+      <div className="border-t border-[var(--border)]">
+        <button
+          onClick={() => setShowReview(!showReview)}
+          className="w-full px-5 py-2 text-left text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          {showReview ? "Hide Review" : "Review"}
+        </button>
+        {showReview && (
+          <div className="px-5 py-3">
+            <ReviewControls
+              briefId={brief.id}
+              currentState={brief.review_state || "awaiting_review"}
+              currentNotes={brief.review_notes}
+              onUpdated={() => onReviewUpdated?.()}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Diagnostics Toggle */}
       <div className="border-t border-[var(--border)]">
@@ -308,7 +345,7 @@ export default function ResearchPage() {
             </h2>
             <div className="space-y-4">
               {researchBriefs.map((brief) => (
-                <ResearchBriefCard key={brief.id} brief={brief} />
+                <ResearchBriefCard key={brief.id} brief={brief} onReviewUpdated={() => refreshBriefs()} />
               ))}
             </div>
           </section>

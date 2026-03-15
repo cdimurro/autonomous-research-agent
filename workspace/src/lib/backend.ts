@@ -17,6 +17,7 @@ import type {
   Job,
   JobType,
   ProductArea,
+  ReviewState,
   ResearchBrief,
   DiligenceBrief,
   WorkspaceBrief,
@@ -402,6 +403,8 @@ Generate a structured research brief for this topic. Be honest about confidence 
       caveats: parsed.caveats || [],
       grounding_sources: parsed.grounding_sources || [],
       raw_analysis: rawContent,
+      review_state: "awaiting_review",
+      review_notes: "",
     };
 
     await ensureWorkspaceBriefsDir();
@@ -536,6 +539,8 @@ Generate a structured diligence brief. Be honest about confidence levels and wha
       caveats: parsed.caveats || [],
       grounding_sources: parsed.grounding_sources || [],
       raw_analysis: rawContent,
+      review_state: "awaiting_review",
+      review_notes: "",
     };
 
     await ensureWorkspaceBriefsDir();
@@ -782,6 +787,45 @@ export async function listArtifacts(): Promise<
       new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
   );
   return artifacts;
+}
+
+// ── Brief review state updates ──────────────────────────────────────────
+
+export async function updateBriefReview(
+  briefId: string,
+  reviewState: ReviewState,
+  reviewNotes: string
+): Promise<Record<string, unknown> | null> {
+  // Try workspace briefs first (research/diligence)
+  const wsPath = join(WORKSPACE_BRIEFS_DIR, `brief_${briefId}.json`);
+  if (existsSync(wsPath)) {
+    const brief = JSON.parse(await readFile(wsPath, "utf-8"));
+    brief.review_state = reviewState;
+    brief.review_notes = reviewNotes;
+    await writeFile(wsPath, JSON.stringify(brief, null, 2) + "\n");
+    return brief;
+  }
+
+  // For decision briefs, write a sidecar review file (don't modify Python-generated briefs)
+  const batteryPath = join(BRIEFS_DIR, `brief_${briefId}.json`);
+  if (existsSync(batteryPath)) {
+    const brief = JSON.parse(await readFile(batteryPath, "utf-8"));
+    brief.review_state = reviewState;
+    brief.review_notes = reviewNotes;
+    // Write updated brief back (decision briefs already have review_state)
+    await writeFile(batteryPath, JSON.stringify(brief, null, 2) + "\n");
+    return brief;
+  }
+
+  return null;
+}
+
+// ── Job log reading ─────────────────────────────────────────────────────
+
+export async function getJobLog(jobId: string): Promise<string | null> {
+  const logPath = join(JOBS_DIR, `${jobId}_output.log`);
+  if (!existsSync(logPath)) return null;
+  return readFile(logPath, "utf-8");
 }
 
 export async function readArtifact(
