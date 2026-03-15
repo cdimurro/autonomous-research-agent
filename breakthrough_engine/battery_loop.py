@@ -1209,6 +1209,9 @@ REFERENCE_CELL_PARAMS = {
     "reference_name": "benchmark_nmc_21700_3200mah",
 }
 
+# Benchmark report version — increment when report schema changes
+BENCHMARK_REPORT_VERSION = 2
+
 
 def run_battery_benchmark(
     repo: Repository,
@@ -1216,7 +1219,16 @@ def run_battery_benchmark(
     seed: int = 42,
     promotion_threshold: float = 0.55,
 ) -> dict:
-    """Run battery benchmark: full loop + held-out realism check."""
+    """Run battery benchmark: full loop + held-out realism check + stress profile.
+
+    The benchmark report is the primary regression-check artifact for the
+    battery domain. It includes:
+    - Baseline metrics
+    - Best candidate with score, metrics, stress profile, and caveats
+    - Reference comparison against held-out commercial cell parameters
+    - Per-candidate breakdown for rejected/hard-fail analysis
+    - Stability indicators for benchmark regression detection
+    """
     loop = BatteryOptimizationLoop(
         repo, n_candidates=n_candidates,
         promotion_threshold=promotion_threshold, seed=seed,
@@ -1224,7 +1236,7 @@ def run_battery_benchmark(
     result = loop.run(run_id=f"benchmark_{seed}")
     baseline = result.baseline_metrics
 
-    # Held-out realism check
+    # Held-out realism check against reference cell
     ref_result = run_experiment("baseline_cycle", REFERENCE_CELL_PARAMS)
     ref_metrics = ref_result.metrics
 
@@ -1252,18 +1264,58 @@ def run_battery_benchmark(
             and abs(reference_comparison.get("resistance_vs_reference", 0)) < 0.50
         )
 
+    # Build stress profile summary for best candidate
+    stress_profile: Optional[dict] = None
+    if result.best_promoted and result.best_promoted.robustness_profile:
+        rp = result.best_promoted.robustness_profile
+        stress_profile = {
+            "standard_retention": rp.get("capacity_retention", 0),
+            "standard_fade_rate": rp.get("fade_rate", 0),
+            "fast_charge_fade_rate": rp.get("fast_charge_fade_rate", 0),
+            "fast_charge_penalty_pct": rp.get("fast_charge_penalty_pct", 0),
+            "thermal_stress_fade_rate": rp.get("thermal_stress_fade_rate", 0),
+            "thermal_stress_penalty_pct": rp.get("thermal_stress_penalty_pct", 0),
+            "worst_stress_retention": rp.get("worst_stress_retention", 0),
+            "crate_sensitivity": rp.get("crate_sensitivity", 0),
+            "thermal_sensitivity": rp.get("thermal_sensitivity", 0),
+        }
+
+    # Per-candidate breakdown
+    candidate_breakdown = []
+    for cr in result.candidates:
+        entry: dict = {
+            "title": cr.candidate.title,
+            "score": cr.evaluation.final_score,
+            "decision": cr.decision.value,
+            "hard_fail": cr.evaluation.hard_fail,
+        }
+        if cr.evaluation.hard_fail:
+            entry["hard_fail_reasons"] = cr.evaluation.hard_fail_reasons
+        elif cr.decision.value == "rejected":
+            entry["rejection_reason"] = cr.candidate.rejection_reason
+        if cr.robustness_profile:
+            entry["worst_stress_retention"] = cr.robustness_profile.get(
+                "worst_stress_retention", None,
+            )
+        candidate_breakdown.append(entry)
+
     report: dict = {
+        "benchmark_version": BENCHMARK_REPORT_VERSION,
         "benchmark_domain": "battery_ecm",
         "seed": seed,
+        "n_candidates": n_candidates,
+        "promotion_threshold": promotion_threshold,
         "baseline_candidate": {
             "params": "DEFAULT_CELL_PARAMS",
             "baseline_metrics": baseline,
         },
         "best_candidate": None,
+        "stress_profile": stress_profile,
         "robustness_profile": None,
         "caveats": [],
         "promotion_decision": "none",
         "reference_comparison": reference_comparison,
+        "candidate_breakdown": candidate_breakdown,
         "summary": result.summary(),
     }
 
@@ -1274,6 +1326,7 @@ def run_battery_benchmark(
             "score": bp.evaluation.final_score,
             "metrics": bp.experiment_metrics,
             "family": bp.candidate.title.split("variant")[0].replace("Battery ", "").strip(),
+            "score_components": bp.evaluation.score_components,
         }
         report["robustness_profile"] = {
             k: v for k, v in bp.robustness_profile.items() if k != "sweep_data"

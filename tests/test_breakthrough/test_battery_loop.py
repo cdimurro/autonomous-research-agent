@@ -561,9 +561,12 @@ class TestBatteryBenchmark:
     def test_benchmark_report_structure(self, db_repo):
         report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
         assert report["benchmark_domain"] == "battery_ecm"
+        assert report["benchmark_version"] == 2
         assert "baseline_candidate" in report
         assert "reference_comparison" in report
         assert "summary" in report
+        assert "candidate_breakdown" in report
+        assert "stress_profile" in report
 
     def test_benchmark_baseline_metrics(self, db_repo):
         report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
@@ -589,3 +592,36 @@ class TestBatteryBenchmark:
         json_str = json.dumps(report, default=str)
         loaded = json.loads(json_str)
         assert loaded["benchmark_domain"] == "battery_ecm"
+        assert loaded["benchmark_version"] == 2
+
+    def test_benchmark_candidate_breakdown(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
+        breakdown = report["candidate_breakdown"]
+        assert len(breakdown) == 3
+        for entry in breakdown:
+            assert "title" in entry
+            assert "score" in entry
+            assert "decision" in entry
+
+    def test_benchmark_stress_profile_present(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
+        if report["promotion_decision"] == "promoted":
+            sp = report["stress_profile"]
+            assert sp is not None
+            assert "fast_charge_fade_rate" in sp
+            assert "thermal_stress_fade_rate" in sp
+            assert "worst_stress_retention" in sp
+            assert "standard_retention" in sp
+
+    def test_benchmark_promoted_has_score_components(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
+        if report["promotion_decision"] == "promoted":
+            bc = report["best_candidate"]
+            assert "score_components" in bc
+            assert "stress_resilience" in bc["score_components"]
+
+    def test_benchmark_rejected_have_reasons(self, db_repo):
+        report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
+        rejected = [c for c in report["candidate_breakdown"] if c["decision"] == "rejected"]
+        for r in rejected:
+            assert "rejection_reason" in r or r.get("hard_fail", False)

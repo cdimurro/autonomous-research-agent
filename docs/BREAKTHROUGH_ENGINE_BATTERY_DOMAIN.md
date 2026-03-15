@@ -1,14 +1,14 @@
-# Battery ECM Domain — v1 Scope
+# Battery ECM Domain — Hardened Benchmark
 
-**Status:** Active — second narrow domain after PV
+**Status:** Benchmark domain — second proving ground after PV
 
-## What Battery v1 Is
+## What Battery Is
 
 Equivalent-circuit and cycle characterization of a single Li-ion cell using a
 Thevenin ECM (R0 + R1/C1) with empirical capacity-fade. All simulation runs
 locally using numpy/scipy. No external API keys required.
 
-## What Battery v1 Is NOT
+## What Battery Is NOT
 
 - Atomistic materials discovery or cathode chemistry invention
 - Full electrochemical PDE simulation (Newman, P2D)
@@ -20,7 +20,7 @@ locally using numpy/scipy. No external API keys required.
 
 The PV loop proved the domain-loop architecture: fixed candidates, fixed
 experiments, fixed scorecard, conservative promotion, memory reuse. Battery
-v1 applies the same pattern to a slower, richer energy-storage domain at the
+applies the same pattern to a slower, richer energy-storage domain at the
 equivalent-circuit level — the simplest model that produces interpretable,
 measurable, and comparable outputs.
 
@@ -58,28 +58,88 @@ tracking SOC via coulomb counting with coulombic efficiency.
 3. **crate_sweep** — C/3, C/2, 1C, 2C, 3C discharge sweep, extract rate capability
 4. **pulse_resistance** — 10s discharge pulse at 50% SOC for resistance characterization
 5. **thermal_sensitivity** — Baseline cycle at 10C, 25C, 40C, 55C
+6. **fast_charge_stress** — 20-cycle aging at 2C, measuring fast-charge fade penalty
+7. **thermal_stress_aging** — 20-cycle aging at 1C/45C, measuring thermal degradation
 
 ## Candidate Families
 
-- `reduced_resistance` — Lower R0/R1 (better contacts/electrolyte)
-- `improved_capacity` — Higher capacity_ah (thicker electrodes/better active material)
-- `reduced_fade` — Lower fade_rate (better SEI stability)
-- `improved_efficiency` — Higher coulombic_eff (fewer side reactions)
-- `combined_moderate` — Modest multi-parameter co-optimization
-- `bounded_aggressive` — Near-limit parameters for fail-gate testing
+Each family has bounded perturbation ranges, physical rationale, and documented
+tradeoff risk.
+
+- `reduced_resistance` — Lower R0/R1 (better contacts/electrolyte). Risk: thinner separator.
+- `improved_capacity` — Higher capacity_ah (Si-graphite anode, high-Ni cathode). Risk: faster fade.
+- `reduced_fade` — Lower fade_rate (electrolyte additives, ALD coatings). Risk: higher impedance.
+- `improved_efficiency` — Higher coulombic_eff (reduced parasitic reactions). Risk: thermal sensitivity.
+- `combined_moderate` — Modest multi-lever co-optimization. Risk: interaction effects.
+- `bounded_aggressive` — Near-best-in-class parameters. Risk: requires advanced manufacturing.
+
+Parameter ranges are grounded in published 18650/21700 datasheet values with 4
+commercial cell references as anchors (Sony VTC6, Samsung 50E, Samsung 30Q, LG MJ1).
+
+## Cross-Parameter Plausibility
+
+6 checks reject physically contradictory parameter combinations at generation time:
+1. Low R0 + high fade (stable interfaces don't degrade fast)
+2. High capacity + low CE (thermal safety)
+3. Low R0 + high R1 (inconsistent transport properties)
+4. High capacity + low R0 (thick electrodes increase path length)
+5. High fade + high CE (rapid fade implies side reactions)
+6. Standard physical plausibility (positive values, bounded ranges)
 
 ## Hard Fail Gates
 
 - Capacity retention < 50% after 50 cycles
 - Coulombic efficiency < 90%
-- Internal resistance > 200 mOhm (for a typical ~3Ah cell)
+- Internal resistance > 200 mOhm
+- Worst-case stress retention < 80%
+- Stress resilience score < 0.40 (promotion gate)
 - Negative capacity or efficiency
 - Physically contradictory parameter combinations
-- Simulation numerical instability
+
+## Scoring (8 components)
+
+| Component | Weight | What It Measures |
+|-----------|--------|-----------------|
+| `capacity_retention` | 15% | Cycle life under standard aging |
+| `coulombic_improvement` | 10% | CE vs baseline |
+| `resistance_improvement` | 15% | R reduction vs baseline |
+| `fade_improvement` | 10% | Fade rate reduction vs baseline |
+| `rate_capability` | 10% | Capacity variation across C-rates |
+| `robustness` | 10% | Worst-case capacity under all stress |
+| `stress_resilience` | 15% | Fast-charge + thermal stress retention |
+| `plausibility_penalty` | 15% | Metrics plausibility check |
 
 ## Memory Pattern
 
-Same as PV:
-- `IdeaMemoryEntry` — what family, why proposed, outcome, lesson
-- `ExperimentMemoryEntry` — which template, informative metrics, weakness exposed
-- Families with promotions get higher weight; consistent hard-fails get down-ranked
+Two-phase memory-guided generation:
+1. **IdeaMemory** — outcome-based: promoted families get higher weight, hard-fail
+   families get down-ranked, all-rejected families get recovery tag
+2. **ExperimentMemory** — weakness-based: families with repeated weakness get
+   further down-weighted; stress-fragile families get `stress-informed` tag
+
+Proposal tags: `[memory-supported]`, `[exploratory]`, `[recovery]`,
+`[retry-with-correction]`, `[stress-informed]`
+
+## Benchmark Mode
+
+Battery is the second formal benchmark domain (after PV). Run with:
+
+```bash
+python -m breakthrough_engine battery benchmark --seed 42
+```
+
+The benchmark report (version 2) includes:
+- Baseline metrics
+- Best candidate with score, metrics, stress profile, and caveats
+- Per-candidate breakdown with rejection reasons
+- Held-out reference comparison (within envelope check)
+- Stability indicators for regression detection
+
+## Known Limitations (Intentionally Deferred)
+
+- 1RC model only (no 2RC or distributed elements)
+- Empirical fade model (not physics-based SEI growth)
+- No calendar aging (only cycle aging)
+- No state-of-health estimation
+- No pack-level effects (thermal management, cell balancing)
+- No cathode chemistry variation (fixed NMC assumed)
