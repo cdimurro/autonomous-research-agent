@@ -59,13 +59,15 @@ class BatteryDecisionBrief(BaseModel):
     worst_stress_retention: Optional[float] = None
     cathode_thermal_retention: Optional[float] = None
 
-    # Sidecar verification (v2: includes concordance interpretation)
+    # Sidecar verification (v2.5: calibration-aware with high-rate concordance)
     sidecar_status: str = "not_verified"  # success / unavailable / error / invalid / not_verified
     sidecar_concordance: Optional[float] = None
     sidecar_gate_decision: str = ""  # confirmed / caveat / veto / not_verified
     sidecar_summary: str = ""
     sidecar_what_it_means: str = ""  # human-readable interpretation
     sidecar_concordance_details: dict = Field(default_factory=dict)  # per-metric breakdown
+    sidecar_calibration_note: str = ""  # what calibration was applied
+    sidecar_high_rate_agreement: Optional[float] = None  # high_rate_retention agreement (0-1)
 
     # Caveats
     caveats: list[str] = Field(default_factory=list)
@@ -149,13 +151,29 @@ def generate_decision_brief(report: dict) -> Optional[BatteryDecisionBrief]:
     ct_ret = robustness.get("cathode_thermal_retention")
     deg_summary = _generate_degradation_summary(degradation, worst_ret, ct_ret)
 
-    # Sidecar (v2: enhanced with concordance interpretation)
+    # Sidecar (v2.5: calibration-aware with high-rate concordance)
     sc_status = sidecar_v.get("status", "not_verified")
     sc_conc = sidecar_v.get("concordance_score")
     sc_details = sidecar_v.get("concordance_details", {})
     sc_summary = _generate_sidecar_summary(sc_status, sc_conc)
     sc_gate = _compute_gate_decision(sc_status, sc_conc)
     sc_meaning = _generate_sidecar_meaning(sc_status, sc_conc, sc_details)
+
+    # Calibration note from sidecar metrics
+    sc_calibration = ""
+    sc_hr_agreement = None
+    pybamm_metrics_raw = sidecar_v.get("pybamm_metrics", {}) if sidecar_v else {}
+    cal_meta = pybamm_metrics_raw.get("_calibration", {}) if isinstance(pybamm_metrics_raw, dict) else {}
+    if cal_meta.get("applied"):
+        sc_calibration = (
+            f"Cell-matched calibration applied: {cal_meta.get('pybamm_cell', '?')} "
+            f"scaled by {cal_meta.get('capacity_scale_factor', '?')}x "
+            f"(raw PyBaMM capacity: {cal_meta.get('raw_pybamm_capacity', '?')} Ah → "
+            f"calibrated to ECM {cal_meta.get('ecm_nominal_capacity_ah', '?')} Ah)"
+        )
+    hr_detail = sc_details.get("high_rate_retention", {})
+    if isinstance(hr_detail, dict) and hr_detail.get("agreement") is not None:
+        sc_hr_agreement = hr_detail["agreement"]
 
     # Vs alternatives
     vs_alt = _generate_vs_alternatives(best, breakdown)
@@ -193,6 +211,8 @@ def generate_decision_brief(report: dict) -> Optional[BatteryDecisionBrief]:
         sidecar_summary=sc_summary,
         sidecar_what_it_means=sc_meaning,
         sidecar_concordance_details=sc_details,
+        sidecar_calibration_note=sc_calibration,
+        sidecar_high_rate_agreement=sc_hr_agreement,
         caveats=caveats,
         vs_alternatives=vs_alt,
         recommended_action=action,
@@ -354,13 +374,22 @@ def _compute_confidence_tier(
     score: float, sc_status: str, sc_conc: Optional[float],
     profile_confidence: Optional[str],
 ) -> str:
-    if sc_status == "success" and sc_conc is not None and sc_conc >= 0.60 and score >= 0.65:
+    # Heuristic profiles cap at low regardless of sidecar
+    if profile_confidence == "heuristic":
+        return "low"
+    # High: calibrated sidecar confirms with strong concordance
+    if sc_status == "success" and sc_conc is not None and sc_conc >= 0.80 and score >= 0.65:
         return "high"
-    if sc_status == "not_verified" or sc_status == "unavailable":
+    # Standard-plus: sidecar confirms above threshold
+    if sc_status == "success" and sc_conc is not None and sc_conc >= 0.60 and score >= 0.55:
+        return "standard"
+    # Unverified with decent score
+    if sc_status in ("not_verified", "unavailable"):
         if score >= 0.65:
             return "standard"
         return "low"
-    if profile_confidence == "heuristic":
+    # Sidecar produced error/invalid
+    if sc_status in ("error", "invalid"):
         return "low"
     if score >= 0.55:
         return "standard"

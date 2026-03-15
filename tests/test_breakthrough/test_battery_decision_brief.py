@@ -146,6 +146,22 @@ class TestSidecarBrief:
         assert hasattr(brief, "sidecar_what_it_means")
         assert hasattr(brief, "sidecar_concordance_details")
 
+    def test_v25_calibration_fields_present(self):
+        brief = BatteryDecisionBrief(title="Test", headline="test")
+        assert hasattr(brief, "sidecar_calibration_note")
+        assert hasattr(brief, "sidecar_high_rate_agreement")
+
+    def test_high_confidence_requires_high_concordance(self):
+        """Confidence 'high' requires concordance >= 0.80 and score >= 0.65."""
+        from breakthrough_engine.battery_decision_brief import _compute_confidence_tier
+        assert _compute_confidence_tier(0.70, "success", 0.85, None) == "high"
+        assert _compute_confidence_tier(0.70, "success", 0.65, None) == "standard"
+        assert _compute_confidence_tier(0.50, "success", 0.90, None) == "low"
+
+    def test_heuristic_caps_at_low(self):
+        from breakthrough_engine.battery_decision_brief import _compute_confidence_tier
+        assert _compute_confidence_tier(0.70, "success", 0.90, "heuristic") == "low"
+
 
 class TestSaveBrief:
     def test_save_creates_file(self, tmp_path, report_with_promotion):
