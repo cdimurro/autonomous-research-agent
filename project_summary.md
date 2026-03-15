@@ -1,11 +1,11 @@
 # Breakthrough Engine — Project Summary
 
-**Last Updated:** 2026-03-14
-**Branch:** `breakthrough-engine-phase10k-graph-native-rollout`
-**Current Phase:** 10K (Graph-Native Retrieval Promotion — COMPLETE)
+**Last Updated:** 2026-03-15
+**Branch:** `battery-loop-hardening`
+**Current Phase:** Battery Deepening v1 (CC-BE-2426–2430 — COMPLETE)
 **Champion Policy:** `evidence_diversity_v1`
 **Default Retrieval:** `HybridKGEvidenceSource` (graph-native, promoted Phase 10K)
-**Test Suite:** 1171 passing, 0 failures
+**Test Suite:** 1469 passing, 0 failures
 **Production Mean Score:** 0.9108 (100% approval across 6 burn-in campaigns)
 **Adoption Decision:** `ready_to_merge_and_adopt`
 **Repository:** `https://github.com/cdimurro/breakthrough-engine.git`
@@ -36,7 +36,7 @@ The system operates on a daily cycle: it gathers evidence from scientific papers
 | LLM (generation) | Ollama — `qwen3.5:9b-q4_K_M` |
 | Embeddings | Ollama — `qwen3-embedding:4b` (2560-dim, Regime 2) |
 | External APIs | Semantic Scholar, OpenAlex, Crossref, AlphaXiv |
-| Testing | pytest (1171 tests, all offline-safe) |
+| Testing | pytest (1469 tests, all offline-safe) |
 
 ### 2.2 Module Map (45 Python Modules)
 
@@ -589,6 +589,18 @@ Baselines from Regime 1 (phase7d, phase8) are **not comparable** to Regime 2 run
 **Adoption decision: `ready_to_merge_and_adopt`**
 **Baseline frozen: `phase10k_graph_native_production_regime2`**
 
+### Battery Deepening v1 (CC-BE-2426 through CC-BE-2430) — complete
+
+Deepened the battery ECM benchmark from a basic characterization loop to a fast-charge and degradation-aware proving ground:
+
+- **CC-BE-2426:** Added `fast_charge_retention` and `resistance_growth_pct` metrics; added `repeated_fast_charge_stress` template (3C/30-cycle with resistance tracking). Metrics: 7→9, primary: 5→6, templates: 7→8.
+- **CC-BE-2427:** Added `rate_optimized` family; tightened parameter ranges to commercial cell data (5 references including Molicel P42A); added tradeoff penalties (capacity→fade, fade→R1); added 7th cross-parameter plausibility check (low fade + high R0).
+- **CC-BE-2428:** Stress resilience scoring penalizes resistance growth >5% and poor 3C retention <90%; resistance growth >20% triggers hard-fail; regime-specificity gate rejects extreme score imbalance; rate-tradeoff collapse detection.
+- **CC-BE-2429:** Two-phase memory with battery-specific lessons (fast-charge degradation, resistance growth, rate-tradeoff collapse); fast-charge weakness and resistance growth weakness tracked separately with 0.6x family weight penalty.
+- **CC-BE-2430:** Benchmark report v2 with degradation_profile, family_summary, best candidate rationale/caveats; frozen v1 baseline; regression discipline across 3 seeds (42, 99, 123).
+
+Benchmark sweep: all 3 seeds promoted, scores 0.83-0.84, all within reference envelope. Tests: 1444→1469 (+25).
+
 ### Phase-over-Phase Diversity Resolution
 
 | Phase | Diversity Failure Layer | Fix |
@@ -661,16 +673,14 @@ For the first 7-14 days after adoption, monitor:
 2. **Graph context skipped** — KG canonicalization often produces 0 canonical concepts, causing graph context to be skipped. The system still works (falls back to flat evidence), but graph-conditioned generation is underutilized.
 
 ### Planned Next Steps
-1. **PV Foundation Loop** (`pv-foundation-loop` batch) — First narrow-domain optimization loop for PV I-V characterization. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full design.
-2. **Post-adoption monitoring** — 14-day observation window with labeling
-3. **Battery domain pack** — Second domain loop (after PV is proven)
-4. **DC-DC domain pack** — Third domain loop
-5. **KG corpus expansion** — Ingest more papers to increase canonical concept coverage
-6. **`diversity_steering_v1` challenger** — Next policy surface (design-only, not yet registered)
+1. **Post-adoption monitoring** — 14-day observation window with labeling
+2. **DC-DC domain pack** — Third domain loop
+3. **KG corpus expansion** — Ingest more papers to increase canonical concept coverage
+4. **`diversity_steering_v1` challenger** — Next policy surface (design-only, not yet registered)
 
 ### Domain Rollout Order
-1. **PV I-V Characterization** — In progress (pvlib-backed, fixed experiments, explicit metrics)
-2. **Battery Characterization** — Planned
+1. **PV I-V Characterization** — Complete (pvlib-backed, fixed experiments, explicit metrics)
+2. **Battery ECM v2** — Complete (fast-charge and degradation-aware, 9 metrics, 8 templates, 7 families). See [docs/BENCHMARK_DOMAINS.md](docs/BENCHMARK_DOMAINS.md) and [docs/BATTERY_V2_FORWARD_BRIDGE.md](docs/BATTERY_V2_FORWARD_BRIDGE.md)
 3. **DC-DC Converter Optimization** — Planned
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture details and [docs/INDEX.md](docs/INDEX.md) for documentation navigation.
@@ -739,7 +749,7 @@ breakthrough-engine/
 │   └── campaign_profiles/   # YAML campaign profiles
 ├── docs/                    # 150+ markdown docs (architecture, phases, decisions)
 ├── tests/
-│   └── test_breakthrough/   # 32 test modules, 1171 tests
+│   └── test_breakthrough/   # 40 test modules, 1469 tests
 ├── scripts/                 # Phase-specific execution scripts
 ├── runtime/                 # Mutable state (gitignored)
 │   ├── db/scires.db         # Production SQLite database
@@ -761,7 +771,7 @@ breakthrough-engine/
 
 1. **One publication per run** — Each orchestrator cycle produces at most one published candidate
 2. **Champion-only for production** — No challenger policies in production automation
-3. **Offline-safe tests** — All 1171 tests run without network or LLM access
+3. **Offline-safe tests** — All 1469 tests run without network or LLM access
 4. **Regime boundary** — Never compare Regime 1 baselines to Regime 2 runs
 5. **Automatic promotion OFF** — All promotions require manual decision
 6. **Rollback target** — Prior retrieval path (ExistingFindingsSource) via branch or code reversion

@@ -547,13 +547,13 @@ The least valuable batch types are:
 - memory-guided narrow-domain loops
 - **Battery Decision Brief** — first human-facing product artifact
 - **Battery review workflow** — minimal backend review states + CLI
-- **Development workspace** — internal UI for testing product surfaces (`workspace/`)
+- **Development workspace v2** — connected workflows (Validate, Research, Due Diligence), unified results, page-aware assistant (`workspace/`)
 
 ### Next
 - live PyBaMM sidecar validation (stability checkpoint with real .venv-pybamm)
 - battery evaluation matrix sweep on real infrastructure
 - DC-DC as domain 3
-- Development workspace iteration and Project Zero migration
+- Project Zero migration (workspace routes, components, brief types are migration-ready)
 
 ### Later
 - additional energy domains selectively
@@ -635,8 +635,13 @@ and also available as structured JSON for external tools.
 - **Internal development UI** — not the final production app
 - Mirrors future Project Zero product surfaces (Validate, Research, Due Diligence, Results)
 - Separates human-facing results (summary, recommendation, caveats) from technical diagnostics
-- Background job execution via Python CLI subprocess
-- AI assistant (DeepSeek v3.2) grounded in engine outputs, task-oriented
+- **3 connected workflows** — all share the same job/brief backbone:
+  - **Validate** — spawns Python CLI benchmark loops, produces Decision Briefs
+  - **Research** — calls DeepSeek API with engine-grounded prompts, produces Research Briefs
+  - **Due Diligence** — calls DeepSeek API with engine-grounded prompts, produces Diligence Briefs
+- **Results page** — unified browsing, type filtering, side-by-side comparison, JSON inspector
+- **AI assistant** — page-aware, task-oriented, grounded in all brief types (DeepSeek v3.2)
+- **Brief storage**: Decision briefs in `runtime/battery_briefs/`, workspace briefs in `runtime/workspace_briefs/`
 - Start: `cd workspace && npm run dev`
 - See: `workspace/README.md`
 
