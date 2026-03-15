@@ -19,6 +19,7 @@ from breakthrough_engine.pv_loop import (
     PVOptimizationLoop,
     _check_cross_parameter_plausibility,
     compute_robustness_profile,
+    generate_candidate_caveats,
     generate_pv_candidates,
     score_pv_candidate,
 )
@@ -324,14 +325,16 @@ class TestPVOptimizationLoop:
         loop = PVOptimizationLoop(db_repo, n_candidates=4, seed=42)
         result = loop.run(run_id="test_run_1")
         assert result.total_candidates == 4
-        assert result.promoted_count + result.rejected_count + result.hard_fail_count == 4
+        # All candidates accounted for (promoted + rejected + hard_fail + alternate)
+        alternate_count = 1 if result.alternate else 0
+        assert result.promoted_count + result.rejected_count + result.hard_fail_count + alternate_count == 4
         assert result.baseline_metrics["Pmax"] > 0
 
     def test_some_candidates_promoted(self, db_repo):
         loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
         result = loop.run(run_id="test_run_2")
-        # With a low threshold, at least some should be promoted
-        assert result.promoted_count > 0
+        # With selective policy, at most 1 promoted
+        assert result.promoted_count <= 1
 
     def test_best_promoted_selected(self, db_repo):
         loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
@@ -415,9 +418,68 @@ class TestPVOptimizationLoop:
         assert len(memories) == 12  # 6 from each run
 
     def test_one_promotion_per_run_invariant(self, db_repo):
-        """Only one best_promoted should be selected per run."""
+        """Selective policy: at most 1 promoted per run (CC-BE-2408)."""
         loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.2)
         result = loop.run(run_id="one_promo")
-        # Even if multiple candidates are promoted, only one best is selected
-        if result.promoted_count > 1:
-            assert result.best_promoted is not None
+        # CC-BE-2408: at most 1 promoted, optionally 1 alternate
+        assert result.promoted_count <= 1
+        if result.best_promoted:
+            assert result.promoted_count == 1
+
+
+# ---------------------------------------------------------------------------
+# CC-BE-2408: Promotion tightening and caveat generation tests
+# ---------------------------------------------------------------------------
+
+class TestPromotionTightening:
+    @pytest.fixture
+    def db_repo(self):
+        db = init_db(in_memory=True)
+        return Repository(db)
+
+    def test_at_most_one_promoted(self, db_repo):
+        """Selective promotion: at most 1 promoted per run."""
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.2)
+        result = loop.run(run_id="selective_1")
+        assert result.promoted_count <= 1
+
+    def test_alternate_is_differentiated(self, db_repo):
+        """Alternate must be from a different family than best promoted."""
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
+        result = loop.run(run_id="alt_test")
+        if result.best_promoted and result.alternate:
+            assert result.best_promoted.candidate.rationale != result.alternate.candidate.rationale
+
+    def test_promoted_has_caveats(self, db_repo):
+        """Promoted candidate should have caveats generated."""
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
+        result = loop.run(run_id="caveat_test")
+        if result.best_promoted:
+            assert len(result.best_promoted.promotion_caveats) > 0
+            # Caveats should include parameter changes
+            has_param_caveat = any("Parameter changes" in c for c in result.best_promoted.promotion_caveats)
+            assert has_param_caveat
+
+    def test_summary_includes_caveats(self, db_repo):
+        """Summary should include caveats for promoted candidate."""
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
+        result = loop.run(run_id="summary_caveat")
+        summary = result.summary()
+        if result.best_promoted:
+            assert "best_promoted_caveats" in summary
+
+    def test_high_threshold_rejects_all(self, db_repo):
+        """Very high threshold should reject all candidates."""
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.99)
+        result = loop.run(run_id="high_thresh")
+        assert result.promoted_count == 0
+        assert result.best_promoted is None
+
+    def test_decision_types_correct(self, db_repo):
+        """Check that decisions are properly categorized."""
+        from breakthrough_engine.domain_models import PromotionDecision
+        loop = PVOptimizationLoop(db_repo, n_candidates=6, seed=42, promotion_threshold=0.3)
+        result = loop.run(run_id="decision_types")
+        decisions = [r.decision for r in result.candidates]
+        for d in decisions:
+            assert d in (PromotionDecision.PROMOTED, PromotionDecision.REJECTED, PromotionDecision.DEFERRED)

@@ -494,8 +494,85 @@ def score_pv_candidate(
 
 
 # ---------------------------------------------------------------------------
+# Caveat generation (CC-BE-2408)
+# ---------------------------------------------------------------------------
+
+def generate_candidate_caveats(
+    candidate: CandidateSpec,
+    evaluation: EvaluationResult,
+    baseline_metrics: dict,
+    candidate_metrics: dict,
+    robustness_profile: Optional[dict] = None,
+) -> list[str]:
+    """Generate explicit caveats for a promoted or alternate candidate.
+
+    Returns a list of human-readable caveat strings documenting:
+    - what changed vs baseline
+    - what assumptions drive the gain
+    - where the candidate weakens
+    - whether gains are concentrated in specific operating regimes
+    """
+    caveats: list[str] = list(evaluation.caveats)  # start with scoring caveats
+
+    base_pmax = baseline_metrics.get("Pmax", 0)
+    cand_pmax = candidate_metrics.get("Pmax", 0)
+    base_ff = baseline_metrics.get("fill_factor", 0)
+    cand_ff = candidate_metrics.get("fill_factor", 0)
+    base_eff = baseline_metrics.get("efficiency", 0)
+    cand_eff = candidate_metrics.get("efficiency", 0)
+
+    # What changed
+    changed_params = []
+    base = DEFAULT_CELL_PARAMS
+    for param in ("R_s", "R_sh_ref", "I_L_ref", "I_o_ref", "a_ref"):
+        base_val = base.get(param, 0)
+        cand_val = candidate.parameters.get(param, base_val)
+        if base_val and abs(cand_val - base_val) / max(abs(base_val), 1e-15) > 0.01:
+            changed_params.append(f"{param}: {base_val} → {cand_val:.4g}")
+    if changed_params:
+        caveats.append(f"Parameter changes: {'; '.join(changed_params)}")
+
+    # What assumptions drive the gain
+    components = evaluation.score_components
+    if components:
+        strongest = max(components, key=lambda k: components[k])
+        weakest = min(components, key=lambda k: components[k])
+        if components[strongest] > 0.7:
+            caveats.append(f"Gain concentrated in {strongest} (score={components[strongest]:.2f})")
+        if components[weakest] < 0.3:
+            caveats.append(f"Weakness in {weakest} (score={components[weakest]:.2f})")
+
+    # Where candidate weakens
+    if base_pmax > 0 and cand_pmax < base_pmax:
+        caveats.append(f"Pmax decreased: {cand_pmax:.2f}W vs baseline {base_pmax:.2f}W")
+    if base_ff > 0 and cand_ff < base_ff:
+        caveats.append(f"Fill factor decreased: {cand_ff:.4f} vs baseline {base_ff:.4f}")
+    if base_eff > 0 and cand_eff < base_eff:
+        caveats.append(f"Efficiency decreased: {cand_eff:.2f}% vs baseline {base_eff:.2f}%")
+
+    # Operating regime concentration
+    if robustness_profile:
+        temp_sens = robustness_profile.get("temperature_sensitivity", 0)
+        irr_sens = robustness_profile.get("irradiance_sensitivity", 0)
+        if temp_sens > 0.25:
+            caveats.append(
+                f"Gains may be STC-concentrated: {temp_sens:.1%} Pmax variation across temperatures"
+            )
+        if irr_sens > 0.7:
+            caveats.append(
+                f"Low-light performance concern: {irr_sens:.1%} Pmax variation across irradiance"
+            )
+
+    return caveats
+
+
+# ---------------------------------------------------------------------------
 # Full PV optimization loop
 # ---------------------------------------------------------------------------
+
+# Alternate threshold: candidate must be within this margin of the
+# promotion threshold to qualify as an alternate (CC-BE-2408)
+ALTERNATE_MARGIN = 0.05
 
 class PVOptimizationLoop:
     """End-to-end PV optimization loop.
@@ -541,26 +618,72 @@ class PVOptimizationLoop:
         )
 
         results: list[PVCandidateResult] = []
-        promoted_count = 0
 
         for candidate in candidates:
             candidate.run_id = run_id
             cr = self._evaluate_candidate(candidate, baseline_metrics, run_id)
             results.append(cr)
-            if cr.decision == PromotionDecision.PROMOTED:
-                promoted_count += 1
 
-        # Select best promoted candidate (one promotion per run)
+        # --- Selective promotion policy (CC-BE-2408) ---
+        # Sort candidates that passed scoring (not hard-fail) by score
+        scorable = [
+            r for r in results
+            if not r.evaluation.hard_fail and r.evaluation.final_score > 0
+        ]
+        scorable.sort(key=lambda r: r.evaluation.final_score, reverse=True)
+
         best = None
-        if promoted_count > 0:
-            promoted = [r for r in results if r.decision == PromotionDecision.PROMOTED]
-            best = max(promoted, key=lambda r: r.evaluation.final_score)
+        alternate = None
+        promoted_count = 0
+
+        for r in scorable:
+            if r.evaluation.final_score >= self.promotion_threshold:
+                if best is None:
+                    # First (highest-scoring) candidate above threshold → promoted
+                    best = r
+                    r.decision = PromotionDecision.PROMOTED
+                    r.candidate.status = CandidateStatus.PROMOTED
+                    r.candidate.rejection_reason = ""
+                    self.repo.save_domain_candidate(r.candidate)
+                    promoted_count += 1
+
+                    # Generate caveats for promoted candidate
+                    r.promotion_caveats = generate_candidate_caveats(
+                        r.candidate, r.evaluation, baseline_metrics,
+                        r.experiment_metrics, r.robustness_profile,
+                    )
+                elif (
+                    alternate is None
+                    and r.evaluation.final_score >= self.promotion_threshold - ALTERNATE_MARGIN
+                    and r.candidate.rationale != best.candidate.rationale
+                ):
+                    # One alternate if near threshold AND differentiated family
+                    alternate = r
+                    r.decision = PromotionDecision.DEFERRED
+                    r.candidate.status = CandidateStatus.EVALUATED
+                    r.candidate.rejection_reason = "Alternate: near threshold but not best"
+                    self.repo.save_domain_candidate(r.candidate)
+
+                    r.promotion_caveats = generate_candidate_caveats(
+                        r.candidate, r.evaluation, baseline_metrics,
+                        r.experiment_metrics, r.robustness_profile,
+                    )
+                else:
+                    # Additional candidates above threshold → reject (selective)
+                    r.decision = PromotionDecision.REJECTED
+                    r.candidate.status = CandidateStatus.REJECTED
+                    r.candidate.rejection_reason = (
+                        f"Score {r.evaluation.final_score:.4f} above threshold "
+                        f"but not selected (selective promotion)"
+                    )
+                    self.repo.save_domain_candidate(r.candidate)
 
         return PVLoopResult(
             run_id=run_id,
             baseline_metrics=baseline_metrics,
             candidates=results,
             best_promoted=best,
+            alternate=alternate,
             total_candidates=len(candidates),
             promoted_count=promoted_count,
             rejected_count=sum(1 for r in results if r.decision == PromotionDecision.REJECTED),
@@ -762,6 +885,7 @@ class PVCandidateResult:
         experiment_metrics: dict,
         sweep_data: list[dict],
         robustness_profile: Optional[dict] = None,
+        promotion_caveats: Optional[list[str]] = None,
     ):
         self.candidate = candidate
         self.evaluation = evaluation
@@ -769,6 +893,7 @@ class PVCandidateResult:
         self.experiment_metrics = experiment_metrics
         self.sweep_data = sweep_data
         self.robustness_profile = robustness_profile or {}
+        self.promotion_caveats = promotion_caveats or []
 
 
 class PVLoopResult:
@@ -783,11 +908,13 @@ class PVLoopResult:
         promoted_count: int,
         rejected_count: int,
         hard_fail_count: int,
+        alternate: Optional[PVCandidateResult] = None,
     ):
         self.run_id = run_id
         self.baseline_metrics = baseline_metrics
         self.candidates = candidates
         self.best_promoted = best_promoted
+        self.alternate = alternate
         self.total_candidates = total_candidates
         self.promoted_count = promoted_count
         self.rejected_count = rejected_count
@@ -806,9 +933,17 @@ class PVLoopResult:
             "best_promoted_score": self.best_promoted.evaluation.final_score if self.best_promoted else None,
             "best_promoted_pmax": self.best_promoted.experiment_metrics.get("Pmax", 0) if self.best_promoted else None,
         }
-        if self.best_promoted and self.best_promoted.robustness_profile:
-            rp = self.best_promoted.robustness_profile
-            summary["best_promoted_robustness"] = {
-                k: v for k, v in rp.items() if k != "sweep_data"
-            }
+        if self.best_promoted:
+            if self.best_promoted.robustness_profile:
+                rp = self.best_promoted.robustness_profile
+                summary["best_promoted_robustness"] = {
+                    k: v for k, v in rp.items() if k != "sweep_data"
+                }
+            if self.best_promoted.promotion_caveats:
+                summary["best_promoted_caveats"] = self.best_promoted.promotion_caveats
+        if self.alternate:
+            summary["alternate_title"] = self.alternate.candidate.title
+            summary["alternate_score"] = self.alternate.evaluation.final_score
+            if self.alternate.promotion_caveats:
+                summary["alternate_caveats"] = self.alternate.promotion_caveats
         return summary
