@@ -1,4 +1,4 @@
-"""Tests for PV optimization loop (CC-BE-2404)."""
+"""Tests for PV optimization loop (CC-BE-2404, CC-BE-2406–2410)."""
 
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ from breakthrough_engine.domain_models import (
 from breakthrough_engine.pv_domain import DEFAULT_CELL_PARAMS, run_experiment
 from breakthrough_engine.pv_loop import (
     CANDIDATE_FAMILIES,
+    PARAM_RANGES,
     PV_SCORE_WEIGHTS,
     PVOptimizationLoop,
+    _check_cross_parameter_plausibility,
     generate_pv_candidates,
     score_pv_candidate,
 )
@@ -55,7 +57,6 @@ class TestCandidateGeneration:
 
     def test_parameters_within_bounds(self):
         candidates = generate_pv_candidates(n_candidates=20, seed=42)
-        from breakthrough_engine.pv_loop import PARAM_RANGES
         for c in candidates:
             for param, (lo, hi) in PARAM_RANGES.items():
                 if param in c.parameters:
@@ -78,6 +79,82 @@ class TestCandidateGeneration:
         ]
         candidates = generate_pv_candidates(n_candidates=6, seed=42, prior_lessons=prior_lessons)
         assert len(candidates) == 6
+
+
+# ---------------------------------------------------------------------------
+# CC-BE-2406: Realistic priors tests
+# ---------------------------------------------------------------------------
+
+class TestRealisticPriors:
+    """Verify tighter parameter bounds and cross-parameter plausibility."""
+
+    def test_param_ranges_are_tighter_than_extreme(self):
+        """PARAM_RANGES should exclude extreme unphysical values."""
+        assert PARAM_RANGES["I_L_ref"][0] >= 7.0  # not below 7A
+        assert PARAM_RANGES["I_L_ref"][1] <= 13.0  # not above 13A
+        assert PARAM_RANGES["R_s"][0] >= 0.1  # not below 0.1 ohm
+        assert PARAM_RANGES["R_s"][1] <= 1.5  # not above 1.5 ohm
+        assert PARAM_RANGES["R_sh_ref"][1] <= 1500.0  # not above 1500
+        assert PARAM_RANGES["a_ref"][1] <= 2.2  # ideality < 2.2
+
+    def test_perturbation_bounds_are_modest(self):
+        """No single family should allow more than ~50% change in any param."""
+        for fam in CANDIDATE_FAMILIES:
+            for param, delta_range in fam["perturbations"].items():
+                if param == "I_o_ref":
+                    # Multiplier should not allow >10x change
+                    assert delta_range[0] >= 0.05, f"{fam['family']}: I_o multiplier too small"
+                    assert delta_range[1] <= 1.0, f"{fam['family']}: I_o multiplier > 1 (increase)"
+                elif param == "R_s":
+                    # Rs delta should not exceed baseline Rs value (~0.5)
+                    assert abs(delta_range[0]) <= 0.3, f"{fam['family']}: Rs delta too large"
+                elif param == "I_L_ref":
+                    # I_L delta should be modest
+                    assert delta_range[1] <= 1.5, f"{fam['family']}: I_L delta > 1.5A"
+                elif param == "R_sh_ref":
+                    # Rsh delta should be realistic
+                    assert delta_range[1] <= 400, f"{fam['family']}: Rsh delta > 400"
+
+    def test_cross_param_low_rs_low_rsh_rejected(self):
+        """Low Rs + low Rsh is physically contradictory."""
+        params = dict(DEFAULT_CELL_PARAMS, R_s=0.12, R_sh_ref=120)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert not ok
+        assert any("Contradictory" in r for r in reasons)
+
+    def test_cross_param_high_il_high_io_rejected(self):
+        """High I_L + high I_o is contradictory."""
+        params = dict(DEFAULT_CELL_PARAMS, I_L_ref=12.0, I_o_ref=1e-8)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert not ok
+
+    def test_cross_param_high_ideality_low_io_rejected(self):
+        """High ideality + very low I_o is contradictory."""
+        params = dict(DEFAULT_CELL_PARAMS, a_ref=2.1, I_o_ref=5e-12)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert not ok
+
+    def test_default_params_pass_cross_check(self):
+        """Default cell params should pass cross-parameter checks."""
+        ok, reasons = _check_cross_parameter_plausibility(DEFAULT_CELL_PARAMS)
+        assert ok
+
+    def test_generated_candidates_pass_cross_check(self):
+        """All generated candidates should pass cross-parameter plausibility."""
+        candidates = generate_pv_candidates(n_candidates=20, seed=42)
+        for c in candidates:
+            ok, reasons = _check_cross_parameter_plausibility(c.parameters)
+            assert ok, f"{c.title}: cross-param fail: {reasons}"
+
+    def test_all_families_documented(self):
+        """Each family should have a rationale explaining the physical mechanism."""
+        for fam in CANDIDATE_FAMILIES:
+            assert len(fam["rationale"]) > 30, f"{fam['family']}: rationale too short"
+            assert fam["family"] in (
+                "reduced_series_resistance", "improved_junction_quality",
+                "enhanced_photocurrent", "improved_shunt_resistance",
+                "combined_moderate", "bounded_aggressive",
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -2,17 +2,19 @@
 scoring, and promotion for PV I-V characterization.
 
 This is the first narrow-domain optimization loop. It:
-1. Generates PV candidate parameter variations
+1. Generates PV candidate parameter variations with realistic priors
 2. Runs fixed experiments (STC, sweeps) via pvlib
-3. Scores candidates against a baseline
-4. Applies hard-fail gates
-5. Promotes or rejects with reason
+3. Scores candidates against a baseline with robustness stress tests
+4. Applies hard-fail gates and generates caveats
+5. Promotes or rejects with conservative, selective policy
 6. Persists idea memory and experiment memory
+7. Uses memory to guide future proposals
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import random
 from typing import Optional
 
@@ -38,52 +40,119 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Candidate generation
+# Candidate generation — realistic priors (CC-BE-2406)
 # ---------------------------------------------------------------------------
 
-# Parameter perturbation ranges (physically plausible bounds)
+# Tighter parameter bounds grounded in commercial crystalline-Si module data.
+# Sources: CEC module database typical ranges for mono/poly-Si modules.
+#   I_L_ref:  7–13 A  (typical 60-cell modules: 8–10 A)
+#   I_o_ref:  1e-12–1e-9 A  (good junction: ~1e-11; poor: ~1e-9)
+#   R_s:      0.1–1.5 ohm   (typical 0.3–0.6; below 0.1 is unrealistic)
+#   R_sh_ref: 100–1500 ohm  (typical 300–600; above 1500 is aspirational)
+#   a_ref:    1.0–2.2 V     (ideality factor 1.0–1.5 typical for Si)
+#   alpha_sc: 0.001–0.006 A/C (typical ~0.003 for c-Si)
 PARAM_RANGES = {
-    "I_L_ref": (5.0, 15.0),       # A — photocurrent
-    "I_o_ref": (1e-13, 1e-7),     # A — saturation current (log scale)
-    "R_s": (0.05, 3.0),           # ohm — series resistance
-    "R_sh_ref": (50.0, 2000.0),   # ohm — shunt resistance
-    "a_ref": (0.8, 3.0),          # V — ideality factor
-    "alpha_sc": (0.0005, 0.01),   # A/C — temp coeff of Isc
+    "I_L_ref": (7.0, 13.0),       # A — photocurrent (tighter: commercial c-Si)
+    "I_o_ref": (1e-12, 1e-9),     # A — saturation current (realistic junction range)
+    "R_s": (0.1, 1.5),            # ohm — series resistance (practical range)
+    "R_sh_ref": (100.0, 1500.0),  # ohm — shunt resistance (commercial modules)
+    "a_ref": (1.0, 2.2),          # V — ideality factor (physical for Si)
+    "alpha_sc": (0.001, 0.006),   # A/C — temp coeff of Isc (c-Si range)
 }
 
-# Candidate families with rationale
+# Candidate families with physically-grounded perturbation bounds.
+#
+# Each family targets a specific physical improvement mechanism:
+#   - reduced_series_resistance: metallization/contact improvements (Rs)
+#   - improved_junction_quality: passivation/recombination reduction (I_o)
+#   - enhanced_photocurrent: anti-reflection/texturing gains (I_L)
+#   - improved_shunt_resistance: fewer micro-shunts/defects (R_sh)
+#   - combined_moderate: realistic multi-parameter co-optimization
+#   - bounded_aggressive: near-limit parameters with physical justification
+#
+# Perturbation ranges are bounded to plausible improvement magnitudes:
+#   - Rs reductions: 0.05–0.25 ohm (not >50% of typical value)
+#   - I_o multipliers: 0.1–0.7 (modest junction improvement, not orders of magnitude)
+#   - I_L deltas: 0.2–1.0 A (incremental absorption gains)
+#   - R_sh deltas: 50–300 ohm (realistic defect reduction)
 CANDIDATE_FAMILIES = [
     {
         "family": "reduced_series_resistance",
-        "rationale": "Lower Rs improves fill factor and Pmax by reducing ohmic losses",
-        "perturbations": {"R_s": (-0.5, -0.1)},  # delta from default
+        "rationale": "Lower Rs via improved metallization/contacts reduces ohmic losses, "
+                     "improving fill factor and Pmax (typical improvement: 0.05–0.2 ohm)",
+        "perturbations": {"R_s": (-0.25, -0.05)},
     },
     {
         "family": "improved_junction_quality",
-        "rationale": "Lower I_o improves Voc by reducing recombination current",
-        "perturbations": {"I_o_ref": (0.01, 0.5)},  # multiplier on default
+        "rationale": "Lower I_o via better passivation reduces recombination current, "
+                     "improving Voc (realistic: 30–90% reduction in I_o)",
+        "perturbations": {"I_o_ref": (0.1, 0.7)},  # multiplier: 0.1x–0.7x
     },
     {
         "family": "enhanced_photocurrent",
-        "rationale": "Higher I_L increases Isc and Pmax through better light absorption",
-        "perturbations": {"I_L_ref": (0.5, 3.0)},  # delta from default
+        "rationale": "Higher I_L via anti-reflection coating or texturing improves "
+                     "light absorption (typical gain: 0.2–1.0 A)",
+        "perturbations": {"I_L_ref": (0.2, 1.0)},
     },
     {
         "family": "improved_shunt_resistance",
-        "rationale": "Higher Rsh reduces leakage current, improving Voc and FF",
-        "perturbations": {"R_sh_ref": (100.0, 600.0)},  # delta from default
+        "rationale": "Higher Rsh via reduced micro-shunts decreases leakage current, "
+                     "improving Voc and FF (typical gain: 50–250 ohm)",
+        "perturbations": {"R_sh_ref": (50.0, 250.0)},
     },
     {
-        "family": "combined_improvement",
-        "rationale": "Simultaneous improvement in Rs and Rsh for better overall performance",
-        "perturbations": {"R_s": (-0.3, -0.05), "R_sh_ref": (50.0, 300.0)},
+        "family": "combined_moderate",
+        "rationale": "Co-optimized Rs reduction and Rsh improvement reflecting "
+                     "realistic multi-step process improvement",
+        "perturbations": {"R_s": (-0.15, -0.03), "R_sh_ref": (30.0, 150.0)},
     },
     {
-        "family": "aggressive_optimization",
-        "rationale": "Push multiple parameters toward theoretical limits",
-        "perturbations": {"R_s": (-0.4, -0.2), "I_o_ref": (0.01, 0.1), "R_sh_ref": (200.0, 800.0)},
+        "family": "bounded_aggressive",
+        "rationale": "Near-limit optimization across Rs, I_o, and Rsh — physically "
+                     "possible but represents best-in-class manufacturing",
+        "perturbations": {"R_s": (-0.20, -0.10), "I_o_ref": (0.15, 0.5), "R_sh_ref": (100.0, 300.0)},
     },
 ]
+
+
+def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
+    """Reject unrealistic parameter *combinations* at generation time.
+
+    This catches combinations that are individually within bounds but
+    physically inconsistent together.
+    """
+    reasons: list[str] = []
+
+    # Very low Rs with very low Rsh is contradictory: good contacts but
+    # severe shunting indicates fabrication incompatibility
+    rs = params.get("R_s", 0.5)
+    rsh = params.get("R_sh_ref", 400.0)
+    if rs < 0.15 and rsh < 150:
+        reasons.append(
+            f"Contradictory: low Rs ({rs:.3f}) with low Rsh ({rsh:.0f}) — "
+            "good contacts with severe shunting is physically inconsistent"
+        )
+
+    # Very high photocurrent with very high saturation current is
+    # contradictory: excellent absorption but poor junction quality
+    il = params.get("I_L_ref", 9.5)
+    io = params.get("I_o_ref", 1e-10)
+    if il > 11.0 and io > 5e-9:
+        reasons.append(
+            f"Contradictory: high I_L ({il:.1f}A) with high I_o ({io:.2e}A) — "
+            "excellent absorption but poor junction is unrealistic"
+        )
+
+    # Ideality factor > 2.0 with very low I_o is inconsistent:
+    # high ideality implies recombination-dominated, contradicting low I_o
+    a_ref = params.get("a_ref", 1.5)
+    if a_ref > 2.0 and io < 1e-11:
+        reasons.append(
+            f"Contradictory: high ideality ({a_ref:.2f}) with very low I_o ({io:.2e}) — "
+            "high recombination ideality contradicts excellent junction"
+        )
+
+    return len(reasons) == 0, reasons
 
 
 def generate_pv_candidates(
@@ -92,10 +161,11 @@ def generate_pv_candidates(
     seed: Optional[int] = None,
     prior_lessons: Optional[list[dict]] = None,
 ) -> list[CandidateSpec]:
-    """Generate PV candidate parameter variations.
+    """Generate PV candidate parameter variations with realistic priors.
 
-    Uses physically-informed perturbation families to propose candidates.
-    Avoids families that have been tried and failed (via prior_lessons).
+    Uses physically-grounded perturbation families bounded to plausible
+    improvement magnitudes. Rejects unrealistic cross-parameter combinations
+    at generation time. Avoids families that have consistently failed.
     """
     if seed is not None:
         random.seed(seed)
@@ -113,7 +183,6 @@ def generate_pv_candidates(
             if fam:
                 family_outcomes.setdefault(fam, []).append(outcome)
         for fam, outcomes in family_outcomes.items():
-            # Skip family if all prior attempts were rejected/hard_fail
             if outcomes and all(o in ("rejected", "hard_fail") for o in outcomes):
                 failed_families.add(fam)
                 logger.info("Skipping family %s: all prior attempts failed", fam)
@@ -142,6 +211,30 @@ def generate_pv_candidates(
         for param, (lo, hi) in PARAM_RANGES.items():
             if param in params:
                 params[param] = max(lo, min(hi, params[param]))
+
+        # Cross-parameter plausibility filter: reject and re-clamp if needed
+        cross_ok, cross_reasons = _check_cross_parameter_plausibility(params)
+        if not cross_ok:
+            # Fall back to more conservative perturbation (halve deltas)
+            params = dict(base)
+            description_parts = []
+            for param, delta_range in family["perturbations"].items():
+                if param == "I_o_ref":
+                    multiplier = random.uniform(
+                        max(delta_range[0], 0.3),
+                        min(delta_range[1], 0.8),
+                    )
+                    params[param] = base.get(param, 1e-10) * multiplier
+                    description_parts.append(f"{param}*={multiplier:.3f}(conservative)")
+                else:
+                    mid = (delta_range[0] + delta_range[1]) / 2
+                    half_span = (delta_range[1] - delta_range[0]) / 4
+                    delta = random.uniform(mid - half_span, mid + half_span)
+                    params[param] = base.get(param, 0) + delta
+                    description_parts.append(f"{param}+={delta:.4f}(conservative)")
+            for param, (lo, hi) in PARAM_RANGES.items():
+                if param in params:
+                    params[param] = max(lo, min(hi, params[param]))
 
         candidate = CandidateSpec(
             domain_name="pv_iv",
