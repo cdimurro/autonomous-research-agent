@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Job } from "@/lib/types";
 
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
@@ -33,7 +34,10 @@ export default function JobStatusCard({ job }: { job: Job }) {
   const typeLabel = TYPE_LABELS[job.type] ?? job.type;
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] last:border-b-0">
+    <Link
+      href={`/jobs/${job.id}`}
+      className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-hover)] transition-colors"
+    >
       <div className="flex items-center gap-3">
         <span className={`w-2 h-2 rounded-full ${style.dot}`} />
         <div>
@@ -66,6 +70,6 @@ export default function JobStatusCard({ job }: { job: Job }) {
           </p>
         )}
       </div>
-    </div>
+    </Link>
   );
 }

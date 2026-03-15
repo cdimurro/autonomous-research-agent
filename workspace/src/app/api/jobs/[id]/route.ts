@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getJob } from "@/lib/backend";
+import { getJob, getJobLog } from "@/lib/backend";
 
 export async function GET(
   _request: NextRequest,
@@ -10,5 +10,6 @@ export async function GET(
   if (!job) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
-  return NextResponse.json({ job });
+  const log = await getJobLog(id);
+  return NextResponse.json({ job, log });
 }
