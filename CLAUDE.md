@@ -547,12 +547,13 @@ The least valuable batch types are:
 - memory-guided narrow-domain loops
 - **Battery Decision Brief** — first human-facing product artifact
 - **Battery review workflow** — minimal backend review states + CLI
+- **Development workspace** — internal UI for testing product surfaces (`workspace/`)
 
 ### Next
 - live PyBaMM sidecar validation (stability checkpoint with real .venv-pybamm)
 - battery evaluation matrix sweep on real infrastructure
 - DC-DC as domain 3
-- Battery Decision Brief rendering in a user-facing interface
+- Development workspace iteration and Project Zero migration
 
 ### Later
 - additional energy domains selectively
@@ -597,6 +598,7 @@ The least valuable batch types are:
 - Battery review workflow: `breakthrough_engine/battery_review.py`
 - Battery evaluation matrix: `breakthrough_engine/battery_eval_matrix.py`
 - Battery value report: `breakthrough_engine/battery_value_report.py`
+- Development Workspace: `workspace/` (Next.js 15 + TypeScript + Tailwind CSS)
 
 ---
 
@@ -626,9 +628,17 @@ The system produces two layers of output:
 - **Battery value report** — decision-grade assessment of whether sidecar
   and cathode families improve outcomes.
 
-Human-facing artifacts are designed to be renderable in a future UI but
-do not require one. They are structured JSON artifacts with both
-machine-readable fields and human-readable summaries.
+Human-facing artifacts are rendered in the development workspace (`workspace/`)
+and also available as structured JSON for external tools.
+
+### Development Workspace (`workspace/`)
+- **Internal development UI** — not the final production app
+- Mirrors future Project Zero product surfaces (Validate, Research, Due Diligence, Results)
+- Separates human-facing results (summary, recommendation, caveats) from technical diagnostics
+- Background job execution via Python CLI subprocess
+- AI assistant (DeepSeek v3.2) grounded in engine outputs, task-oriented
+- Start: `cd workspace && npm run dev`
+- See: `workspace/README.md`
 
 ---
 

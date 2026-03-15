@@ -29,6 +29,8 @@ __pycache__/
 workspace/node_modules/
 workspace/.next/
 workspace/out/
+workspace/next-env.d.ts
+workspace/.env.local
 
 # Project summary (generated, not source)
 project_summary.md
