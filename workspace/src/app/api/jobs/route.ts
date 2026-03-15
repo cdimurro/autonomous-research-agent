@@ -46,7 +46,14 @@ export async function POST(request: NextRequest) {
   }
 
   const type = jobType as JobType;
-  const domain = DOMAIN_MAP[type] ?? "general";
+
+  // Research/diligence can specify a domain in config
+  const configDomain = body.config?.domain as string | undefined;
+  const domain =
+    configDomain && (configDomain === "battery" || configDomain === "pv")
+      ? configDomain
+      : DOMAIN_MAP[type] ?? "general";
+
   const productArea = AREA_MAP[type] ?? "validate";
   const config = body.config ?? {};
 

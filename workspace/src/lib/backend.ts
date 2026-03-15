@@ -2,32 +2,92 @@
  * Backend integration layer.
  *
  * Reads from the filesystem (runtime/ directory) and spawns Python CLI
- * processes for job execution. This keeps the frontend thin — all source
- * of truth remains in the Python backend.
+ * processes for job execution. Research and diligence workflows use the
+ * DeepSeek API to generate structured briefs grounded in engine data.
+ *
+ * This keeps the frontend thin — all source of truth remains in the
+ * Python backend for science workflows.
  */
 
 import { readdir, readFile, stat, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { spawn } from "child_process";
-import type { Job, JobStatus, JobType, ProductArea } from "./types";
+import type {
+  Job,
+  JobType,
+  ProductArea,
+  ResearchBrief,
+  DiligenceBrief,
+  WorkspaceBrief,
+} from "./types";
 
 // Path to the repo root (workspace/ is one level deep)
 const REPO_ROOT = join(process.cwd(), "..");
+const ROOT_ENV_PATH = join(REPO_ROOT, ".env");
+
+/**
+ * Read a key from the repo root .env file.
+ * Falls back to process.env (which includes workspace/.env.local via Next.js).
+ */
+export function getEnvVar(key: string): string | undefined {
+  // Next.js .env.local takes priority
+  if (process.env[key]) return process.env[key];
+  // Fallback: read from repo root .env
+  if (existsSync(ROOT_ENV_PATH)) {
+    try {
+      const content = require("fs").readFileSync(ROOT_ENV_PATH, "utf-8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#")) {
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx > 0) {
+            const k = trimmed.slice(0, eqIdx).trim();
+            if (k === key) {
+              let val = trimmed.slice(eqIdx + 1).trim();
+              if (
+                (val.startsWith('"') && val.endsWith('"')) ||
+                (val.startsWith("'") && val.endsWith("'"))
+              ) {
+                val = val.slice(1, -1);
+              }
+              return val;
+            }
+          }
+        }
+      }
+    } catch {
+      // Parse failure
+    }
+  }
+  return undefined;
+}
 
 // Key directories
 export const RUNTIME_DIR = join(REPO_ROOT, "runtime");
 export const BRIEFS_DIR = join(RUNTIME_DIR, "battery_briefs");
 export const EXPORTS_DIR = join(RUNTIME_DIR, "battery_exports");
 export const EVAL_DIR = join(RUNTIME_DIR, "battery_eval");
+export const LOOP_DIR = join(RUNTIME_DIR, "battery_loop");
+export const PV_LOOP_DIR = join(RUNTIME_DIR, "pv_loop");
 export const JOBS_DIR = join(RUNTIME_DIR, "workspace_jobs");
+export const WORKSPACE_BRIEFS_DIR = join(RUNTIME_DIR, "workspace_briefs");
 const PYTHON = join(REPO_ROOT, ".venv", "bin", "python");
+
+// DeepSeek API
+const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
 // ── Job management ──────────────────────────────────────────────────────
 
 export async function ensureJobsDir(): Promise<void> {
   if (!existsSync(JOBS_DIR)) {
     await mkdir(JOBS_DIR, { recursive: true });
+  }
+}
+
+async function ensureWorkspaceBriefsDir(): Promise<void> {
+  if (!existsSync(WORKSPACE_BRIEFS_DIR)) {
+    await mkdir(WORKSPACE_BRIEFS_DIR, { recursive: true });
   }
 }
 
@@ -98,7 +158,7 @@ export async function listJobs(): Promise<Job[]> {
   return jobs;
 }
 
-// ── Job execution (spawn Python CLI) ────────────────────────────────────
+// ── Job execution (spawn Python CLI or AI workflow) ─────────────────────
 
 function buildCommand(job: Job): { args: string[]; env: NodeJS.ProcessEnv } {
   const env: NodeJS.ProcessEnv = {
@@ -158,6 +218,14 @@ export async function executeJob(jobId: string): Promise<void> {
   const job = await getJob(jobId);
   if (!job) return;
 
+  // Research and diligence jobs use AI workflow, not Python CLI
+  if (job.type === "research") {
+    return executeResearchJob(jobId, job);
+  }
+  if (job.type === "diligence") {
+    return executeDiligenceJob(jobId, job);
+  }
+
   await updateJob(jobId, {
     status: "running",
     started_at: new Date().toISOString(),
@@ -188,6 +256,14 @@ export async function executeJob(jobId: string): Promise<void> {
           status: "completed",
           completed_at: new Date().toISOString(),
         });
+        // Post-processing: generate decision brief from battery benchmark
+        if (job.type === "battery_benchmark") {
+          try {
+            await generateBriefFromBenchmark(job);
+          } catch {
+            // Non-critical: brief generation failure doesn't fail the job
+          }
+        }
       } else {
         await updateJob(jobId, {
           status: "failed",
@@ -218,22 +294,390 @@ export async function executeJob(jobId: string): Promise<void> {
   });
 }
 
+// ── Research job execution ──────────────────────────────────────────────
+
+async function executeResearchJob(jobId: string, job: Job): Promise<void> {
+  await updateJob(jobId, {
+    status: "running",
+    started_at: new Date().toISOString(),
+  });
+
+  const topic = (job.config.topic as string) || "general energy research";
+  const domain = (job.config.domain as string) || "general";
+
+  const apiKey =
+    getEnvVar("DEEPSEEK_API_KEY") || getEnvVar("DEEPSEEK_V3_API_KEY");
+  if (!apiKey) {
+    await updateJob(jobId, {
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error:
+        "AI service not configured. Set DEEPSEEK_API_KEY in workspace/.env.local",
+    });
+    return;
+  }
+
+  try {
+    // Gather grounding context from existing briefs
+    const context = await buildGroundingContext(domain);
+
+    const systemPrompt = `You are the Breakthrough Engine research analyst.
+You produce structured research briefs for energy technology topics.
+You are grounded in available engine data and never invent experimental results.
+
+RULES:
+- Base analysis on the provided context data when available.
+- If evidence is weak or unavailable, say so explicitly.
+- Generate 3-5 promising research directions with honest confidence levels.
+- Generate 1-3 rejected or unpromising directions with clear reasons.
+- Be specific about what makes each direction promising or not.
+- Recommend a concrete next action.
+- Rate overall evidence quality honestly.
+- Include caveats about limitations of the analysis.
+
+OUTPUT FORMAT: Respond with valid JSON matching this exact schema:
+{
+  "headline": "one-line summary of findings",
+  "summary": "2-3 sentence overview",
+  "promising_directions": [
+    {"title": "...", "description": "...", "confidence": "high|medium|low", "rationale": "..."}
+  ],
+  "rejected_directions": [
+    {"title": "...", "description": "...", "reason": "..."}
+  ],
+  "recommended_next": "specific next action",
+  "evidence_quality": "strong|moderate|weak|insufficient",
+  "caveats": ["caveat 1", "caveat 2"],
+  "grounding_sources": ["source description 1"]
+}
+
+Respond ONLY with the JSON object. No markdown, no code fences.`;
+
+    const userPrompt = `Research topic: ${topic}
+Domain focus: ${domain}
+
+${context}
+
+Generate a structured research brief for this topic. Be honest about confidence levels and evidence quality.`;
+
+    const res = await fetch(DEEPSEEK_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 4096,
+        temperature: 0.4,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`DeepSeek API error (${res.status}): ${errText.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content ?? "";
+    const parsed = parseJsonResponse(rawContent);
+
+    const briefId = `research_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const brief: ResearchBrief = {
+      id: briefId,
+      brief_type: "research",
+      created_at: new Date().toISOString(),
+      topic,
+      domain,
+      headline: parsed.headline || "Research analysis complete",
+      summary: parsed.summary || "",
+      promising_directions: parsed.promising_directions || [],
+      rejected_directions: parsed.rejected_directions || [],
+      recommended_next: parsed.recommended_next || "",
+      evidence_quality: parsed.evidence_quality || "insufficient",
+      caveats: parsed.caveats || [],
+      grounding_sources: parsed.grounding_sources || [],
+      raw_analysis: rawContent,
+    };
+
+    await ensureWorkspaceBriefsDir();
+    await writeFile(
+      join(WORKSPACE_BRIEFS_DIR, `brief_${briefId}.json`),
+      JSON.stringify(brief, null, 2) + "\n"
+    );
+
+    await updateJob(jobId, {
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      result_id: briefId,
+    });
+  } catch (err) {
+    await updateJob(jobId, {
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error: err instanceof Error ? err.message : "Research job failed",
+    });
+  }
+}
+
+// ── Diligence job execution ─────────────────────────────────────────────
+
+async function executeDiligenceJob(jobId: string, job: Job): Promise<void> {
+  await updateJob(jobId, {
+    status: "running",
+    started_at: new Date().toISOString(),
+  });
+
+  const subject = (job.config.subject as string) || "energy technology";
+  const focusAreas = (job.config.focus_areas as string[]) || [];
+  const additionalContext = (job.config.additional_context as string) || "";
+
+  const apiKey =
+    getEnvVar("DEEPSEEK_API_KEY") || getEnvVar("DEEPSEEK_V3_API_KEY");
+  if (!apiKey) {
+    await updateJob(jobId, {
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error:
+        "AI service not configured. Set DEEPSEEK_API_KEY in workspace/.env.local",
+    });
+    return;
+  }
+
+  try {
+    const context = await buildGroundingContext("general");
+
+    const systemPrompt = `You are the Breakthrough Engine due diligence analyst.
+You produce structured diligence briefs for energy technology assessments.
+You are grounded in available engine data and never invent experimental results.
+
+RULES:
+- If technical validation data exists in the context, reference it explicitly.
+- If market/competitive data is not available, state uncertainty clearly rather than guessing.
+- Be honest about what can and cannot be assessed with available information.
+- Identify strongest signals (positive, negative, or neutral) with supporting rationale.
+- Identify risks with severity ratings.
+- List open questions that need further investigation.
+- Provide an honest recommendation.
+- Include a confidence note explaining the basis and limitations of the assessment.
+
+OUTPUT FORMAT: Respond with valid JSON matching this exact schema:
+{
+  "headline": "one-line assessment summary",
+  "summary": "2-3 sentence overview",
+  "strongest_signals": [
+    {"title": "...", "description": "...", "signal_type": "positive|negative|neutral"}
+  ],
+  "risks": [
+    {"title": "...", "description": "...", "severity": "high|medium|low"}
+  ],
+  "open_questions": ["question 1", "question 2"],
+  "recommendation": "specific recommendation",
+  "confidence_note": "explanation of assessment confidence and limitations",
+  "caveats": ["caveat 1"],
+  "grounding_sources": ["source description 1"]
+}
+
+Respond ONLY with the JSON object. No markdown, no code fences.`;
+
+    const focusStr = focusAreas.length > 0 ? focusAreas.join(", ") : "general assessment";
+    const userPrompt = `Due diligence subject: ${subject}
+Focus areas: ${focusStr}
+${additionalContext ? `Additional context: ${additionalContext}` : ""}
+
+${context}
+
+Generate a structured diligence brief. Be honest about confidence levels and what cannot be assessed with available data.`;
+
+    const res = await fetch(DEEPSEEK_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 4096,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`DeepSeek API error (${res.status}): ${errText.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content ?? "";
+    const parsed = parseJsonResponse(rawContent);
+
+    const briefId = `diligence_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const brief: DiligenceBrief = {
+      id: briefId,
+      brief_type: "diligence",
+      created_at: new Date().toISOString(),
+      subject,
+      focus_areas: focusAreas,
+      headline: parsed.headline || "Diligence assessment complete",
+      summary: parsed.summary || "",
+      strongest_signals: parsed.strongest_signals || [],
+      risks: parsed.risks || [],
+      open_questions: parsed.open_questions || [],
+      recommendation: parsed.recommendation || "",
+      confidence_note: parsed.confidence_note || "",
+      caveats: parsed.caveats || [],
+      grounding_sources: parsed.grounding_sources || [],
+      raw_analysis: rawContent,
+    };
+
+    await ensureWorkspaceBriefsDir();
+    await writeFile(
+      join(WORKSPACE_BRIEFS_DIR, `brief_${briefId}.json`),
+      JSON.stringify(brief, null, 2) + "\n"
+    );
+
+    await updateJob(jobId, {
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      result_id: briefId,
+    });
+  } catch (err) {
+    await updateJob(jobId, {
+      status: "failed",
+      completed_at: new Date().toISOString(),
+      error: err instanceof Error ? err.message : "Diligence job failed",
+    });
+  }
+}
+
+// ── AI grounding context ────────────────────────────────────────────────
+
+async function buildGroundingContext(domain: string): Promise<string> {
+  const briefs = await listDecisionBriefs();
+  if (briefs.length === 0) {
+    return "AVAILABLE ENGINE DATA: No decision briefs or benchmark results available yet.";
+  }
+
+  const relevantBriefs = domain === "general"
+    ? briefs.slice(0, 5)
+    : briefs.filter((b) => {
+        const bt = b.brief_type ?? "decision";
+        if (bt === "decision") return domain === "battery" || domain === "pv";
+        return true;
+      }).slice(0, 5);
+
+  if (relevantBriefs.length === 0) {
+    return `AVAILABLE ENGINE DATA: No ${domain}-relevant results available.`;
+  }
+
+  const summaries = relevantBriefs.map((b) => {
+    return `- ${b.title || b.headline}: Score ${b.final_score}, Family: ${b.candidate_family}, Confidence: ${b.confidence_tier}, Caveats: ${(b.caveats as string[])?.join("; ") || "none"}`;
+  });
+
+  return `AVAILABLE ENGINE DATA (${briefs.length} total decision briefs, showing ${summaries.length} relevant):
+${summaries.join("\n")}`;
+}
+
+// ── JSON response parsing ───────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseJsonResponse(content: string): any {
+  // Try direct parse first
+  try {
+    return JSON.parse(content);
+  } catch {
+    // Try extracting JSON from markdown code fences
+    const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (fenceMatch) {
+      try {
+        return JSON.parse(fenceMatch[1]);
+      } catch {
+        // Fall through
+      }
+    }
+    // Try finding first { ... } block
+    const braceMatch = content.match(/\{[\s\S]*\}/);
+    if (braceMatch) {
+      try {
+        return JSON.parse(braceMatch[0]);
+      } catch {
+        // Fall through
+      }
+    }
+    return {};
+  }
+}
+
+// ── Post-job processing ─────────────────────────────────────────────────
+
+async function generateBriefFromBenchmark(job: Job): Promise<void> {
+  const seed = job.config.seed ?? 42;
+  const reportPath = join(LOOP_DIR, `battery_benchmark_${seed}.json`);
+  if (!existsSync(reportPath)) return;
+
+  // Call Python to generate and save the decision brief
+  const script = `
+import json, sys
+sys.path.insert(0, "${REPO_ROOT}")
+from breakthrough_engine.battery_decision_brief import generate_decision_brief, save_decision_brief
+with open("${reportPath.replace(/\\/g, "/")}") as f:
+    report = json.load(f)
+brief = generate_decision_brief(report)
+if brief:
+    path = save_decision_brief(brief)
+    print(f"Brief saved: {path}")
+else:
+    print("No candidate promoted — no brief generated")
+`;
+
+  return new Promise<void>((resolve) => {
+    const proc = spawn(PYTHON, ["-c", script], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, PYTHONPATH: REPO_ROOT },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    proc.on("close", () => resolve());
+    proc.on("error", () => resolve());
+  });
+}
+
 // ── Brief/artifact reading ──────────────────────────────────────────────
 
-export async function listBriefs(): Promise<Record<string, unknown>[]> {
-  if (!existsSync(BRIEFS_DIR)) return [];
-  const files = await readdir(BRIEFS_DIR);
+/** List decision briefs from battery_briefs/ and battery_exports/. */
+export async function listDecisionBriefs(): Promise<Record<string, unknown>[]> {
   const briefs: Record<string, unknown>[] = [];
-  for (const f of files) {
-    if (f.startsWith("brief_") && f.endsWith(".json")) {
-      try {
-        const data = await readFile(join(BRIEFS_DIR, f), "utf-8");
-        briefs.push(JSON.parse(data));
-      } catch {
-        // Skip malformed
+  const seen = new Set<string>();
+
+  for (const dir of [BRIEFS_DIR, EXPORTS_DIR]) {
+    if (!existsSync(dir)) continue;
+    const files = await readdir(dir);
+    for (const f of files) {
+      if (f.startsWith("brief_") && f.endsWith(".json") && !f.includes("review")) {
+        try {
+          const data = await readFile(join(dir, f), "utf-8");
+          const brief = JSON.parse(data);
+          const briefId = brief.id as string;
+          if (briefId && !seen.has(briefId)) {
+            seen.add(briefId);
+            // Tag with brief_type if missing
+            if (!brief.brief_type) brief.brief_type = "decision";
+            briefs.push(brief);
+          }
+        } catch {
+          // Skip malformed
+        }
       }
     }
   }
+
   briefs.sort((a, b) => {
     const ta = new Date(a.created_at as string).getTime();
     const tb = new Date(b.created_at as string).getTime();
@@ -242,12 +686,63 @@ export async function listBriefs(): Promise<Record<string, unknown>[]> {
   return briefs;
 }
 
+/** List research and diligence briefs from workspace_briefs/. */
+export async function listWorkspaceBriefs(): Promise<Record<string, unknown>[]> {
+  const briefs: Record<string, unknown>[] = [];
+  if (!existsSync(WORKSPACE_BRIEFS_DIR)) return briefs;
+
+  const files = await readdir(WORKSPACE_BRIEFS_DIR);
+  for (const f of files) {
+    if (f.startsWith("brief_") && f.endsWith(".json")) {
+      try {
+        const data = await readFile(join(WORKSPACE_BRIEFS_DIR, f), "utf-8");
+        briefs.push(JSON.parse(data));
+      } catch {
+        // Skip malformed
+      }
+    }
+  }
+
+  briefs.sort((a, b) => {
+    const ta = new Date(a.created_at as string).getTime();
+    const tb = new Date(b.created_at as string).getTime();
+    return tb - ta;
+  });
+  return briefs;
+}
+
+/** List all briefs across all types, sorted by creation date. */
+export async function listAllBriefs(): Promise<Record<string, unknown>[]> {
+  const [decision, workspace] = await Promise.all([
+    listDecisionBriefs(),
+    listWorkspaceBriefs(),
+  ]);
+  const all = [...decision, ...workspace];
+  all.sort((a, b) => {
+    const ta = new Date(a.created_at as string).getTime();
+    const tb = new Date(b.created_at as string).getTime();
+    return tb - ta;
+  });
+  return all;
+}
+
+/** Legacy alias for backward compatibility */
+export const listBriefs = listDecisionBriefs;
+
 export async function getBrief(
   briefId: string
 ): Promise<Record<string, unknown> | null> {
-  const path = join(BRIEFS_DIR, `brief_${briefId}.json`);
-  if (!existsSync(path)) return null;
-  return JSON.parse(await readFile(path, "utf-8"));
+  // Check battery briefs first
+  const batteryPath = join(BRIEFS_DIR, `brief_${briefId}.json`);
+  if (existsSync(batteryPath)) {
+    return JSON.parse(await readFile(batteryPath, "utf-8"));
+  }
+  // Check workspace briefs
+  const wsPath = join(WORKSPACE_BRIEFS_DIR, `brief_${briefId}.json`);
+  if (existsSync(wsPath)) {
+    return JSON.parse(await readFile(wsPath, "utf-8"));
+  }
+  return null;
 }
 
 export async function listArtifacts(): Promise<
@@ -260,7 +755,7 @@ export async function listArtifacts(): Promise<
     modified_at: string;
   }> = [];
 
-  const dirs = [BRIEFS_DIR, EXPORTS_DIR, EVAL_DIR];
+  const dirs = [BRIEFS_DIR, EXPORTS_DIR, EVAL_DIR, LOOP_DIR, PV_LOOP_DIR, WORKSPACE_BRIEFS_DIR];
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
     const files = await readdir(dir);

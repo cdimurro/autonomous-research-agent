@@ -60,6 +60,7 @@ export interface ScoreComponent {
 
 export interface DecisionBrief {
   id: string;
+  brief_type: "decision";
   created_at: string;
   title: string;
   headline: string;
@@ -90,11 +91,87 @@ export interface DecisionBrief {
   parameters: Record<string, unknown>;
 }
 
+// ── Research Brief ──────────────────────────────────────────────────────
+
+export type EvidenceQuality = "strong" | "moderate" | "weak" | "insufficient";
+
+export interface ResearchDirection {
+  title: string;
+  description: string;
+  confidence: "high" | "medium" | "low";
+  rationale: string;
+}
+
+export interface RejectedDirection {
+  title: string;
+  description: string;
+  reason: string;
+}
+
+export interface ResearchBrief {
+  id: string;
+  brief_type: "research";
+  created_at: string;
+  topic: string;
+  domain: string;
+  headline: string;
+  summary: string;
+  promising_directions: ResearchDirection[];
+  rejected_directions: RejectedDirection[];
+  recommended_next: string;
+  evidence_quality: EvidenceQuality;
+  caveats: string[];
+  grounding_sources: string[];
+  raw_analysis: string;
+}
+
+// ── Diligence Brief ─────────────────────────────────────────────────────
+
+export type SignalType = "positive" | "negative" | "neutral";
+export type Severity = "high" | "medium" | "low";
+
+export interface DiligenceSignal {
+  title: string;
+  description: string;
+  signal_type: SignalType;
+}
+
+export interface DiligenceRisk {
+  title: string;
+  description: string;
+  severity: Severity;
+}
+
+export interface DiligenceBrief {
+  id: string;
+  brief_type: "diligence";
+  created_at: string;
+  subject: string;
+  focus_areas: string[];
+  headline: string;
+  summary: string;
+  strongest_signals: DiligenceSignal[];
+  risks: DiligenceRisk[];
+  open_questions: string[];
+  recommendation: string;
+  confidence_note: string;
+  caveats: string[];
+  grounding_sources: string[];
+  raw_analysis: string;
+}
+
+// ── Unified brief type ──────────────────────────────────────────────────
+
+export type WorkspaceBrief = DecisionBrief | ResearchBrief | DiligenceBrief;
+export type BriefType = "decision" | "research" | "diligence";
+
 // ── Result (generic wrapper for any workflow output) ────────────────────
 
 export type ResultType =
   | "benchmark_report"
   | "decision_brief"
+  | "research_brief"
+  | "diligence_brief"
   | "value_report"
   | "eval_matrix"
   | "diagnostic";
@@ -118,7 +195,7 @@ export interface JobsResponse {
 }
 
 export interface BriefsResponse {
-  briefs: DecisionBrief[];
+  briefs: WorkspaceBrief[];
 }
 
 export interface ArtifactsResponse {

@@ -33,9 +33,59 @@ const QUICK_ACTIONS = [
   },
 ];
 
+function WorkspaceBriefPreview({ brief }: { brief: Record<string, unknown> }) {
+  const briefType = (brief.brief_type as string) || "decision";
+  const colors: Record<string, string> = {
+    decision: "var(--accent-blue)",
+    research: "var(--accent-purple)",
+    diligence: "var(--accent-amber)",
+  };
+  const labels: Record<string, string> = {
+    decision: "Decision Brief",
+    research: "Research Brief",
+    diligence: "Diligence Brief",
+  };
+  const links: Record<string, string> = {
+    decision: "/results",
+    research: "/research",
+    diligence: "/diligence",
+  };
+
+  return (
+    <Link
+      href={links[briefType] || "/results"}
+      className="block rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 hover:border-[var(--accent-blue)]/40 transition-colors"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span
+          className="text-[9px] px-1.5 py-0.5 rounded-full border"
+          style={{ color: colors[briefType], borderColor: colors[briefType] }}
+        >
+          {labels[briefType]}
+        </span>
+      </div>
+      <h3 className="text-sm font-medium text-[var(--text-primary)] leading-tight">
+        {(brief.title as string) || (brief.headline as string) || (brief.id as string)}
+      </h3>
+      <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">
+        {(brief.headline as string) || (brief.summary as string) || ""}
+      </p>
+      <p className="text-[10px] text-[var(--text-muted)] mt-1.5">
+        {new Date(brief.created_at as string).toLocaleDateString()}
+      </p>
+    </Link>
+  );
+}
+
 export default function HomePage() {
   const { jobs, loading } = useJobs();
-  const { briefs, loading: briefsLoading } = useBriefs();
+  const { briefs: decisionBriefs, loading: briefsLoading } = useBriefs("decision");
+  const { briefs: allBriefs } = useBriefs();
+
+  // Show decision briefs in dedicated cards, all others as previews
+  const nonDecisionBriefs = allBriefs.filter(
+    (b) => (b.brief_type as string) !== "decision" && b.brief_type
+  );
 
   return (
     <div className="p-8 max-w-5xl">
@@ -94,7 +144,7 @@ export default function HomePage() {
       </section>
 
       {/* Latest Decision Briefs */}
-      <section>
+      <section className="mb-10">
         <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
           Latest Decision Briefs
         </h2>
@@ -104,7 +154,7 @@ export default function HomePage() {
               Loading briefs...
             </p>
           </div>
-        ) : briefs.length === 0 ? (
+        ) : decisionBriefs.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
             <p className="text-sm text-[var(--text-muted)] text-center">
               No decision briefs yet. Run a validation to generate results.
@@ -112,23 +162,48 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {briefs.slice(0, 3).map((brief) => (
+            {decisionBriefs.slice(0, 3).map((brief) => (
               <DecisionBriefCard
                 key={brief.id as string}
                 brief={brief as Parameters<typeof DecisionBriefCard>[0]["brief"]}
               />
             ))}
-            {briefs.length > 3 && (
+            {decisionBriefs.length > 3 && (
               <Link
                 href="/results"
                 className="block text-center text-xs text-[var(--accent-blue)] hover:underline py-2"
               >
-                View all {briefs.length} briefs
+                View all {decisionBriefs.length} briefs
               </Link>
             )}
           </div>
         )}
       </section>
+
+      {/* Research & Diligence Briefs */}
+      {nonDecisionBriefs.length > 0 && (
+        <section>
+          <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+            Recent Research &amp; Diligence
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {nonDecisionBriefs.slice(0, 4).map((brief) => (
+              <WorkspaceBriefPreview
+                key={brief.id as string}
+                brief={brief}
+              />
+            ))}
+          </div>
+          {nonDecisionBriefs.length > 4 && (
+            <Link
+              href="/results"
+              className="block text-center text-xs text-[var(--accent-blue)] hover:underline py-2 mt-2"
+            >
+              View all results
+            </Link>
+          )}
+        </section>
+      )}
     </div>
   );
 }
