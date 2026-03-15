@@ -1,6 +1,6 @@
 # Battery ECM Domain — Hardened Benchmark
 
-**Status:** Benchmark domain — second proving ground after PV
+**Status:** Stable benchmark domain — regression-grade proving ground alongside PV
 
 ## What Battery Is
 

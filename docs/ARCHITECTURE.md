@@ -4,9 +4,9 @@
 
 ## What the Breakthrough Engine Is
 
-The Breakthrough Engine is a repeatable scientific optimization loop engine. It:
+The Breakthrough Engine is a benchmark-core scientific optimization loop platform. It:
 
-1. Takes a narrow scientific domain (e.g., PV I-V characterization)
+1. Takes a narrow scientific domain (e.g., PV I-V characterization, battery ECM)
 2. Proposes candidate hypotheses or design variations
 3. Runs fixed, comparable experiments against each candidate
 4. Computes explicit, inspectable metrics
@@ -14,7 +14,7 @@ The Breakthrough Engine is a repeatable scientific optimization loop engine. It:
 6. Persists all lessons (idea memory, experiment memory) for future runs
 7. Repeats — each loop building on accumulated knowledge
 
-The system is designed to be domain-agnostic at the contract layer but domain-specific at the pack layer.
+The system is designed to be domain-agnostic at the contract layer but domain-specific at the domain pack layer. Both PV and battery are now stable benchmark domains used as regression-grade proving grounds.
 
 ## Current Production Core
 
@@ -38,23 +38,26 @@ The system is designed to be domain-agnostic at the contract layer but domain-sp
 - Manual promotion with rollback guardrails
 - Current champion: `evidence_diversity_v1`
 
-## Domain Rollout Plan
+## Benchmark Domains
 
-The engine is being extended with narrow, measurable domain-specific optimization loops. Each domain gets a "domain pack" containing:
+The engine supports narrow, measurable domain-specific optimization loops called **benchmark domains**. Each domain gets a "domain pack" containing:
 
 - `DomainSpec` — what the domain is, what it measures
 - `MetricSpec` — explicit metric definitions with units and bounds
 - `ExperimentTemplate` — fixed, repeatable experiment configurations
 - Candidate generation logic specific to the domain
 - Scoring and hard-fail gates calibrated to the domain
+- Held-out realism check against reference devices
 
-### Rollout Order
+### Current Domains
 
 | Priority | Domain | Status | Why |
 |----------|--------|--------|-----|
 | 1 | **PV I-V Characterization** | **Stable (benchmark)** | Clear metrics (Voc, Isc, FF, efficiency), cheap simulation via pvlib, strong clean-energy relevance |
-| 2 | **Battery ECM + Cycle** | **Active** | Equivalent-circuit and cycle characterization — same loop pattern, energy-storage physics |
-| 3 | DC-DC Converter Optimization | Planned | Power electronics — different candidate space, same loop pattern |
+| 2 | **Battery ECM + Cycle** | **Stable (benchmark)** | Equivalent-circuit and cycle characterization — same loop pattern, energy-storage physics |
+| 3 | DC-DC Converter Optimization | Deferred | Power electronics — different candidate space, same loop pattern |
+
+Both PV and battery emit a **unified benchmark report** (version 3) with consistent structure. See `BENCHMARK_REPORT_REQUIRED_KEYS` in `domain_models.py` for the schema.
 
 ### What Is Intentionally Deferred
 
@@ -97,7 +100,7 @@ Domain Loops (additive, per-domain):
 PV Loop (benchmark domain):
   pvlib single-diode model → STC + sweep experiments → Pmax/FF/efficiency scoring
 
-Battery Loop (active domain):
+Battery Loop (benchmark domain):
   Thevenin ECM + capacity-fade model → charge/discharge + cycle aging + C-rate sweep
   → capacity retention / coulombic efficiency / resistance / fade scoring
 
@@ -121,13 +124,39 @@ Domain loops run as research programs alongside the existing clean-energy progra
 - NREL NSRDB — Solar irradiance data (requires `NREL_API_KEY` env var)
 - PVWatts — System performance estimation (requires `NREL_API_KEY` env var)
 
+## Unified Benchmark Report Contract
+
+All benchmark domains emit reports conforming to a shared schema (`BENCHMARK_REPORT_REQUIRED_KEYS`):
+
+```
+benchmark_version    — schema version (currently 3)
+benchmark_domain     — domain identifier (e.g. "pv_iv", "battery_ecm")
+seed                 — random seed for reproducibility
+n_candidates         — number of candidates generated
+promotion_threshold  — score threshold for promotion
+baseline_candidate   — baseline metrics (params + baseline_metrics)
+best_candidate       — best promoted candidate (title, score, metrics, family, score_components)
+robustness_profile   — stress/robustness evaluation of best candidate
+caveats              — decision-grade caveats
+promotion_decision   — "promoted" | "alternate_only" | "none"
+reference_comparison — held-out realism check against reference device
+candidate_breakdown  — per-candidate decisions, scores, and rejection reasons
+summary              — aggregate counts (promoted, rejected, hard_fail)
+```
+
+Domain-specific extensions (e.g. `stress_profile` for battery) are permitted alongside the required keys.
+
 ## Key Invariants
 
-1. One publication/promotion per run (preserved)
-2. Champion-only for production automation (preserved)
-3. All tests offline-safe (preserved)
-4. Existing graph-native retrieval path unchanged
-5. Domain experiments are fixed and comparable across runs
-6. All candidates scored against explicit physics-based metrics
-7. Hard-fail gates reject unphysical parameter combinations
-8. Each domain loop is self-contained: its own metrics, families, scoring, memory
+1. Max one promoted candidate per run
+2. Optional alternate under strict conditions (near-threshold, distinct rationale)
+3. Hard-fail gates required — reject unphysical parameter combinations
+4. Benchmark domains must remain offline-safe (no API keys required)
+5. Reference/realism checks required — held-out comparison against reference device
+6. Memory must influence future proposals — idea memory and experiment memory persist
+7. Champion-only for production automation (broad engine)
+8. All tests offline-safe
+9. Existing graph-native retrieval path unchanged
+10. Domain experiments are fixed and comparable across runs
+11. All candidates scored against explicit physics-based metrics
+12. Each domain loop is self-contained: its own metrics, families, scoring, memory

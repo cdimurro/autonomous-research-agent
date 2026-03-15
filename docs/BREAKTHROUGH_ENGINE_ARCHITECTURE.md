@@ -1,4 +1,8 @@
-# Breakthrough Engine - Architecture
+# Breakthrough Engine - Architecture (Legacy Reference)
+
+> **Note:** This document describes the broad-engine hypothesis pipeline architecture.
+> For the current architecture including benchmark domains (PV, battery), unified
+> contracts, and policy system, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Module Map
 
