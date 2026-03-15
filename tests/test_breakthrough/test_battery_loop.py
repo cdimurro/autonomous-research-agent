@@ -1,4 +1,4 @@
-"""Tests for Battery optimization loop (CC-BE-2413 through CC-BE-2415)."""
+"""Tests for Battery optimization loop (CC-BE-2413 through CC-BE-2420)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from breakthrough_engine.battery_domain import DEFAULT_CELL_PARAMS, run_experime
 from breakthrough_engine.battery_loop import (
     BATTERY_SCORE_WEIGHTS,
     CANDIDATE_FAMILIES,
+    COMMERCIAL_CELL_REFERENCES,
     PARAM_RANGES,
     PROPOSAL_TAG_EXPLORATORY,
     PROPOSAL_TAG_MEMORY,
@@ -81,21 +82,48 @@ class TestCrossParameterPlausibility:
         assert ok is True
 
     def test_low_r0_high_fade_rejected(self):
-        params = dict(DEFAULT_CELL_PARAMS, R0_mohm=10.0, fade_rate_per_cycle=0.004)
+        params = dict(DEFAULT_CELL_PARAMS, R0_mohm=10.0, fade_rate_per_cycle=0.003)
         ok, reasons = _check_cross_parameter_plausibility(params)
         assert ok is False
         assert any("R0" in r for r in reasons)
 
     def test_high_cap_low_efficiency_rejected(self):
-        params = dict(DEFAULT_CELL_PARAMS, capacity_ah=5.5, coulombic_eff=0.96)
+        params = dict(DEFAULT_CELL_PARAMS, capacity_ah=5.0, coulombic_eff=0.97)
         ok, reasons = _check_cross_parameter_plausibility(params)
         assert ok is False
 
     def test_reasonable_combinations_pass(self):
         # Low R0 with low fade is fine
-        params = dict(DEFAULT_CELL_PARAMS, R0_mohm=12.0, fade_rate_per_cycle=0.0002)
+        params = dict(DEFAULT_CELL_PARAMS, R0_mohm=12.0, fade_rate_per_cycle=0.0002, R1_mohm=10.0)
         ok, _ = _check_cross_parameter_plausibility(params)
         assert ok is True
+
+    def test_low_r0_high_r1_rejected(self):
+        params = dict(DEFAULT_CELL_PARAMS, R0_mohm=12.0, R1_mohm=40.0)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert ok is False
+        assert any("R1" in r for r in reasons)
+
+    def test_high_cap_low_r0_rejected(self):
+        params = dict(DEFAULT_CELL_PARAMS, capacity_ah=5.0, R0_mohm=12.0)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert ok is False
+        assert any("capacity" in r.lower() or "R0" in r for r in reasons)
+
+    def test_high_fade_high_ce_rejected(self):
+        params = dict(DEFAULT_CELL_PARAMS, fade_rate_per_cycle=0.003, coulombic_eff=0.999)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert ok is False
+        assert any("fade" in r.lower() for r in reasons)
+
+    def test_all_commercial_references_pass(self):
+        for ref in COMMERCIAL_CELL_REFERENCES:
+            params = dict(DEFAULT_CELL_PARAMS)
+            for k in ("capacity_ah", "R0_mohm", "R1_mohm", "coulombic_eff", "fade_rate_per_cycle"):
+                if k in ref:
+                    params[k] = ref[k]
+            ok, reasons = _check_cross_parameter_plausibility(params)
+            assert ok is True, f"{ref['name']} failed: {reasons}"
 
 
 class TestMemoryGuidedGeneration:
@@ -166,6 +194,36 @@ class TestCandidateFamilies:
             assert f["perturbations"]
             for param in f["perturbations"]:
                 assert param in PARAM_RANGES or param in DEFAULT_CELL_PARAMS
+
+    def test_all_families_have_tradeoff_risk(self):
+        for f in CANDIDATE_FAMILIES:
+            assert "tradeoff_risk" in f, f"{f['family']} missing tradeoff_risk"
+            assert len(f["tradeoff_risk"]) > 10
+
+    def test_perturbation_bounds_within_param_ranges(self):
+        """Perturbation deltas should not push default params outside PARAM_RANGES."""
+        for f in CANDIDATE_FAMILIES:
+            for param, (delta_lo, delta_hi) in f["perturbations"].items():
+                if param in PARAM_RANGES:
+                    base_val = DEFAULT_CELL_PARAMS.get(param, 0)
+                    range_lo, range_hi = PARAM_RANGES[param]
+                    # At least one end of the delta range should keep param in bounds
+                    val_lo = base_val + delta_lo
+                    val_hi = base_val + delta_hi
+                    assert val_hi >= range_lo, (
+                        f"{f['family']}.{param}: max perturbation {val_hi} below range min {range_lo}"
+                    )
+                    assert val_lo <= range_hi, (
+                        f"{f['family']}.{param}: min perturbation {val_lo} above range max {range_hi}"
+                    )
+
+    def test_commercial_references_data(self):
+        assert len(COMMERCIAL_CELL_REFERENCES) >= 3
+        for ref in COMMERCIAL_CELL_REFERENCES:
+            assert "name" in ref
+            assert "capacity_ah" in ref
+            assert "R0_mohm" in ref
+            assert "notes" in ref
 
 
 # ---------------------------------------------------------------------------

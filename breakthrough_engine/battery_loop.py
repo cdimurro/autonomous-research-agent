@@ -43,94 +43,193 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Bounded parameter ranges for Li-ion NMC cells.
-# Sources: typical 18650/21700 cell datasheet ranges.
-#   capacity_ah:          1.5–6.0 Ah   (18650: 2–3.5, 21700: 4–5)
-#   R0_mohm:              10–100 mOhm  (fresh: 15–40, aged: 50–100)
-#   R1_mohm:              5–80 mOhm    (fresh: 10–25, aged: 30–80)
-#   C1_F:                 100–2000 F   (typical: 300–800)
-#   coulombic_eff:        0.95–0.999   (good cell: 0.995+)
-#   fade_rate_per_cycle:  0.0001–0.005 (0.01–0.5% per cycle)
+# Tightened to realistic commercial-cell values based on published
+# 18650/21700 datasheet ranges (Sony VTC6, Samsung 30Q, LG MJ1, Panasonic
+# NCR18650B, Samsung 50E 21700).
+#
+# Rationale for each bound:
+#   capacity_ah:          2.0–5.5 Ah   (18650: 2.0–3.5, 21700: 4.0–5.0)
+#                         Floor raised from 1.5: sub-2Ah NMC cells are legacy
+#   R0_mohm:              12–80 mOhm   (fresh: 15–40, aged: 50–80)
+#                         Floor raised from 10: sub-12 impossible without
+#                         tab-less design; cap lowered from 100: >80 is EOL
+#   R1_mohm:              5–50 mOhm    (fresh: 8–20, aged: 25–50)
+#                         Cap lowered from 80: >50 is extreme degradation
+#   C1_F:                 200–1500 F   (typical: 300–800)
+#                         Tightened both ends for realistic RC dynamics
+#   coulombic_eff:        0.97–0.9995  (good cell: 0.995+, best: 0.9995)
+#                         Floor raised from 0.95: sub-97% indicates cell defect
+#                         Ceiling raised to 0.9995: best-in-class NMC
+#   fade_rate_per_cycle:  0.0001–0.003 (0.01–0.3% per cycle)
+#                         Cap lowered from 0.005: >0.3%/cycle is catastrophic
 PARAM_RANGES = {
-    "capacity_ah": (1.5, 6.0),
-    "R0_mohm": (10.0, 100.0),
-    "R1_mohm": (5.0, 80.0),
-    "C1_F": (100.0, 2000.0),
-    "coulombic_eff": (0.95, 0.999),
-    "fade_rate_per_cycle": (0.0001, 0.005),
+    "capacity_ah": (2.0, 5.5),
+    "R0_mohm": (12.0, 80.0),
+    "R1_mohm": (5.0, 50.0),
+    "C1_F": (200.0, 1500.0),
+    "coulombic_eff": (0.97, 0.9995),
+    "fade_rate_per_cycle": (0.0001, 0.003),
 }
 
+# Commercial cell reference data for grounding candidate generation.
+# Each entry represents a real published cell specification.
+# Used as anchors for plausibility — candidates should be interpretable
+# relative to these references.
+COMMERCIAL_CELL_REFERENCES = [
+    {
+        "name": "Sony_VTC6_18650",
+        "capacity_ah": 3.0, "R0_mohm": 30.0, "R1_mohm": 15.0,
+        "coulombic_eff": 0.995, "fade_rate_per_cycle": 0.0005,
+        "notes": "Baseline NMC 18650, balanced performance",
+    },
+    {
+        "name": "Samsung_50E_21700",
+        "capacity_ah": 5.0, "R0_mohm": 35.0, "R1_mohm": 18.0,
+        "coulombic_eff": 0.996, "fade_rate_per_cycle": 0.0004,
+        "notes": "High-capacity 21700, moderate resistance",
+    },
+    {
+        "name": "Samsung_30Q_18650",
+        "capacity_ah": 3.0, "R0_mohm": 22.0, "R1_mohm": 12.0,
+        "coulombic_eff": 0.997, "fade_rate_per_cycle": 0.0003,
+        "notes": "Low-resistance NMC 18650, good rate capability",
+    },
+    {
+        "name": "LG_MJ1_18650",
+        "capacity_ah": 3.5, "R0_mohm": 40.0, "R1_mohm": 20.0,
+        "coulombic_eff": 0.994, "fade_rate_per_cycle": 0.0006,
+        "notes": "High-capacity 18650, trades resistance for capacity",
+    },
+]
+
 # Candidate families with physically-grounded perturbation bounds.
+# Each family represents a specific cell-design improvement strategy.
+# Perturbation magnitudes are bounded to what is achievable through
+# realistic manufacturing or chemistry changes.
 CANDIDATE_FAMILIES = [
     {
         "family": "reduced_resistance",
-        "rationale": "Lower R0/R1 via improved electrolyte or electrode contacts "
-                     "reduces ohmic losses, improving energy efficiency and rate capability",
-        "perturbations": {"R0_mohm": (-12.0, -3.0), "R1_mohm": (-8.0, -2.0)},
+        "rationale": "Lower R0/R1 via improved electrolyte conductivity or "
+                     "tab-less electrode design reduces ohmic losses. "
+                     "Bounded: 3–10 mOhm R0 reduction is achievable via "
+                     "electrolyte optimization (e.g., LiPF6 concentration tuning)",
+        "perturbations": {"R0_mohm": (-10.0, -3.0), "R1_mohm": (-6.0, -1.5)},
+        "tradeoff_risk": "Lower R0 may indicate thinner separator → safety concern",
     },
     {
         "family": "improved_capacity",
-        "rationale": "Higher capacity via thicker electrodes or better active material "
-                     "utilization increases energy density",
-        "perturbations": {"capacity_ah": (0.1, 0.5)},
+        "rationale": "Higher capacity via silicon-graphite blended anode or "
+                     "higher Ni-content cathode increases energy density. "
+                     "Bounded: 0.1–0.4 Ah gain is realistic for incremental "
+                     "active material improvements",
+        "perturbations": {"capacity_ah": (0.1, 0.4)},
+        "tradeoff_risk": "Higher capacity often trades cycle life (higher Ni = faster fade)",
     },
     {
         "family": "reduced_fade",
-        "rationale": "Lower fade rate via improved SEI stability or electrolyte "
-                     "additives extends cycle life",
-        "perturbations": {"fade_rate_per_cycle": (-0.0003, -0.0001)},
+        "rationale": "Lower fade rate via electrolyte additives (FEC, VC) or "
+                     "atomic layer deposition coatings improves SEI stability. "
+                     "Bounded: 0.01–0.02%/cycle reduction is realistic",
+        "perturbations": {"fade_rate_per_cycle": (-0.0002, -0.0001)},
+        "tradeoff_risk": "Additives may increase impedance or reduce rate capability",
     },
     {
         "family": "improved_efficiency",
-        "rationale": "Higher coulombic efficiency via reduced side reactions "
-                     "improves round-trip energy throughput",
-        "perturbations": {"coulombic_eff": (0.001, 0.004)},
+        "rationale": "Higher coulombic efficiency via reduced parasitic reactions "
+                     "(improved electrolyte purity, surface coatings). "
+                     "Bounded: 0.1–0.3% improvement is realistic",
+        "perturbations": {"coulombic_eff": (0.001, 0.003)},
+        "tradeoff_risk": "Marginal CE gains may not survive high-temperature operation",
     },
     {
         "family": "combined_moderate",
         "rationale": "Co-optimized resistance reduction and fade improvement "
-                     "reflecting realistic multi-step cell design improvement",
-        "perturbations": {"R0_mohm": (-8.0, -2.0), "fade_rate_per_cycle": (-0.0002, -0.00005)},
+                     "reflecting a multi-lever cell redesign (electrolyte + coating). "
+                     "Each lever kept conservative: R0 -2 to -6 mOhm, fade -0.005 to -0.015%/cycle",
+        "perturbations": {"R0_mohm": (-6.0, -2.0), "fade_rate_per_cycle": (-0.00015, -0.00005)},
+        "tradeoff_risk": "Multi-lever changes harder to attribute; interaction effects possible",
     },
     {
         "family": "bounded_aggressive",
-        "rationale": "Near-limit optimization across R0, capacity, and fade — "
-                     "physically possible but represents best-in-class manufacturing",
+        "rationale": "Near-best-in-class across R0, capacity, and fade — "
+                     "represents what the best commercial cells achieve. "
+                     "Bounded: Samsung 30Q-class resistance + modest capacity gain + good fade",
         "perturbations": {
-            "R0_mohm": (-15.0, -8.0),
-            "capacity_ah": (0.2, 0.8),
-            "fade_rate_per_cycle": (-0.0003, -0.0001),
+            "R0_mohm": (-12.0, -6.0),
+            "capacity_ah": (0.15, 0.5),
+            "fade_rate_per_cycle": (-0.0002, -0.0001),
         },
+        "tradeoff_risk": "Simultaneously achieving all three is rare; likely requires "
+                         "advanced manufacturing (tab-less + high-Ni + premium electrolyte)",
     },
 ]
 
 
 def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
-    """Reject unrealistic parameter *combinations* at generation time."""
+    """Reject unrealistic parameter *combinations* at generation time.
+
+    These checks encode correlations between cell parameters that reflect
+    real Li-ion cell physics. A candidate that violates these constraints
+    is not just unlikely — it is physically contradictory.
+    """
     reasons: list[str] = []
 
-    # Very low resistance with very high fade is contradictory:
-    # low-resistance cells typically have stable interfaces
     r0 = params.get("R0_mohm", 30.0)
+    r1 = params.get("R1_mohm", 15.0)
     fade = params.get("fade_rate_per_cycle", 0.0005)
-    if r0 < 15.0 and fade > 0.003:
+    cap = params.get("capacity_ah", 3.0)
+    coul = params.get("coulombic_eff", 0.995)
+
+    # 1. Low resistance + high fade is contradictory:
+    #    low-resistance cells have stable, well-formed interfaces that
+    #    don't degrade quickly.
+    if r0 < 15.0 and fade > 0.002:
         reasons.append(
             f"Contradictory: low R0 ({r0:.1f} mOhm) with high fade ({fade*100:.2f}%/cycle) — "
             "low-resistance cells typically have stable interfaces"
         )
 
-    # Very high capacity with very low coulombic efficiency is contradictory:
-    # high-capacity cells need high efficiency to avoid thermal runaway
-    cap = params.get("capacity_ah", 3.0)
-    coul = params.get("coulombic_eff", 0.995)
-    if cap > 5.0 and coul < 0.97:
+    # 2. High capacity + low coulombic efficiency is contradictory:
+    #    high-capacity cells need high CE to avoid thermal runaway from
+    #    parasitic heat generation.
+    if cap > 4.5 and coul < 0.98:
         reasons.append(
             f"Contradictory: high capacity ({cap:.1f} Ah) with low coulombic efficiency "
             f"({coul*100:.1f}%) — high-capacity cells need high efficiency for thermal safety"
         )
 
-    # Very high capacity with very low resistance is aspirational but
-    # not contradictory — thick electrodes can still have good contacts
-    # (so we don't reject this combination)
+    # 3. Very low R0 with very high R1 is contradictory:
+    #    If ohmic resistance is very low (good contacts), polarization
+    #    resistance should not be extremely high (implies poor ion transport,
+    #    which would also raise ohmic resistance).
+    if r0 < 15.0 and r1 > 35.0:
+        reasons.append(
+            f"Contradictory: very low R0 ({r0:.1f} mOhm) with high R1 ({r1:.1f} mOhm) — "
+            "good ohmic contacts (low R0) imply reasonable ion transport (moderate R1)"
+        )
+
+    # 4. High capacity + low fade + low resistance is aspirational:
+    #    This combination is rare but not contradictory — represents
+    #    best-in-class manufacturing. We allow it but the bounded_aggressive
+    #    family's tradeoff_risk documents the rarity.
+
+    # 5. High capacity tends to increase R0 (thicker electrodes):
+    #    A 5+ Ah cell with sub-15 mOhm R0 is extremely rare outside
+    #    tab-less designs.
+    if cap > 4.5 and r0 < 15.0:
+        reasons.append(
+            f"Unlikely: high capacity ({cap:.1f} Ah) with very low R0 ({r0:.1f} mOhm) — "
+            "thick electrodes for high capacity increase ionic path length and R0"
+        )
+
+    # 6. Very high fade with high coulombic efficiency is contradictory:
+    #    Rapid capacity fade usually comes with increased side reactions
+    #    (lower CE), not perfect CE.
+    if fade > 0.002 and coul > 0.998:
+        reasons.append(
+            f"Contradictory: high fade ({fade*100:.2f}%/cycle) with near-perfect CE "
+            f"({coul*100:.2f}%) — rapid fade implies side reactions that lower CE"
+        )
 
     return len(reasons) == 0, reasons
 
