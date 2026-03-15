@@ -514,6 +514,50 @@ class TestRejectionReasons:
         reason = generate_rejection_reason(candidate, evaluation, 0.55, profile)
         assert "stress" in reason.lower()
 
+    def test_near_miss_rejection_includes_diagnostics(self):
+        """Near-miss candidates should get detailed diagnostic reasons."""
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={"robustness": 0.2, "rate_capability": 0.8,
+                              "stress_resilience": 0.6, "plausibility_penalty": 1.0},
+            final_score=0.52,
+        )
+        reason = generate_rejection_reason(candidate, evaluation, 0.55)
+        assert "strongest" in reason
+        assert "below 0.3" in reason
+
+    def test_resistance_growth_rejection(self):
+        """Candidates with high resistance growth should be flagged."""
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={}, final_score=0.50,
+        )
+        profile = {"worst_stress_retention": 95.0, "resistance_growth_pct": 8.0}
+        reason = generate_rejection_reason(candidate, evaluation, 0.55, profile)
+        assert "resistance growth" in reason.lower()
+
+    def test_poor_fast_charge_durability_rejection(self):
+        """Candidates with poor 3C retention should be flagged."""
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult
+        candidate = CandidateSpec(
+            domain_name="battery_ecm", title="test", parameters={},
+        )
+        evaluation = EvaluationResult(
+            candidate_id="test", domain_name="battery_ecm",
+            score_components={}, final_score=0.50,
+        )
+        profile = {"worst_stress_retention": 95.0, "repeated_fast_charge_retention": 88.0}
+        reason = generate_rejection_reason(candidate, evaluation, 0.55, profile)
+        assert "fast-charge" in reason.lower()
+
 
 # ---------------------------------------------------------------------------
 # CC-BE-2414: Full loop tests
@@ -571,6 +615,26 @@ class TestBatteryLoop:
         loop.run(run_id="isolation_test")
         pv_candidates = db_repo.list_domain_candidates("pv_iv")
         assert len(pv_candidates) == 0
+
+    def test_regime_specific_candidate_rejected(self, db_repo):
+        """Candidates with extreme component imbalance should be rejected
+        even if total score exceeds threshold."""
+        from breakthrough_engine.domain_models import EvaluationResult
+        # This is tested indirectly — a candidate with max_component > 0.85
+        # and min_component < 0.15 should be rejected by regime gate.
+        loop = BatteryOptimizationLoop(db_repo, n_candidates=6, seed=42)
+        result = loop.run(run_id="regime_test")
+        for cr in result.candidates:
+            if cr.decision.value == "promoted":
+                comps = cr.evaluation.score_components or {}
+                comp_vals = [v for k, v in comps.items() if k != "plausibility_penalty"]
+                if comp_vals:
+                    # Promoted candidates should not be regime-specific
+                    max_c = max(comp_vals)
+                    min_c = min(comp_vals)
+                    assert not (max_c > 0.85 and min_c < 0.15), (
+                        f"Regime-specific candidate promoted: max={max_c:.2f} min={min_c:.2f}"
+                    )
 
     def test_high_threshold_rejects_all(self, db_repo):
         loop = BatteryOptimizationLoop(db_repo, n_candidates=3, seed=42, promotion_threshold=0.99)

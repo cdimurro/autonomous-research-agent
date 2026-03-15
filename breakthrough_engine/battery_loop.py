@@ -751,8 +751,29 @@ def score_battery_candidate(
                 f"Worst-case stress retention {wsr:.1f}% below 80% — "
                 "candidate is fragile under realistic operating conditions"
             )
+        # Resistance growth hard-fail: >20% impedance growth under
+        # fast-charge stress indicates rapid electrode/SEI degradation
+        if r_growth > 20.0:
+            hard_fail = True
+            hard_fail_reasons.append(
+                f"Resistance growth {r_growth:.1f}% under fast-charge stress "
+                "exceeds 20% limit — indicates accelerated impedance rise"
+            )
     else:
         components["stress_resilience"] = 0.5
+
+    # --- Rate-tradeoff collapse detection ---
+    # If rate capability is poor AND resistance improvement is the main gain,
+    # the candidate is not useful for fast-charge applications
+    if (robustness_profile and "crate_sensitivity" in robustness_profile
+            and robustness_profile["crate_sensitivity"] > 0.25):
+        r_imp = components.get("resistance_improvement", 0)
+        rate_cap = components.get("rate_capability", 0.5)
+        if r_imp > 0.7 and rate_cap < 0.3:
+            caveats.append(
+                "Rate-tradeoff collapse: resistance improvement does not translate "
+                f"to rate capability (C-rate sensitivity {robustness_profile['crate_sensitivity']:.1%})"
+            )
 
     # --- Plausibility penalty ---
     ok, reasons = check_metrics_plausibility(candidate_metrics)
@@ -848,6 +869,21 @@ def generate_candidate_caveats(
                 f"Stress-sensitive: worst retention under stress ({wsr:.1f}%) vs "
                 f"standard aging ({standard_ret:.1f}%) — gains may be regime-specific"
             )
+        # Repeated fast-charge check: sustained degradation trend
+        rfc_ret = robustness_profile.get("repeated_fast_charge_retention", 100)
+        fc_ret_2c = 100.0 - robustness_profile.get("fast_charge_penalty_pct", 0) * 0.5
+        if rfc_ret < 95.0 and rfc_ret < standard_ret - 2.0:
+            caveats.append(
+                f"Sustained fast-charge degradation: 3C retention ({rfc_ret:.1f}%) "
+                f"below standard ({standard_ret:.1f}%) — fast-charge durability concern"
+            )
+        # Resistance growth warning
+        r_growth = robustness_profile.get("resistance_growth_pct", 0)
+        if r_growth > 3.0:
+            caveats.append(
+                f"Impedance growth: {r_growth:.1f}% resistance increase after "
+                "fast-charge stress — may limit fast-charge cycle life"
+            )
 
     # 4. Degradation warnings
     base_cap = baseline_metrics.get("discharge_capacity", 0)
@@ -875,7 +911,11 @@ def generate_rejection_reason(
     promotion_threshold: float,
     robustness_profile: Optional[dict] = None,
 ) -> str:
-    """Generate an explicit rejection reason for a near-miss or rejected candidate."""
+    """Generate an explicit rejection reason for a near-miss or rejected candidate.
+
+    Near-miss candidates (within ALTERNATE_MARGIN of threshold) get more detailed
+    diagnostics explaining what would need to improve for promotion.
+    """
     score = evaluation.final_score
     gap = promotion_threshold - score
 
@@ -883,16 +923,31 @@ def generate_rejection_reason(
         return f"Hard fail: {'; '.join(evaluation.hard_fail_reasons)}"
 
     components = evaluation.score_components or {}
+    is_near_miss = gap < ALTERNATE_MARGIN
+
     parts = [f"Score {score:.4f} below threshold {promotion_threshold:.2f} (gap: {gap:.4f})"]
 
     if components:
         weakest = min(components, key=lambda k: components[k])
-        parts.append(f"weakest component: {weakest} ({components[weakest]:.2f})")
+        strongest = max(components, key=lambda k: components[k])
+        parts.append(f"weakest: {weakest} ({components[weakest]:.2f})")
+        if is_near_miss:
+            # Near-miss: explain what needs to improve
+            parts.append(f"strongest: {strongest} ({components[strongest]:.2f})")
+            below_half = [k for k, v in components.items() if v < 0.3]
+            if below_half:
+                parts.append(f"components below 0.3: {', '.join(below_half)}")
 
     if robustness_profile:
         wsr = robustness_profile.get("worst_stress_retention", 100)
         if wsr < 90:
             parts.append(f"stress-fragile (worst retention {wsr:.1f}%)")
+        r_growth = robustness_profile.get("resistance_growth_pct", 0)
+        if r_growth > 5.0:
+            parts.append(f"resistance growth {r_growth:.1f}% under stress")
+        rfc_ret = robustness_profile.get("repeated_fast_charge_retention", 100)
+        if rfc_ret < 92:
+            parts.append(f"poor fast-charge durability ({rfc_ret:.1f}% at 3C)")
 
     return "; ".join(parts)
 
@@ -1032,8 +1087,20 @@ class BatteryOptimizationLoop:
             passes_threshold = r.evaluation.final_score >= self.promotion_threshold
             # Stress gate: stress_resilience must be at least 0.4 to promote
             stress_ok = r.evaluation.score_components.get("stress_resilience", 1.0) >= 0.4
+            # Regime-specificity gate: if gains are concentrated in a single
+            # component and the weakest component is below 0.2, the candidate
+            # is regime-specific (only works in one operating condition)
+            components = r.evaluation.score_components or {}
+            regime_ok = True
+            if components:
+                comp_vals = [v for k, v in components.items() if k != "plausibility_penalty"]
+                if comp_vals:
+                    max_c = max(comp_vals)
+                    min_c = min(comp_vals)
+                    if max_c > 0.85 and min_c < 0.15:
+                        regime_ok = False
 
-            if passes_threshold and stress_ok:
+            if passes_threshold and stress_ok and regime_ok:
                 if best is None:
                     best = r
                     r.decision = PromotionDecision.PROMOTED
@@ -1048,7 +1115,7 @@ class BatteryOptimizationLoop:
                 elif (
                     alternate is None
                     and r.evaluation.final_score >= self.promotion_threshold - ALTERNATE_MARGIN
-                    and r.candidate.rationale != best.candidate.rationale
+                    and r.candidate.family != best.candidate.family
                 ):
                     alternate = r
                     r.decision = PromotionDecision.DEFERRED
@@ -1076,6 +1143,19 @@ class BatteryOptimizationLoop:
                     f"Score {r.evaluation.final_score:.4f} above threshold but "
                     f"stress_resilience {stress_score:.2f} below 0.40 minimum — "
                     "candidate is fragile under fast-charge or thermal stress"
+                )
+                self.repo.save_domain_candidate(r.candidate)
+            elif passes_threshold and not regime_ok:
+                # Above threshold but regime-specific — reject
+                r.decision = PromotionDecision.REJECTED
+                r.candidate.status = CandidateStatus.REJECTED
+                weakest = min(components, key=lambda k: components[k]) if components else "unknown"
+                strongest = max(components, key=lambda k: components[k]) if components else "unknown"
+                r.candidate.rejection_reason = (
+                    f"Score {r.evaluation.final_score:.4f} above threshold but "
+                    f"regime-specific: {strongest} ({components.get(strongest, 0):.2f}) "
+                    f"vs {weakest} ({components.get(weakest, 0):.2f}) — "
+                    "gains disappear outside one operating regime"
                 )
                 self.repo.save_domain_candidate(r.candidate)
 
