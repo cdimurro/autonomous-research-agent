@@ -151,6 +151,8 @@ class TestExperimentTemplates:
         assert "crate_sweep" in EXPERIMENT_TEMPLATES
         assert "pulse_resistance" in EXPERIMENT_TEMPLATES
         assert "thermal_sensitivity" in EXPERIMENT_TEMPLATES
+        assert "fast_charge_stress" in EXPERIMENT_TEMPLATES
+        assert "thermal_stress_aging" in EXPERIMENT_TEMPLATES
 
     def test_baseline_cycle(self):
         result = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
@@ -186,6 +188,32 @@ class TestExperimentTemplates:
         assert result.metrics["capacity_thermal_sensitivity"] >= 0
         assert result.metrics["resistance_thermal_sensitivity"] >= 0
         assert len(result.raw_data["cycle_results"]) == 4
+
+    def test_fast_charge_stress(self):
+        result = run_experiment("fast_charge_stress", DEFAULT_CELL_PARAMS)
+        assert result.success is True
+        assert result.metrics["capacity_retention"] > 0
+        assert result.metrics["capacity_retention"] <= 100.0
+        assert result.metrics["stress_fade_rate"] >= 0
+        assert result.metrics["n_cycles_completed"] == 20
+        assert result.metrics["fast_charge_c_rate"] == 2.0
+        assert "stress_penalty_pct" in result.metrics
+
+    def test_thermal_stress_aging(self):
+        result = run_experiment("thermal_stress_aging", DEFAULT_CELL_PARAMS)
+        assert result.success is True
+        assert result.metrics["capacity_retention"] > 0
+        assert result.metrics["capacity_retention"] <= 100.0
+        assert result.metrics["stress_fade_rate"] >= 0
+        assert result.metrics["n_cycles_completed"] == 20
+        assert result.metrics["thermal_stress_temperature"] == 45.0
+        assert "stress_penalty_pct" in result.metrics
+
+    def test_stress_templates_repeatable(self):
+        r1 = run_experiment("fast_charge_stress", DEFAULT_CELL_PARAMS)
+        r2 = run_experiment("fast_charge_stress", DEFAULT_CELL_PARAMS)
+        assert r1.metrics["capacity_retention"] == r2.metrics["capacity_retention"]
+        assert r1.metrics["stress_fade_rate"] == r2.metrics["stress_fade_rate"]
 
     def test_unknown_template_raises(self):
         with pytest.raises(ValueError, match="Unknown experiment template"):

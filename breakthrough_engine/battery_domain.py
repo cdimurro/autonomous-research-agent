@@ -268,6 +268,20 @@ EXPERIMENT_TEMPLATES = {
         parameters={"temperatures": [10.0, 25.0, 40.0, 55.0], "c_rate": 1.0},
         expected_duration_seconds=5.0,
     ),
+    "fast_charge_stress": ExperimentTemplate(
+        domain_name="battery_ecm",
+        name="fast_charge_stress",
+        description="20-cycle aging at 2C charge/discharge, measuring capacity fade under fast-charge stress",
+        parameters={"c_rate": 2.0, "temperature": 25.0, "n_cycles": 20},
+        expected_duration_seconds=8.0,
+    ),
+    "thermal_stress_aging": ExperimentTemplate(
+        domain_name="battery_ecm",
+        name="thermal_stress_aging",
+        description="20-cycle aging at 1C at 45C, measuring accelerated thermal degradation",
+        parameters={"c_rate": 1.0, "temperature": 45.0, "n_cycles": 20},
+        expected_duration_seconds=8.0,
+    ),
 }
 
 
@@ -427,6 +441,70 @@ def run_experiment(
                 "capacity_thermal_sensitivity": round(cap_sensitivity, 4),
                 "resistance_thermal_sensitivity": round(r_sensitivity, 4),
             }
+
+        elif template_name in ("fast_charge_stress", "thermal_stress_aging"):
+            # Shared logic: cycle aging under stress conditions
+            n_cycles = params.get("n_cycles", 20)
+            stress_c_rate = params.get("c_rate", 2.0)
+            stress_temp = params.get("temperature", 25.0)
+            cycle_caps = []
+            for i in range(n_cycles):
+                result = simulate_cycle(
+                    cell_params,
+                    c_rate=stress_c_rate,
+                    temperature=stress_temp,
+                    n_prior_cycles=i,
+                )
+                if not result["success"]:
+                    break
+                cycle_caps.append(result["discharge_capacity"])
+                if i == 0 or i == n_cycles - 1 or i % 5 == 0:
+                    raw_data["cycle_results"].append(result)
+
+            if len(cycle_caps) < 2:
+                raise RuntimeError(f"{template_name} produced fewer than 2 valid cycles")
+
+            initial_cap = cycle_caps[0]
+            final_cap = cycle_caps[-1]
+            retention = (final_cap / initial_cap * 100.0) if initial_cap > 0 else 0.0
+            observed_fade = (
+                (initial_cap - final_cap) / initial_cap / len(cycle_caps) * 100.0
+            ) if initial_cap > 0 else 0.0
+
+            # Compare to 1C/25C baseline to quantify stress penalty
+            baseline_1c = simulate_cycle(cell_params, c_rate=1.0, temperature=25.0)
+            baseline_cap = baseline_1c["discharge_capacity"] if baseline_1c["success"] else initial_cap
+            stress_penalty = (
+                (baseline_cap - initial_cap) / baseline_cap * 100.0
+            ) if baseline_cap > 0 else 0.0
+
+            summary_metrics = {
+                "capacity_retention": round(retention, 4),
+                "fade_rate": round(observed_fade, 4),
+                "stress_fade_rate": round(observed_fade, 4),
+                "initial_capacity": round(initial_cap, 4),
+                "final_capacity": round(final_cap, 4),
+                "n_cycles_completed": len(cycle_caps),
+                "stress_penalty_pct": round(max(0.0, stress_penalty), 4),
+                "discharge_capacity": round(initial_cap, 4),
+                "coulombic_efficiency": (
+                    raw_data["cycle_results"][0].get("coulombic_efficiency", 0)
+                    if raw_data["cycle_results"] else 0
+                ),
+                "internal_resistance": (
+                    raw_data["cycle_results"][0].get("internal_resistance", 0)
+                    if raw_data["cycle_results"] else 0
+                ),
+            }
+            if template_name == "fast_charge_stress":
+                summary_metrics["fast_charge_c_rate"] = stress_c_rate
+            else:
+                summary_metrics["thermal_stress_temperature"] = stress_temp
+            raw_data["conditions"] = [{
+                "c_rate": stress_c_rate,
+                "temperature": stress_temp,
+                "n_cycles": n_cycles,
+            }]
 
         else:
             raise ValueError(f"Unsupported template: {template_name}")

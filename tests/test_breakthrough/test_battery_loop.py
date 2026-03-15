@@ -276,11 +276,31 @@ class TestRobustnessProfile:
         assert "capacity_retention" in profile
         assert "fade_rate" in profile
 
+    def test_stress_metrics_present(self):
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
+        profile = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
+        assert "fast_charge_fade_rate" in profile
+        assert "fast_charge_penalty_pct" in profile
+        assert "thermal_stress_fade_rate" in profile
+        assert "thermal_stress_penalty_pct" in profile
+        assert "worst_stress_retention" in profile
+
     def test_default_params_reasonable(self):
         baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
         profile = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
         assert profile["capacity_retention"] > 50.0
         assert profile["fade_rate"] >= 0
+        assert profile["fast_charge_fade_rate"] >= 0
+        assert profile["thermal_stress_fade_rate"] >= 0
+        assert profile["worst_stress_retention"] > 50.0
+
+    def test_high_fade_params_show_stress_fragility(self):
+        """Candidate with high fade should show worse stress retention."""
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
+        fragile = dict(DEFAULT_CELL_PARAMS, fade_rate_per_cycle=0.002)
+        profile_default = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
+        profile_fragile = compute_robustness_profile(fragile, baseline.metrics)
+        assert profile_fragile["worst_stress_retention"] <= profile_default["worst_stress_retention"]
 
 
 class TestCaveatGeneration:

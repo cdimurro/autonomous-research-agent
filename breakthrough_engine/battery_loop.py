@@ -391,12 +391,13 @@ def generate_battery_candidates(
 # ---------------------------------------------------------------------------
 
 BATTERY_SCORE_WEIGHTS = {
-    "capacity_retention": 0.20,
-    "coulombic_improvement": 0.15,
+    "capacity_retention": 0.15,
+    "coulombic_improvement": 0.10,
     "resistance_improvement": 0.15,
-    "fade_improvement": 0.15,
+    "fade_improvement": 0.10,
     "rate_capability": 0.10,
     "robustness": 0.10,
+    "stress_resilience": 0.15,
     "plausibility_penalty": 0.15,
 }
 
@@ -405,7 +406,15 @@ def compute_robustness_profile(
     cell_params: dict,
     baseline_metrics: dict,
 ) -> dict:
-    """Run multi-template stress evaluation and compute robustness indicators."""
+    """Run multi-template stress evaluation and compute robustness indicators.
+
+    Runs 5 stress experiments:
+    1. C-rate sweep (C/3 to 3C) — rate capability
+    2. Thermal sensitivity (10–55C) — thermal fragility
+    3. Cycle aging (50 cycles @ 1C/25C) — standard fade
+    4. Fast-charge stress (20 cycles @ 2C) — fast-charge penalty
+    5. Thermal stress aging (20 cycles @ 1C/45C) — accelerated thermal degradation
+    """
     base_cap = baseline_metrics.get("discharge_capacity", 1)
 
     # C-rate sweep
@@ -416,8 +425,14 @@ def compute_robustness_profile(
     thermal_result = run_experiment("thermal_sensitivity", cell_params)
     thermal_data = thermal_result.raw_data.get("cycle_results", [])
 
-    # Cycle aging
+    # Cycle aging (standard)
     aging_result = run_experiment("cycle_aging", cell_params)
+
+    # Fast-charge stress (CC-BE-2417)
+    fast_charge_result = run_experiment("fast_charge_stress", cell_params)
+
+    # Thermal stress aging (CC-BE-2417)
+    thermal_stress_result = run_experiment("thermal_stress_aging", cell_params)
 
     all_caps = []
     for r in crate_data + thermal_data:
@@ -431,6 +446,11 @@ def compute_robustness_profile(
             "thermal_sensitivity": 0.0,
             "capacity_retention": 100.0,
             "fade_rate": 0.0,
+            "fast_charge_fade_rate": 0.0,
+            "fast_charge_penalty_pct": 0.0,
+            "thermal_stress_fade_rate": 0.0,
+            "thermal_stress_penalty_pct": 0.0,
+            "worst_stress_retention": 100.0,
             "sweep_data": [],
         }
 
@@ -445,12 +465,31 @@ def compute_robustness_profile(
     thermal_caps = [r["discharge_capacity"] for r in thermal_data if r.get("success", True) and r.get("discharge_capacity", 0) > 0]
     thermal_sensitivity = ((max(thermal_caps) - min(thermal_caps)) / max(thermal_caps)) if thermal_caps and max(thermal_caps) > 0 else 0.0
 
+    # Fast-charge stress metrics
+    fc_fade = fast_charge_result.metrics.get("stress_fade_rate", 0.0)
+    fc_penalty = fast_charge_result.metrics.get("stress_penalty_pct", 0.0)
+    fc_retention = fast_charge_result.metrics.get("capacity_retention", 100.0)
+
+    # Thermal stress metrics
+    ts_fade = thermal_stress_result.metrics.get("stress_fade_rate", 0.0)
+    ts_penalty = thermal_stress_result.metrics.get("stress_penalty_pct", 0.0)
+    ts_retention = thermal_stress_result.metrics.get("capacity_retention", 100.0)
+
+    # Worst-case retention across all stress scenarios
+    standard_retention = aging_result.metrics.get("capacity_retention", 100.0)
+    worst_stress_retention = min(standard_retention, fc_retention, ts_retention)
+
     return {
         "worst_case_capacity_delta": round(worst_delta, 4),
         "crate_sensitivity": round(crate_sensitivity, 4),
         "thermal_sensitivity": round(thermal_sensitivity, 4),
-        "capacity_retention": aging_result.metrics.get("capacity_retention", 100.0),
+        "capacity_retention": standard_retention,
         "fade_rate": aging_result.metrics.get("fade_rate", 0.0),
+        "fast_charge_fade_rate": round(fc_fade, 4),
+        "fast_charge_penalty_pct": round(fc_penalty, 4),
+        "thermal_stress_fade_rate": round(ts_fade, 4),
+        "thermal_stress_penalty_pct": round(ts_penalty, 4),
+        "worst_stress_retention": round(worst_stress_retention, 4),
         "sweep_data": crate_data + thermal_data,
     }
 
@@ -532,6 +571,36 @@ def score_battery_candidate(
             caveats.append(f"Thermal sensitivity: {ts:.1%} capacity variation across temperatures")
     else:
         components["robustness"] = 0.5
+
+    # --- Stress resilience (fast-charge + thermal stress) ---
+    if robustness_profile and "worst_stress_retention" in robustness_profile:
+        wsr = robustness_profile["worst_stress_retention"]
+        # 100% → 1.0, 90% → 0.75, 70% → 0.25, 50% → 0.0
+        components["stress_resilience"] = max(0.0, min(1.0, (wsr - 50.0) / 50.0))
+
+        fc_fade = robustness_profile.get("fast_charge_fade_rate", 0)
+        ts_fade = robustness_profile.get("thermal_stress_fade_rate", 0)
+        fc_penalty = robustness_profile.get("fast_charge_penalty_pct", 0)
+        ts_penalty = robustness_profile.get("thermal_stress_penalty_pct", 0)
+
+        if fc_fade > 0.08:
+            caveats.append(
+                f"Fast-charge fragility: {fc_fade:.3f}%/cycle fade at 2C "
+                f"(penalty {fc_penalty:.1f}% vs 1C baseline)"
+            )
+        if ts_fade > 0.08:
+            caveats.append(
+                f"Thermal stress fragility: {ts_fade:.3f}%/cycle fade at 45C "
+                f"(penalty {ts_penalty:.1f}% vs 25C baseline)"
+            )
+        if wsr < 80.0:
+            hard_fail = True
+            hard_fail_reasons.append(
+                f"Worst-case stress retention {wsr:.1f}% below 80% — "
+                "candidate is fragile under realistic operating conditions"
+            )
+    else:
+        components["stress_resilience"] = 0.5
 
     # --- Plausibility penalty ---
     ok, reasons = check_metrics_plausibility(candidate_metrics)
