@@ -1,0 +1,29 @@
+name: pv_iv
+domain: pv-characterization
+goal: "Optimize PV cell parameters through I-V characterization using single-diode model"
+candidate_budget: 6
+simulation_budget: 6
+scoring_weights:
+  novelty: 0.05
+  plausibility: 0.30
+  impact: 0.25
+  evidence_strength: 0.10
+  simulation_readiness: 0.20
+  inverse_validation_cost: 0.10
+novelty_threshold: 0.1
+evidence_minimum: 0
+allowed_simulators:
+  - pvlib
+publication_threshold: 0.55
+banned_claims:
+  - "perpetual motion"
+  - "over-unity device"
+  - "efficiency above Shockley-Queisser limit without multi-junction justification"
+  - "free energy"
+safety_constraints:
+  - "Must not violate thermodynamic limits"
+  - "Efficiency must not exceed Shockley-Queisser limit for single-junction"
+  - "All parameters must be physically realizable"
+runtime_budget_minutes: 10
+validation_policy: strict
+mode: demo_local

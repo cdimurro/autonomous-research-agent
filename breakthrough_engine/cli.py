@@ -305,6 +305,19 @@ def main(argv: list[str] | None = None):
     rq_mark_p.add_argument("item_id", help="Review queue item ID")
     rq_mark_p.add_argument("--reviewer", default="operator", help="Reviewer identifier")
 
+    # PV domain loop
+    pv_p = sub.add_parser("pv", help="PV I-V characterization optimization loop")
+    pv_sub = pv_p.add_subparsers(dest="pv_command")
+    pv_run_p = pv_sub.add_parser("run", help="Run one PV optimization loop iteration")
+    pv_run_p.add_argument("--candidates", type=int, default=6, help="Number of candidates to generate")
+    pv_run_p.add_argument("--threshold", type=float, default=0.55, help="Promotion score threshold")
+    pv_run_p.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    pv_sub.add_parser("status", help="Show PV loop history and memory")
+    pv_sub.add_parser("memory", help="Show accumulated PV idea and experiment memory")
+    pv_dry_p = pv_sub.add_parser("dry-run", help="Preview PV candidates without running experiments")
+    pv_dry_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
+    pv_dry_p.add_argument("--seed", type=int, default=None, help="Random seed")
+
     # Phase 10A: KG shadow foundation
     ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
     ingest_sub = ingest_p.add_subparsers(dest="ingest_command")
@@ -408,6 +421,8 @@ def main(argv: list[str] | None = None):
         _cmd_review_queue(repo, args)
     elif args.command == "challenger-trial":
         _cmd_challenger_trial(repo, args)
+    elif args.command == "pv":
+        _cmd_pv(repo, args)
     elif args.command == "ingest":
         _cmd_ingest(repo, args)
     elif args.command == "kg":
@@ -1870,6 +1885,127 @@ def _cmd_challenger_trial(repo: Repository, args):
 
     else:
         print("Usage: python -m breakthrough_engine challenger-trial [build|show]")
+
+
+# ---------------------------------------------------------------------------
+# PV domain loop
+# ---------------------------------------------------------------------------
+
+def _cmd_pv(repo: Repository, args):
+    """PV I-V characterization optimization loop."""
+    pv_command = getattr(args, "pv_command", None)
+
+    if not pv_command:
+        print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory]")
+        return
+
+    if pv_command == "dry-run":
+        from .pv_loop import generate_pv_candidates
+        n = getattr(args, "candidates", 6)
+        seed = getattr(args, "seed", None)
+        prior_lessons = repo.list_idea_memory("pv_iv", limit=50)
+        candidates = generate_pv_candidates(n_candidates=n, seed=seed, prior_lessons=prior_lessons)
+        print(f"PV dry-run: {len(candidates)} candidates generated (seed={seed})")
+        print()
+        for i, c in enumerate(candidates, 1):
+            print(f"  [{i}] {c.title}")
+            print(f"      Rationale: {c.rationale}")
+            key_params = {k: v for k, v in c.parameters.items() if k in ("R_s", "R_sh_ref", "I_L_ref", "I_o_ref", "a_ref")}
+            print(f"      Key params: {key_params}")
+            print()
+        return
+
+    if pv_command == "run":
+        from .pv_loop import PVOptimizationLoop
+        from .models import new_id
+
+        n = getattr(args, "candidates", 6)
+        threshold = getattr(args, "threshold", 0.55)
+        seed = getattr(args, "seed", None)
+        run_id = new_id()
+
+        print(f"PV optimization loop: {n} candidates, threshold={threshold}, seed={seed}")
+        print(f"Run ID: {run_id}")
+        print()
+
+        loop = PVOptimizationLoop(
+            repo, n_candidates=n, promotion_threshold=threshold, seed=seed,
+        )
+        result = loop.run(run_id=run_id)
+
+        # Print results
+        print(f"Baseline: Pmax={result.baseline_metrics.get('Pmax', 0):.2f}W, "
+              f"FF={result.baseline_metrics.get('fill_factor', 0):.4f}, "
+              f"eff={result.baseline_metrics.get('efficiency', 0):.2f}%")
+        print()
+
+        for cr in result.candidates:
+            status_mark = {
+                "promoted": "+",
+                "rejected": "-",
+                "hard_fail": "X",
+            }.get(cr.candidate.status.value, "?")
+            print(f"  [{status_mark}] {cr.candidate.title}")
+            print(f"      Score: {cr.evaluation.final_score:.4f} | "
+                  f"Pmax: {cr.experiment_metrics.get('Pmax', 0):.2f}W | "
+                  f"FF: {cr.experiment_metrics.get('fill_factor', 0):.4f}")
+            if cr.candidate.rejection_reason:
+                print(f"      Reason: {cr.candidate.rejection_reason}")
+            print()
+
+        print(f"Summary: {result.promoted_count} promoted, "
+              f"{result.rejected_count} rejected, "
+              f"{result.hard_fail_count} hard-fail")
+        if result.best_promoted:
+            print(f"Best promoted: {result.best_promoted.candidate.title} "
+                  f"(score={result.best_promoted.evaluation.final_score:.4f})")
+        print()
+
+        # Export summary artifact
+        summary = result.summary()
+        runtime_dir = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        artifact_dir = os.path.join(runtime_dir, "pv_loop")
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, f"pv_run_{run_id}.json")
+        with open(artifact_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        print(f"Artifact: {artifact_path}")
+        return
+
+    if pv_command == "status":
+        candidates = repo.list_domain_candidates("pv_iv", limit=20)
+        promos = repo.list_promotion_records("pv_iv", limit=20)
+        print(f"PV loop status: {len(candidates)} candidates, {len(promos)} promotion records")
+        print()
+        promoted = [p for p in promos if p["decision"] == "promoted"]
+        rejected = [p for p in promos if p["decision"] == "rejected"]
+        print(f"  Promoted: {len(promoted)}")
+        print(f"  Rejected: {len(rejected)}")
+        if promoted:
+            print(f"\n  Recent promoted:")
+            for p in promoted[:5]:
+                c = repo.get_domain_candidate(p["candidate_id"])
+                title = c["title"] if c else "(unknown)"
+                print(f"    {title} — score={p.get('candidate_score', 0)}")
+        return
+
+    if pv_command == "memory":
+        ideas = repo.list_idea_memory("pv_iv", limit=20)
+        exp_mem = repo.list_experiment_memory("pv_iv", limit=20)
+        print(f"PV idea memory: {len(ideas)} entries")
+        for m in ideas[:10]:
+            print(f"  [{m['outcome']}] {m['candidate_title']}")
+            if m['lesson']:
+                print(f"    Lesson: {m['lesson']}")
+        print()
+        print(f"PV experiment memory: {len(exp_mem)} entries")
+        for m in exp_mem[:10]:
+            print(f"  {m['template_name']} — candidate {m['candidate_id'][:8]}")
+            if m['weakness_exposed']:
+                print(f"    Weakness: {m['weakness_exposed']}")
+        return
+
+    print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory]")
 
 
 # ---------------------------------------------------------------------------

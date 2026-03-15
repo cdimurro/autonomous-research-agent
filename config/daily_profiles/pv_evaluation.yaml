@@ -1,0 +1,30 @@
+# PV I-V Characterization Evaluation Profile
+# First narrow-domain optimization loop
+#
+# Purpose: Run one PV optimization loop iteration per day.
+# Uses pvlib for all simulation — no external API keys required.
+
+profile_name: pv_evaluation
+profile_type: pv_domain_loop
+campaign_profile: ""
+domain: pv-characterization
+max_runs_per_day: 1
+dry_run_default: false
+
+# PV-specific configuration
+pv_candidates: 6
+pv_promotion_threshold: 0.55
+pv_seed: null
+
+# Output requirements
+require_integrity_ok: false
+require_falsification_complete: false
+export_evaluation_pack: true
+insert_review_queue: false
+
+# Description for operator logs
+description: >
+  Daily PV I-V characterization optimization loop.
+  Generates candidate cell parameter variations, runs STC and temperature
+  sweep experiments via pvlib, scores against baseline, promotes or rejects.
+  No external API keys required. Fully offline-safe.
