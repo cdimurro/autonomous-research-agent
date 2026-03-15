@@ -63,9 +63,17 @@ venv (`.venv-pybamm/`), communicating via JSON-over-subprocess. The main engine
 
 **Setup:**
 ```bash
-python3.12 -m venv .venv-pybamm
-.venv-pybamm/bin/pip install -r battery_sidecar/requirements.txt
+bash scripts/setup_pybamm_sidecar.sh        # creates .venv-pybamm
+bash scripts/setup_pybamm_sidecar.sh --check # verifies 6-point health
 ```
+
+**Calibration (v2.5):**
+- Cell-matched capacity normalization (ECM nominal / PyBaMM nominal)
+- Fast-charge verification: 1C + 2C + 3C DFN experiments
+- high_rate_retention metric for rate-dependent concordance
+- internal_resistance excluded from concordance (incomparable methods)
+- Validated sweep (5 seeds x 4 modes = 20 runs): concordance 0.76–0.98,
+  0 vetoes, 0 winner changes — ECM conservatism confirmed by DFN
 
 ### 5. Optional Omniverse Escalation
 
