@@ -59,10 +59,13 @@ class BatteryDecisionBrief(BaseModel):
     worst_stress_retention: Optional[float] = None
     cathode_thermal_retention: Optional[float] = None
 
-    # Sidecar verification
+    # Sidecar verification (v2: includes concordance interpretation)
     sidecar_status: str = "not_verified"  # success / unavailable / error / invalid / not_verified
     sidecar_concordance: Optional[float] = None
+    sidecar_gate_decision: str = ""  # confirmed / caveat / veto / not_verified
     sidecar_summary: str = ""
+    sidecar_what_it_means: str = ""  # human-readable interpretation
+    sidecar_concordance_details: dict = Field(default_factory=dict)  # per-metric breakdown
 
     # Caveats
     caveats: list[str] = Field(default_factory=list)
@@ -146,10 +149,13 @@ def generate_decision_brief(report: dict) -> Optional[BatteryDecisionBrief]:
     ct_ret = robustness.get("cathode_thermal_retention")
     deg_summary = _generate_degradation_summary(degradation, worst_ret, ct_ret)
 
-    # Sidecar
+    # Sidecar (v2: enhanced with concordance interpretation)
     sc_status = sidecar_v.get("status", "not_verified")
     sc_conc = sidecar_v.get("concordance_score")
+    sc_details = sidecar_v.get("concordance_details", {})
     sc_summary = _generate_sidecar_summary(sc_status, sc_conc)
+    sc_gate = _compute_gate_decision(sc_status, sc_conc)
+    sc_meaning = _generate_sidecar_meaning(sc_status, sc_conc, sc_details)
 
     # Vs alternatives
     vs_alt = _generate_vs_alternatives(best, breakdown)
@@ -183,7 +189,10 @@ def generate_decision_brief(report: dict) -> Optional[BatteryDecisionBrief]:
         cathode_thermal_retention=ct_ret,
         sidecar_status=sc_status,
         sidecar_concordance=sc_conc,
+        sidecar_gate_decision=sc_gate,
         sidecar_summary=sc_summary,
+        sidecar_what_it_means=sc_meaning,
+        sidecar_concordance_details=sc_details,
         caveats=caveats,
         vs_alternatives=vs_alt,
         recommended_action=action,
@@ -356,6 +365,82 @@ def _compute_confidence_tier(
     if score >= 0.55:
         return "standard"
     return "low"
+
+
+def _compute_gate_decision(status: str, concordance: Optional[float]) -> str:
+    if status == "not_verified" or status == "unavailable":
+        return "not_verified"
+    if status == "error":
+        return "not_verified"
+    if status == "invalid":
+        return "veto"
+    if status == "success" and concordance is not None:
+        if concordance >= 0.60:
+            return "confirmed"
+        elif concordance >= 0.30:
+            return "caveat"
+        else:
+            return "veto"
+    return "not_verified"
+
+
+def _generate_sidecar_meaning(
+    status: str, concordance: Optional[float], details: dict,
+) -> str:
+    if status == "not_verified" or status == "unavailable":
+        return (
+            "This candidate was evaluated by the ECM model only. "
+            "Running PyBaMM sidecar verification would increase confidence."
+        )
+    if status == "error":
+        return (
+            "The PyBaMM sidecar encountered an error during verification. "
+            "The candidate's ECM results are still valid but unverified by a richer model."
+        )
+    if status == "invalid":
+        return (
+            "The PyBaMM sidecar rejected this candidate's parameters as physically invalid. "
+            "The ECM results may not reflect real cell behavior."
+        )
+    if status != "success" or concordance is None:
+        return "Sidecar status unclear."
+
+    # Success path — interpret concordance
+    parts = []
+    if concordance >= 0.60:
+        parts.append(
+            f"The PyBaMM DFN model confirms this candidate (concordance: {concordance:.2f}). "
+            "ECM and DFN agree on key battery metrics."
+        )
+    elif concordance >= 0.30:
+        parts.append(
+            f"The PyBaMM DFN model partially agrees with the ECM (concordance: {concordance:.2f}). "
+            "Some metrics diverge — review the per-metric breakdown."
+        )
+    else:
+        parts.append(
+            f"The PyBaMM DFN model strongly disagrees with the ECM (concordance: {concordance:.2f}). "
+            "This candidate's predicted performance may not hold under higher-fidelity modeling."
+        )
+
+    # Add per-metric insight if available
+    if details:
+        high_agreement = []
+        low_agreement = []
+        for metric, info in details.items():
+            agreement = info.get("agreement")
+            if agreement is None:
+                continue
+            if agreement >= 0.8:
+                high_agreement.append(metric)
+            elif agreement < 0.5:
+                low_agreement.append(metric)
+        if high_agreement:
+            parts.append(f"Strong agreement on: {', '.join(high_agreement)}.")
+        if low_agreement:
+            parts.append(f"Weak agreement on: {', '.join(low_agreement)}.")
+
+    return " ".join(parts)
 
 
 def _generate_recommended_action(

@@ -115,7 +115,6 @@ class TestSidecarBrief:
     def test_sidecar_status_populated(self, report_with_sidecar):
         brief = generate_decision_brief(report_with_sidecar)
         if brief:
-            # Mock sidecar should produce SUCCESS status
             assert brief.sidecar_status in ("success", "not_verified")
             assert len(brief.sidecar_summary) > 0
 
@@ -123,6 +122,29 @@ class TestSidecarBrief:
         brief = generate_decision_brief(report_with_sidecar)
         if brief and brief.sidecar_status == "success":
             assert brief.sidecar_concordance is not None
+
+    def test_sidecar_gate_decision(self, report_with_sidecar):
+        brief = generate_decision_brief(report_with_sidecar)
+        if brief:
+            assert brief.sidecar_gate_decision in (
+                "confirmed", "caveat", "veto", "not_verified",
+            )
+
+    def test_sidecar_what_it_means_nonempty(self, report_with_sidecar):
+        brief = generate_decision_brief(report_with_sidecar)
+        if brief:
+            assert len(brief.sidecar_what_it_means) > 0
+
+    def test_no_sidecar_brief_has_ecm_only_meaning(self, report_with_promotion):
+        brief = generate_decision_brief(report_with_promotion)
+        if brief and brief.sidecar_status == "not_verified":
+            assert "ECM" in brief.sidecar_what_it_means
+
+    def test_v2_schema_fields_present(self):
+        brief = BatteryDecisionBrief(title="Test", headline="test")
+        assert hasattr(brief, "sidecar_gate_decision")
+        assert hasattr(brief, "sidecar_what_it_means")
+        assert hasattr(brief, "sidecar_concordance_details")
 
 
 class TestSaveBrief:
