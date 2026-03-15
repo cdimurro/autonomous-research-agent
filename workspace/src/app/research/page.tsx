@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
@@ -235,7 +235,7 @@ function ResearchBriefCard({ brief, onReviewUpdated }: { brief: ResearchBrief; o
 }
 
 export default function ResearchPage() {
-  const { jobs, submitJob } = useJobs();
+  const { jobs, submitJob, recentCompletions, clearCompletions } = useJobs();
   const { briefs, refresh: refreshBriefs } = useBriefs("research");
 
   const [topic, setTopic] = useState("");
@@ -246,6 +246,17 @@ export default function ResearchPage() {
   const researchJobs = jobs.filter((j) => j.product_area === "research");
   const researchBriefs = briefs as unknown as ResearchBrief[];
 
+  // Auto-refresh briefs when research jobs complete
+  useEffect(() => {
+    const researchCompletions = recentCompletions.filter((id) =>
+      researchJobs.some((j) => j.id === id)
+    );
+    if (researchCompletions.length > 0) {
+      refreshBriefs();
+      clearCompletions();
+    }
+  }, [recentCompletions, researchJobs, refreshBriefs, clearCompletions]);
+
   const handleSubmit = async () => {
     if (!topic.trim()) return;
     setError(null);
@@ -253,8 +264,6 @@ export default function ResearchPage() {
     try {
       await submitJob("research", { topic: topic.trim(), domain });
       setTopic("");
-      // Refresh briefs after a delay to catch completed jobs
-      setTimeout(() => refreshBriefs(), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to submit");
     } finally {

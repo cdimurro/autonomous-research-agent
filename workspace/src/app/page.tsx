@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
@@ -78,9 +79,18 @@ function WorkspaceBriefPreview({ brief }: { brief: Record<string, unknown> }) {
 }
 
 export default function HomePage() {
-  const { jobs, loading } = useJobs();
-  const { briefs: decisionBriefs, loading: briefsLoading } = useBriefs("decision");
-  const { briefs: allBriefs } = useBriefs();
+  const { jobs, loading, recentCompletions, clearCompletions } = useJobs();
+  const { briefs: decisionBriefs, loading: briefsLoading, refresh: refreshDecision } = useBriefs("decision");
+  const { briefs: allBriefs, refresh: refreshAll } = useBriefs();
+
+  // Auto-refresh briefs when any job completes
+  useEffect(() => {
+    if (recentCompletions.length > 0) {
+      refreshDecision();
+      refreshAll();
+      clearCompletions();
+    }
+  }, [recentCompletions, refreshDecision, refreshAll, clearCompletions]);
 
   // Show decision briefs in dedicated cards, all others as previews
   const nonDecisionBriefs = allBriefs.filter(

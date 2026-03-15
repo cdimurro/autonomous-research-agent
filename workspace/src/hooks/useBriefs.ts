@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { BriefType } from "@/lib/types";
 
-export function useBriefs(typeFilter?: BriefType) {
+export function useBriefs(typeFilter?: BriefType, pollIntervalMs?: number) {
   const [briefs, setBriefs] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,7 +24,11 @@ export function useBriefs(typeFilter?: BriefType) {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    if (pollIntervalMs && pollIntervalMs > 0) {
+      const timer = setInterval(refresh, pollIntervalMs);
+      return () => clearInterval(timer);
+    }
+  }, [refresh, pollIntervalMs]);
 
   return { briefs, loading, refresh };
 }

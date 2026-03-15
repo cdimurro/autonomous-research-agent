@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useJobs } from "@/hooks/useJobs";
 import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
@@ -271,7 +271,7 @@ function DiligenceBriefCard({ brief, onReviewUpdated }: { brief: DiligenceBrief;
 }
 
 export default function DiligencePage() {
-  const { jobs, submitJob } = useJobs();
+  const { jobs, submitJob, recentCompletions, clearCompletions } = useJobs();
   const { briefs, refresh: refreshBriefs } = useBriefs("diligence");
 
   const [subject, setSubject] = useState("");
@@ -282,6 +282,17 @@ export default function DiligencePage() {
 
   const diligenceJobs = jobs.filter((j) => j.product_area === "diligence");
   const diligenceBriefs = briefs as unknown as DiligenceBrief[];
+
+  // Auto-refresh briefs when diligence jobs complete
+  useEffect(() => {
+    const diligenceCompletions = recentCompletions.filter((id) =>
+      diligenceJobs.some((j) => j.id === id)
+    );
+    if (diligenceCompletions.length > 0) {
+      refreshBriefs();
+      clearCompletions();
+    }
+  }, [recentCompletions, diligenceJobs, refreshBriefs, clearCompletions]);
 
   const toggleFocus = (focus: string) => {
     setFocusAreas((prev) =>
@@ -302,7 +313,6 @@ export default function DiligencePage() {
       setSubject("");
       setFocusAreas([]);
       setAdditionalContext("");
-      setTimeout(() => refreshBriefs(), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to submit");
     } finally {
