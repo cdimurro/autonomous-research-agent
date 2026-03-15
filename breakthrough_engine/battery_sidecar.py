@@ -58,19 +58,108 @@ CONCORDANCE_CONFIRM_THRESHOLD = 0.60
 
 # Concordance metric weights (must sum to 1.0)
 #
-# internal_resistance is down-weighted because ECM R0 (ohmic + polarization)
-# and DFN voltage-sag-derived resistance are methodologically incomparable.
-# Live sidecar validation showed ~0.002 agreement on this metric consistently,
-# which is expected, not a quality issue.
-# discharge_capacity is up-weighted as the most physically meaningful
-# comparison between ECM and DFN.
+# internal_resistance is excluded (weight 0) because ECM R0 and DFN
+# voltage-sag resistance are methodologically incomparable (~0.002
+# agreement consistently). Instead, energy_efficiency serves as the
+# comparable resistance proxy (both models agree on voltage efficiency).
+#
+# discharge_capacity is the primary comparison metric after cell-matched
+# normalization (scaling PyBaMM output to ECM nominal capacity).
 CONCORDANCE_WEIGHTS = {
-    "discharge_capacity": 0.40,
-    "coulombic_efficiency": 0.20,
-    "internal_resistance": 0.05,
-    "energy_efficiency": 0.20,
+    "discharge_capacity": 0.45,
+    "coulombic_efficiency": 0.15,
+    "internal_resistance": 0.0,
+    "energy_efficiency": 0.25,
     "rate_capability": 0.15,
 }
+
+
+# ── Cell-matched calibration profiles ─────────────────────────────────────
+# PyBaMM parameter sets model specific cells with known nominal capacities.
+# To compare ECM (which models a different cell size) against DFN, we
+# normalize DFN discharge_capacity by the ratio:
+#   ecm_nominal_cap / pybamm_nominal_cap
+#
+# This makes capacity comparison apples-to-apples: "what fraction of
+# nominal capacity does each model predict?"
+#
+# Philosophy: small, explicit normalization rules. No hidden fitting.
+
+PYBAMM_CELL_PROFILES = {
+    "Chen2020": {
+        "nominal_capacity_ah": 5.0,  # LG M50 21700
+        "chemistry": "NMC-811",
+        "cell_format": "21700",
+        "source": "Chen et al. 2020, J. Electrochem. Soc.",
+    },
+    "Prada2013": {
+        "nominal_capacity_ah": 2.3,  # A123 ANR26650 LFP
+        "chemistry": "LFP",
+        "cell_format": "26650",
+        "source": "Prada et al. 2013, J. Power Sources",
+    },
+    "OKane2022": {
+        "nominal_capacity_ah": 5.0,  # LG M50 21700 (same cell as Chen2020)
+        "chemistry": "NMC",
+        "cell_format": "21700",
+        "source": "O'Kane et al. 2022, Electrochimica Acta",
+    },
+}
+
+
+def calibrate_pybamm_metrics(
+    pybamm_metrics: dict,
+    ecm_nominal_capacity: float,
+    pybamm_parameter_set: str,
+) -> dict:
+    """Normalize PyBaMM metrics to ECM cell scale for apples-to-apples comparison.
+
+    Primary normalization: discharge_capacity is scaled by the ratio of
+    ECM nominal capacity to PyBaMM parameter set nominal capacity.
+
+    Other metrics (CE, energy_efficiency) are already in comparable units
+    (%) and do not need scaling.
+
+    Args:
+        pybamm_metrics: Raw metrics from PyBaMM runner
+        ecm_nominal_capacity: ECM cell's nominal capacity (Ah)
+        pybamm_parameter_set: Name of the PyBaMM parameter set used
+
+    Returns:
+        Calibrated metrics dict with _calibration metadata
+    """
+    profile = PYBAMM_CELL_PROFILES.get(pybamm_parameter_set)
+    if not profile:
+        # Unknown parameter set — return raw metrics with warning
+        return {
+            **pybamm_metrics,
+            "_calibration": {
+                "applied": False,
+                "reason": f"Unknown parameter set: {pybamm_parameter_set}",
+            },
+        }
+
+    pybamm_nominal = profile["nominal_capacity_ah"]
+    scale_factor = ecm_nominal_capacity / pybamm_nominal if pybamm_nominal > 0 else 1.0
+
+    calibrated = dict(pybamm_metrics)
+
+    # Scale capacity to ECM cell size
+    raw_cap = pybamm_metrics.get("discharge_capacity")
+    if raw_cap is not None:
+        calibrated["discharge_capacity"] = round(raw_cap * scale_factor, 4)
+
+    calibrated["_calibration"] = {
+        "applied": True,
+        "pybamm_parameter_set": pybamm_parameter_set,
+        "pybamm_nominal_capacity_ah": pybamm_nominal,
+        "ecm_nominal_capacity_ah": ecm_nominal_capacity,
+        "capacity_scale_factor": round(scale_factor, 4),
+        "pybamm_cell": f"{profile['chemistry']} {profile['cell_format']}",
+        "raw_pybamm_capacity": raw_cap,
+    }
+
+    return calibrated
 
 # Default PyBaMM parameter set for NMC cells
 DEFAULT_PYBAMM_PARAMETER_SET = "Chen2020"
@@ -466,15 +555,21 @@ class PyBaMMSidecar:
                 duration_seconds=duration,
             )
 
-        # Compute concordance
-        concordance, details = compute_concordance(ecm_metrics, pybamm_metrics)
+        # Cell-matched calibration: normalize PyBaMM metrics to ECM cell scale
         param_set = request.get("pybamm_parameter_set", DEFAULT_PYBAMM_PARAMETER_SET)
+        ecm_nominal_cap = ecm_params.get("capacity_ah", 3.0)
+        calibrated_metrics = calibrate_pybamm_metrics(
+            pybamm_metrics, ecm_nominal_cap, param_set,
+        )
+
+        # Compute concordance on calibrated metrics
+        concordance, details = compute_concordance(ecm_metrics, calibrated_metrics)
 
         return PyBaMMSidecarResult(
             candidate_id=candidate_id,
             status=SidecarStatus.SUCCESS,
             concordance_score=concordance,
-            pybamm_metrics=pybamm_metrics,
+            pybamm_metrics=calibrated_metrics,
             ecm_metrics=ecm_metrics,
             concordance_details=details,
             pybamm_parameter_set=param_set,

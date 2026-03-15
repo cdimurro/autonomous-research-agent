@@ -15,10 +15,12 @@ from breakthrough_engine.battery_sidecar import (
     CONCORDANCE_VETO_THRESHOLD,
     CONCORDANCE_WEIGHTS,
     DFN_PARAM_BOUNDS,
+    PYBAMM_CELL_PROFILES,
     MockPyBaMMSidecar,
     PyBaMMSidecar,
     PyBaMMSidecarResult,
     SidecarStatus,
+    calibrate_pybamm_metrics,
     compute_concordance,
     map_ecm_to_dfn,
     validate_dfn_params,
@@ -345,6 +347,54 @@ class TestLiveSidecarUnavailable:
 
 
 # ── Concordance gate semantics ────────────────────────────────────────────
+
+# ── Cell-matched calibration ───────────────────────────────────────────
+
+class TestCalibration:
+    def test_chen2020_capacity_scaled(self):
+        """Chen2020 (5.0Ah cell) should be scaled to ECM's 3.0Ah cell."""
+        raw = {"discharge_capacity": 5.0, "coulombic_efficiency": 99.5}
+        cal = calibrate_pybamm_metrics(raw, ecm_nominal_capacity=3.0, pybamm_parameter_set="Chen2020")
+        assert cal["discharge_capacity"] == 3.0  # 5.0 * (3.0/5.0) = 3.0
+        assert cal["coulombic_efficiency"] == 99.5  # CE not scaled
+
+    def test_prada2013_capacity_scaled(self):
+        """Prada2013 (2.3Ah LFP) scaled to ECM's 2.5Ah LFP."""
+        raw = {"discharge_capacity": 2.18}
+        cal = calibrate_pybamm_metrics(raw, ecm_nominal_capacity=2.5, pybamm_parameter_set="Prada2013")
+        expected = round(2.18 * (2.5 / 2.3), 4)
+        assert cal["discharge_capacity"] == expected
+
+    def test_unknown_param_set_no_calibration(self):
+        """Unknown parameter sets return raw metrics with warning."""
+        raw = {"discharge_capacity": 4.0}
+        cal = calibrate_pybamm_metrics(raw, ecm_nominal_capacity=3.0, pybamm_parameter_set="Unknown")
+        assert cal["discharge_capacity"] == 4.0  # unchanged
+        assert cal["_calibration"]["applied"] is False
+
+    def test_calibration_metadata_present(self):
+        raw = {"discharge_capacity": 5.0}
+        cal = calibrate_pybamm_metrics(raw, ecm_nominal_capacity=3.0, pybamm_parameter_set="Chen2020")
+        meta = cal["_calibration"]
+        assert meta["applied"] is True
+        assert meta["capacity_scale_factor"] == 0.6
+        assert meta["raw_pybamm_capacity"] == 5.0
+        assert meta["ecm_nominal_capacity_ah"] == 3.0
+
+    def test_all_profiles_have_required_fields(self):
+        for name, profile in PYBAMM_CELL_PROFILES.items():
+            assert "nominal_capacity_ah" in profile, f"{name} missing nominal_capacity_ah"
+            assert "chemistry" in profile
+            assert "source" in profile
+
+    def test_resistance_weight_is_zero(self):
+        """internal_resistance should have zero weight (incomparable)."""
+        assert CONCORDANCE_WEIGHTS["internal_resistance"] == 0.0
+
+    def test_weights_sum_to_1(self):
+        total = sum(CONCORDANCE_WEIGHTS.values())
+        assert abs(total - 1.0) < 1e-9
+
 
 class TestConcordanceGateSemantics:
     """Verify gate decisions match the plan's concordance rules."""
