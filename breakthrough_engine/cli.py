@@ -1924,6 +1924,7 @@ def _cmd_pv(repo: Repository, args):
 
     if pv_command == "dry-run":
         from .pv_loop import generate_pv_candidates
+        from .pv_domain import DEFAULT_CELL_PARAMS as PV_DEFAULTS
         n = getattr(args, "candidates", 6)
         seed = getattr(args, "seed", None)
         prior_lessons = repo.list_idea_memory("pv_iv", limit=50)
@@ -1931,65 +1932,60 @@ def _cmd_pv(repo: Repository, args):
         print(f"PV dry-run: {len(candidates)} candidates generated (seed={seed})")
         print()
         for i, c in enumerate(candidates, 1):
-            print(f"  [{i}] {c.title}")
-            print(f"      Rationale: {c.rationale}")
-            key_params = {k: v for k, v in c.parameters.items() if k in ("R_s", "R_sh_ref", "I_L_ref", "I_o_ref", "a_ref")}
-            print(f"      Key params: {key_params}")
+            print(f"  {i}. {c.title}")
+            print(f"     Family: {c.family}")
+            print(f"     Rationale: {c.rationale}")
+            changed = []
+            for param in ("R_s", "R_sh_ref", "I_L_ref", "I_o_ref", "a_ref"):
+                base_val = PV_DEFAULTS.get(param, 0)
+                cand_val = c.parameters.get(param, base_val)
+                if base_val and abs(cand_val - base_val) / max(abs(base_val), 1e-15) > 0.01:
+                    changed.append(f"{param}: {base_val} → {cand_val:.4g}")
+            if changed:
+                print(f"     Changes: {'; '.join(changed)}")
             print()
         return
 
     if pv_command == "run":
         from .pv_loop import PVOptimizationLoop
-        from .models import new_id
 
         n = getattr(args, "candidates", 6)
         threshold = getattr(args, "threshold", 0.55)
         seed = getattr(args, "seed", None)
-        run_id = new_id()
+        run_id = f"pv_run_{seed or 'auto'}"
 
-        print(f"PV optimization loop: {n} candidates, threshold={threshold}, seed={seed}")
-        print(f"Run ID: {run_id}")
-        print()
+        print(f"PV Run: {n} candidates, threshold={threshold}, seed={seed}")
+        print("=" * 60)
 
         loop = PVOptimizationLoop(
             repo, n_candidates=n, promotion_threshold=threshold, seed=seed,
         )
         result = loop.run(run_id=run_id)
+        summary = result.summary()
 
-        # Print results
-        print(f"Baseline: Pmax={result.baseline_metrics.get('Pmax', 0):.2f}W, "
-              f"FF={result.baseline_metrics.get('fill_factor', 0):.4f}, "
-              f"eff={result.baseline_metrics.get('efficiency', 0):.2f}%")
-        print()
+        print(f"\nTotal candidates: {summary['total_candidates']}")
+        print(f"Promoted: {summary['promoted']}, Rejected: {summary['rejected']}, Hard-fail: {summary['hard_fail']}")
+        print(f"Baseline Pmax: {result.baseline_metrics.get('Pmax', 0):.2f}W")
+        print(f"Baseline FF: {result.baseline_metrics.get('fill_factor', 0):.4f}")
 
-        for cr in result.candidates:
-            status_mark = {
-                "promoted": "+",
-                "rejected": "-",
-                "hard_fail": "X",
-            }.get(cr.candidate.status.value, "?")
-            print(f"  [{status_mark}] {cr.candidate.title}")
-            print(f"      Score: {cr.evaluation.final_score:.4f} | "
-                  f"Pmax: {cr.experiment_metrics.get('Pmax', 0):.2f}W | "
-                  f"FF: {cr.experiment_metrics.get('fill_factor', 0):.4f}")
-            if cr.candidate.rejection_reason:
-                print(f"      Reason: {cr.candidate.rejection_reason}")
-            print()
-
-        print(f"Summary: {result.promoted_count} promoted, "
-              f"{result.rejected_count} rejected, "
-              f"{result.hard_fail_count} hard-fail")
         if result.best_promoted:
-            print(f"Best promoted: {result.best_promoted.candidate.title} "
-                  f"(score={result.best_promoted.evaluation.final_score:.4f})")
-        print()
+            bp = result.best_promoted
+            print(f"\nBest promoted: {bp.candidate.title}")
+            print(f"  Score: {bp.evaluation.final_score:.4f}")
+            m = bp.experiment_metrics
+            print(f"  Pmax: {m.get('Pmax', 0):.2f}W")
+            print(f"  Fill factor: {m.get('fill_factor', 0):.4f}")
+            print(f"  Efficiency: {m.get('efficiency', 0):.2f}%")
+            if bp.promotion_caveats:
+                print(f"  Caveats ({len(bp.promotion_caveats)}):")
+                for caveat in bp.promotion_caveats:
+                    print(f"    - {caveat}")
 
         # Export summary artifact
-        summary = result.summary()
         runtime_dir = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
         artifact_dir = os.path.join(runtime_dir, "pv_loop")
         os.makedirs(artifact_dir, exist_ok=True)
-        artifact_path = os.path.join(artifact_dir, f"pv_run_{run_id}.json")
+        artifact_path = os.path.join(artifact_dir, f"{run_id}.json")
         with open(artifact_path, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         print(f"Artifact: {artifact_path}")
@@ -1998,18 +1994,16 @@ def _cmd_pv(repo: Repository, args):
     if pv_command == "status":
         candidates = repo.list_domain_candidates("pv_iv", limit=20)
         promos = repo.list_promotion_records("pv_iv", limit=20)
-        print(f"PV loop status: {len(candidates)} candidates, {len(promos)} promotion records")
-        print()
-        promoted = [p for p in promos if p["decision"] == "promoted"]
-        rejected = [p for p in promos if p["decision"] == "rejected"]
-        print(f"  Promoted: {len(promoted)}")
-        print(f"  Rejected: {len(rejected)}")
-        if promoted:
-            print(f"\n  Recent promoted:")
-            for p in promoted[:5]:
-                c = repo.get_domain_candidate(p["candidate_id"])
-                title = c["title"] if c else "(unknown)"
-                print(f"    {title} — score={p.get('candidate_score', 0)}")
+        print(f"PV loop status:")
+        print(f"  Domain candidates: {len(candidates)}")
+        print(f"  Promotion records: {len(promos)}")
+        promoted = [p for p in promos if p.get("decision") == "promoted"]
+        rejected = [p for p in promos if p.get("decision") == "rejected"]
+        print(f"  Promoted: {len(promoted)}, Rejected: {len(rejected)}")
+        if candidates:
+            print(f"\n  Recent candidates:")
+            for c in candidates[:5]:
+                print(f"    {c.get('title', 'unknown')} — {c.get('status', 'unknown')}")
         return
 
     if pv_command == "memory":
@@ -2017,7 +2011,7 @@ def _cmd_pv(repo: Repository, args):
         exp_mem = repo.list_experiment_memory("pv_iv", limit=20)
         print(f"PV idea memory: {len(ideas)} entries")
         for m in ideas[:10]:
-            print(f"  [{m['outcome']}] {m['candidate_title']}")
+            print(f"  {m['candidate_title']} — {m['outcome']}")
             if m['lesson']:
                 print(f"    Lesson: {m['lesson']}")
         print()
