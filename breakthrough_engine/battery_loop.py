@@ -24,6 +24,12 @@ from .battery_domain import (
     check_physical_plausibility,
     run_experiment,
 )
+from .battery_sidecar import (
+    CONCORDANCE_CONFIRM_THRESHOLD,
+    CONCORDANCE_VETO_THRESHOLD,
+    PyBaMMSidecarResult,
+    SidecarStatus,
+)
 from .db import Repository
 from .domain_models import (
     CandidateSpec,
@@ -984,6 +990,7 @@ class BatteryCandidateResult:
         experiment_metrics: dict,
         robustness_profile: Optional[dict] = None,
         promotion_caveats: Optional[list[str]] = None,
+        sidecar_result: Optional[PyBaMMSidecarResult] = None,
     ):
         self.candidate = candidate
         self.evaluation = evaluation
@@ -991,6 +998,7 @@ class BatteryCandidateResult:
         self.experiment_metrics = experiment_metrics
         self.robustness_profile = robustness_profile or {}
         self.promotion_caveats = promotion_caveats or []
+        self.sidecar_result = sidecar_result
 
 
 class BatteryLoopResult:
@@ -1053,12 +1061,14 @@ class BatteryOptimizationLoop:
         promotion_threshold: float = 0.55,
         base_params: Optional[dict] = None,
         seed: Optional[int] = None,
+        sidecar=None,
     ):
         self.repo = repo
         self.n_candidates = n_candidates
         self.promotion_threshold = promotion_threshold
         self.base_params = base_params or dict(DEFAULT_CELL_PARAMS)
         self.seed = seed
+        self.sidecar = sidecar  # Optional PyBaMMSidecar or MockPyBaMMSidecar
 
     def run(self, run_id: str = "") -> BatteryLoopResult:
         """Execute one full optimization loop iteration."""
@@ -1094,6 +1104,8 @@ class BatteryOptimizationLoop:
         ]
         scorable.sort(key=lambda r: r.evaluation.final_score, reverse=True)
 
+        # Collect candidates that pass all ECM gates (threshold + stress + regime)
+        qualifying: list[BatteryCandidateResult] = []
         best = None
         alternate = None
         promoted_count = 0
@@ -1116,39 +1128,7 @@ class BatteryOptimizationLoop:
                         regime_ok = False
 
             if passes_threshold and stress_ok and regime_ok:
-                if best is None:
-                    best = r
-                    r.decision = PromotionDecision.PROMOTED
-                    r.candidate.status = CandidateStatus.PROMOTED
-                    r.candidate.rejection_reason = ""
-                    self.repo.save_domain_candidate(r.candidate)
-                    promoted_count += 1
-                    r.promotion_caveats = generate_candidate_caveats(
-                        r.candidate, r.evaluation, baseline_metrics,
-                        r.experiment_metrics, r.robustness_profile,
-                    )
-                elif (
-                    alternate is None
-                    and r.evaluation.final_score >= self.promotion_threshold - ALTERNATE_MARGIN
-                    and r.candidate.family != best.candidate.family
-                ):
-                    alternate = r
-                    r.decision = PromotionDecision.DEFERRED
-                    r.candidate.status = CandidateStatus.EVALUATED
-                    r.candidate.rejection_reason = "Alternate: near threshold but not best"
-                    self.repo.save_domain_candidate(r.candidate)
-                    r.promotion_caveats = generate_candidate_caveats(
-                        r.candidate, r.evaluation, baseline_metrics,
-                        r.experiment_metrics, r.robustness_profile,
-                    )
-                else:
-                    r.decision = PromotionDecision.REJECTED
-                    r.candidate.status = CandidateStatus.REJECTED
-                    r.candidate.rejection_reason = generate_rejection_reason(
-                        r.candidate, r.evaluation, self.promotion_threshold,
-                        r.robustness_profile,
-                    )
-                    self.repo.save_domain_candidate(r.candidate)
+                qualifying.append(r)
             elif passes_threshold and not stress_ok:
                 # Above threshold but stress-fragile — reject with explicit reason
                 r.decision = PromotionDecision.REJECTED
@@ -1173,6 +1153,43 @@ class BatteryOptimizationLoop:
                     "gains disappear outside one operating regime"
                 )
                 self.repo.save_domain_candidate(r.candidate)
+
+        # Sidecar-verified promotion: verify top-2 qualifying candidates,
+        # promote first survivor
+        best = self._finalize_promotion_with_sidecar(qualifying, baseline_metrics)
+        if best is not None:
+            promoted_count = 1
+            # Select alternate from remaining qualifying candidates
+            for r in qualifying:
+                if r is best:
+                    continue
+                if (
+                    alternate is None
+                    and r.evaluation.final_score >= self.promotion_threshold - ALTERNATE_MARGIN
+                    and r.candidate.family != best.candidate.family
+                ):
+                    alternate = r
+                    r.decision = PromotionDecision.DEFERRED
+                    r.candidate.status = CandidateStatus.EVALUATED
+                    r.candidate.rejection_reason = "Alternate: near threshold but not best"
+                    self.repo.save_domain_candidate(r.candidate)
+                    r.promotion_caveats = generate_candidate_caveats(
+                        r.candidate, r.evaluation, baseline_metrics,
+                        r.experiment_metrics, r.robustness_profile,
+                    )
+                    break
+
+        # Reject remaining qualifying candidates that were not promoted or alternated
+        for r in qualifying:
+            if r is best or r is alternate:
+                continue
+            r.decision = PromotionDecision.REJECTED
+            r.candidate.status = CandidateStatus.REJECTED
+            r.candidate.rejection_reason = generate_rejection_reason(
+                r.candidate, r.evaluation, self.promotion_threshold,
+                r.robustness_profile,
+            )
+            self.repo.save_domain_candidate(r.candidate)
 
         return BatteryLoopResult(
             run_id=run_id,
@@ -1300,6 +1317,128 @@ class BatteryOptimizationLoop:
             experiment_metrics=cycle_result.metrics,
             robustness_profile=robustness,
         )
+
+    # ── Sidecar verification hooks ──────────────────────────────────────
+
+    def _verify_with_sidecar(
+        self,
+        candidate: CandidateSpec,
+        ecm_metrics: dict,
+        robustness_profile: Optional[dict] = None,
+    ) -> PyBaMMSidecarResult:
+        """Send candidate to sidecar for DFN verification.
+
+        Returns PyBaMMSidecarResult with status. If sidecar is None or
+        unavailable, returns UNAVAILABLE status.
+        """
+        if self.sidecar is None:
+            return PyBaMMSidecarResult(
+                candidate_id=candidate.id,
+                status=SidecarStatus.UNAVAILABLE,
+                ecm_metrics=ecm_metrics,
+                error_message="No sidecar configured",
+            )
+        if not self.sidecar.is_available():
+            return PyBaMMSidecarResult(
+                candidate_id=candidate.id,
+                status=SidecarStatus.UNAVAILABLE,
+                ecm_metrics=ecm_metrics,
+                error_message="Sidecar not available",
+            )
+        return self.sidecar.verify_candidate(
+            candidate_id=candidate.id,
+            ecm_params=candidate.parameters,
+            ecm_metrics=ecm_metrics,
+        )
+
+    def _apply_sidecar_verdict(
+        self,
+        result: BatteryCandidateResult,
+        sidecar_result: PyBaMMSidecarResult,
+    ) -> bool:
+        """Apply concordance gate to a candidate.
+
+        Returns True if candidate survives (should be promoted), False if vetoed.
+
+        Decision logic by sidecar status:
+        - SUCCESS + concordance >= 0.30 → survives (with caveat if < 0.60)
+        - SUCCESS + concordance < 0.30  → vetoed
+        - UNAVAILABLE                   → survives (ECM-only, no caveat)
+        - ERROR                         → survives with caveat
+        - INVALID                       → vetoed
+        """
+        result.sidecar_result = sidecar_result
+
+        if sidecar_result.status == SidecarStatus.UNAVAILABLE:
+            return True  # ECM-only path
+
+        if sidecar_result.status == SidecarStatus.ERROR:
+            result.promotion_caveats.append(
+                f"Sidecar verification failed: {sidecar_result.error_message} "
+                "— ECM-only promotion"
+            )
+            return True  # survives with caveat
+
+        if sidecar_result.status == SidecarStatus.INVALID:
+            return False  # vetoed
+
+        # SUCCESS path — apply concordance gate
+        conc = sidecar_result.concordance_score
+        if conc < CONCORDANCE_VETO_THRESHOLD:
+            return False  # vetoed
+        if conc < CONCORDANCE_CONFIRM_THRESHOLD:
+            result.promotion_caveats.append(
+                f"Low PyBaMM concordance ({conc:.2f}) — "
+                "ECM results may not hold under higher-fidelity modeling"
+            )
+        return True  # survives
+
+    def _finalize_promotion_with_sidecar(
+        self,
+        qualifying: list[BatteryCandidateResult],
+        baseline_metrics: dict,
+    ) -> Optional[BatteryCandidateResult]:
+        """Verify top-2 qualifying candidates through sidecar. Return first survivor.
+
+        If sidecar is None or unavailable, falls through to current behavior
+        (first qualifying candidate promoted).
+        """
+        # Take top 2 by ECM score
+        top_n = qualifying[:2]
+
+        for r in top_n:
+            # Sidecar verification
+            sidecar_result = self._verify_with_sidecar(
+                r.candidate, r.experiment_metrics, r.robustness_profile,
+            )
+            survives = self._apply_sidecar_verdict(r, sidecar_result)
+
+            if survives:
+                r.decision = PromotionDecision.PROMOTED
+                r.candidate.status = CandidateStatus.PROMOTED
+                r.candidate.rejection_reason = ""
+                self.repo.save_domain_candidate(r.candidate)
+                r.promotion_caveats = (r.promotion_caveats or []) + generate_candidate_caveats(
+                    r.candidate, r.evaluation, baseline_metrics,
+                    r.experiment_metrics, r.robustness_profile,
+                )
+                return r
+            else:
+                # Vetoed by sidecar
+                conc = sidecar_result.concordance_score
+                r.decision = PromotionDecision.REJECTED
+                r.candidate.status = CandidateStatus.REJECTED
+                r.candidate.rejection_reason = (
+                    f"Sidecar veto: PyBaMM concordance {conc:.2f} "
+                    f"below {CONCORDANCE_VETO_THRESHOLD} threshold"
+                    if sidecar_result.status == SidecarStatus.SUCCESS
+                    else f"Sidecar veto ({sidecar_result.status.value}): {sidecar_result.error_message}"
+                )
+                self.repo.save_domain_candidate(r.candidate)
+
+        return None  # No candidate survived
+
+    # ── Memory persistence ───────────────────────────────────────────────
 
     def _persist_memory(
         self,
@@ -1597,5 +1736,15 @@ def run_battery_benchmark(
         }
         report["caveats"] = bp.promotion_caveats
         report["promotion_decision"] = "promoted"
+
+        # Sidecar verification summary (additive, not in BENCHMARK_REPORT_REQUIRED_KEYS)
+        if bp.sidecar_result is not None:
+            report["sidecar_verification"] = {
+                "status": bp.sidecar_result.status.value,
+                "concordance_score": bp.sidecar_result.concordance_score,
+                "pybamm_parameter_set": bp.sidecar_result.pybamm_parameter_set,
+                "concordance_details": bp.sidecar_result.concordance_details,
+                "duration_seconds": bp.sidecar_result.duration_seconds,
+            }
 
     return report

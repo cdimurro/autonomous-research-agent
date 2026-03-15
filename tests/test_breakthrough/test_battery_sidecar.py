@@ -355,3 +355,192 @@ class TestConcordanceGateSemantics:
     def test_boundary_060_is_confirmed(self):
         """Score of exactly 0.60 should be confirmed (>= threshold)."""
         assert 0.60 >= CONCORDANCE_CONFIRM_THRESHOLD
+
+
+# ── Integration: sidecar hooks on BatteryOptimizationLoop ─────────────────
+
+class TestSidecarLoopIntegration:
+    """Integration tests using mock sidecar with the battery loop hooks."""
+
+    @pytest.fixture
+    def repo(self):
+        from breakthrough_engine.db import Repository, init_db
+        db = init_db(in_memory=True)
+        return Repository(db)
+
+    @pytest.fixture
+    def loop_with_mock_sidecar(self, repo):
+        from breakthrough_engine.battery_loop import BatteryOptimizationLoop
+        mock = MockPyBaMMSidecar(seed=42)
+        return BatteryOptimizationLoop(
+            repo, n_candidates=3, seed=42, sidecar=mock,
+        )
+
+    @pytest.fixture
+    def loop_without_sidecar(self, repo):
+        from breakthrough_engine.battery_loop import BatteryOptimizationLoop
+        return BatteryOptimizationLoop(
+            repo, n_candidates=3, seed=42,
+        )
+
+    def test_loop_runs_with_mock_sidecar(self, loop_with_mock_sidecar):
+        """Full loop with mock sidecar completes without error."""
+        result = loop_with_mock_sidecar.run(run_id="test_sidecar")
+        assert result.total_candidates == 3
+        # Should have some promoted or rejected — no crashes
+        # alternate (deferred) doesn't count as rejected
+        alternate_count = 1 if result.alternate else 0
+        assert result.promoted_count + result.rejected_count + result.hard_fail_count + alternate_count == 3
+
+    def test_loop_runs_without_sidecar(self, loop_without_sidecar):
+        """Full loop without sidecar (ECM-only) completes as before."""
+        result = loop_without_sidecar.run(run_id="test_no_sidecar")
+        assert result.total_candidates == 3
+
+    def test_sidecar_none_is_ecm_only(self, loop_without_sidecar):
+        """When sidecar is None, verify_with_sidecar returns UNAVAILABLE."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy_candidate = CandidateSpec(
+            domain_name="battery_ecm",
+            title="test", description="test", family="test",
+            parameters=DEFAULT_ECM_PARAMS, rationale="test",
+            run_id="test",
+        )
+        sr = loop_without_sidecar._verify_with_sidecar(
+            dummy_candidate, DEFAULT_ECM_METRICS,
+        )
+        assert sr.status == SidecarStatus.UNAVAILABLE
+
+    def test_sidecar_result_attached_to_promoted(self, loop_with_mock_sidecar):
+        """Promoted candidate should have sidecar_result attached."""
+        result = loop_with_mock_sidecar.run(run_id="test_attach")
+        if result.best_promoted:
+            assert result.best_promoted.sidecar_result is not None
+            assert result.best_promoted.sidecar_result.status == SidecarStatus.SUCCESS
+
+    def test_apply_verdict_survives_unavailable(self, loop_without_sidecar):
+        """UNAVAILABLE status means candidate survives (ECM-only)."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy = BatteryCandidateResult(
+            candidate=CandidateSpec(
+                domain_name="battery_ecm", title="t", description="d",
+                family="f", parameters={}, rationale="r", run_id="r",
+            ),
+            evaluation=EvaluationResult(
+                candidate_id="x", domain_name="battery_ecm",
+                final_score=0.7, score_components={},
+            ),
+            decision=PromotionDecision.PROMOTED,
+            experiment_metrics=DEFAULT_ECM_METRICS,
+        )
+        unavail = PyBaMMSidecarResult(
+            candidate_id="x", status=SidecarStatus.UNAVAILABLE,
+        )
+        assert loop_without_sidecar._apply_sidecar_verdict(dummy, unavail) is True
+
+    def test_apply_verdict_vetoes_low_concordance(self, loop_with_mock_sidecar):
+        """SUCCESS + concordance < 0.30 means veto."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy = BatteryCandidateResult(
+            candidate=CandidateSpec(
+                domain_name="battery_ecm", title="t", description="d",
+                family="f", parameters={}, rationale="r", run_id="r",
+            ),
+            evaluation=EvaluationResult(
+                candidate_id="x", domain_name="battery_ecm",
+                final_score=0.7, score_components={},
+            ),
+            decision=PromotionDecision.PROMOTED,
+            experiment_metrics=DEFAULT_ECM_METRICS,
+        )
+        veto_result = PyBaMMSidecarResult(
+            candidate_id="x", status=SidecarStatus.SUCCESS,
+            concordance_score=0.15, success=True,
+        )
+        assert loop_with_mock_sidecar._apply_sidecar_verdict(dummy, veto_result) is False
+
+    def test_apply_verdict_adds_caveat_for_low_concordance(self, loop_with_mock_sidecar):
+        """SUCCESS + 0.30 <= concordance < 0.60 adds caveat but survives."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy = BatteryCandidateResult(
+            candidate=CandidateSpec(
+                domain_name="battery_ecm", title="t", description="d",
+                family="f", parameters={}, rationale="r", run_id="r",
+            ),
+            evaluation=EvaluationResult(
+                candidate_id="x", domain_name="battery_ecm",
+                final_score=0.7, score_components={},
+            ),
+            decision=PromotionDecision.PROMOTED,
+            experiment_metrics=DEFAULT_ECM_METRICS,
+        )
+        caveat_result = PyBaMMSidecarResult(
+            candidate_id="x", status=SidecarStatus.SUCCESS,
+            concordance_score=0.45, success=True,
+        )
+        assert loop_with_mock_sidecar._apply_sidecar_verdict(dummy, caveat_result) is True
+        assert any("concordance" in c.lower() for c in dummy.promotion_caveats)
+
+    def test_apply_verdict_vetoes_invalid(self, loop_with_mock_sidecar):
+        """INVALID status means veto."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy = BatteryCandidateResult(
+            candidate=CandidateSpec(
+                domain_name="battery_ecm", title="t", description="d",
+                family="f", parameters={}, rationale="r", run_id="r",
+            ),
+            evaluation=EvaluationResult(
+                candidate_id="x", domain_name="battery_ecm",
+                final_score=0.7, score_components={},
+            ),
+            decision=PromotionDecision.PROMOTED,
+            experiment_metrics=DEFAULT_ECM_METRICS,
+        )
+        invalid_result = PyBaMMSidecarResult(
+            candidate_id="x", status=SidecarStatus.INVALID,
+            error_message="bad physics",
+        )
+        assert loop_with_mock_sidecar._apply_sidecar_verdict(dummy, invalid_result) is False
+
+    def test_apply_verdict_error_adds_caveat(self, loop_with_mock_sidecar):
+        """ERROR status adds caveat but survives."""
+        from breakthrough_engine.battery_loop import BatteryCandidateResult
+        from breakthrough_engine.domain_models import CandidateSpec, EvaluationResult, PromotionDecision
+
+        dummy = BatteryCandidateResult(
+            candidate=CandidateSpec(
+                domain_name="battery_ecm", title="t", description="d",
+                family="f", parameters={}, rationale="r", run_id="r",
+            ),
+            evaluation=EvaluationResult(
+                candidate_id="x", domain_name="battery_ecm",
+                final_score=0.7, score_components={},
+            ),
+            decision=PromotionDecision.PROMOTED,
+            experiment_metrics=DEFAULT_ECM_METRICS,
+        )
+        error_result = PyBaMMSidecarResult(
+            candidate_id="x", status=SidecarStatus.ERROR,
+            error_message="timeout",
+        )
+        assert loop_with_mock_sidecar._apply_sidecar_verdict(dummy, error_result) is True
+        assert any("sidecar" in c.lower() for c in dummy.promotion_caveats)
+
+    def test_benchmark_deterministic_without_sidecar(self, repo):
+        """Existing benchmark (no sidecar) is deterministic."""
+        from breakthrough_engine.battery_loop import run_battery_benchmark
+        r1 = run_battery_benchmark(repo, n_candidates=3, seed=42)
+        r2 = run_battery_benchmark(repo, n_candidates=3, seed=42)
+        assert r1["promotion_decision"] == r2["promotion_decision"]
+        if r1["best_candidate"]:
+            assert r1["best_candidate"]["score"] == r2["best_candidate"]["score"]
