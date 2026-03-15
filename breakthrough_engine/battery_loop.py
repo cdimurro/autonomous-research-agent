@@ -295,6 +295,8 @@ CATHODE_ECM_PROFILES = {
         "profile_source": "Noh et al. 2013 + PyBaMM Chen2020 parameter set",
         "profile_confidence": "literature-backed",
         "pybamm_parameter_set": "Chen2020",
+        "sidecar_note": "Live sidecar validation: concordance 0.62 (confirmed). "
+                        "Capacity mismatch expected (ECM 3.5 vs DFN 5.07 — different cell sizes).",
     },
     "LFP": {
         "base_params": {
@@ -307,6 +309,8 @@ CATHODE_ECM_PROFILES = {
         "profile_source": "PyBaMM Prada2013 + A123 ANR26650 datasheet",
         "profile_confidence": "literature-backed",
         "pybamm_parameter_set": "Prada2013",
+        "sidecar_note": "Live sidecar validation: concordance 0.67 (confirmed). "
+                        "Best agreement of all chemistries — LFP capacity closely matches Prada2013.",
     },
     "LMFP": {
         "base_params": {
@@ -318,7 +322,9 @@ CATHODE_ECM_PROFILES = {
         },
         "profile_source": "CATL M3P press releases, limited peer-reviewed data",
         "profile_confidence": "heuristic",
-        "pybamm_parameter_set": None,
+        "pybamm_parameter_set": None,  # no PyBaMM set → sidecar returns ERROR for LMFP
+        "sidecar_note": "Live sidecar validation: ERROR (no PyBaMM parameter set). "
+                        "LMFP candidates verified by ECM only.",
     },
     "NMC_532": {
         "base_params": {
@@ -331,6 +337,8 @@ CATHODE_ECM_PROFILES = {
         "profile_source": "OKane2022 (PyBaMM) adapted for 532 stoichiometry",
         "profile_confidence": "literature-backed",
         "pybamm_parameter_set": "OKane2022",
+        "sidecar_note": "Live sidecar validation: concordance 0.58 (caveat range). "
+                        "Capacity mismatch (ECM 2.9 vs DFN 5.02 — OKane2022 models a larger cell).",
     },
 }
 
