@@ -296,6 +296,16 @@ EXPERIMENT_TEMPLATES = {
         parameters={"c_rate": 3.0, "temperature": 25.0, "n_cycles": 30},
         expected_duration_seconds=12.0,
     ),
+    "cathode_thermal_stability": ExperimentTemplate(
+        domain_name="battery_ecm",
+        name="cathode_thermal_stability",
+        description="15-cycle aging at 2C charge/discharge at 55C, testing cathode "
+                    "thermal stability under combined high-rate and high-temperature "
+                    "stress. Targets high-Ni cathode failure mode (structural "
+                    "transformation, oxygen release, accelerated SEI growth)",
+        parameters={"c_rate": 2.0, "temperature": 55.0, "n_cycles": 15},
+        expected_duration_seconds=6.0,
+    ),
 }
 
 
@@ -527,7 +537,7 @@ def run_experiment(
                 "n_cycles": n_cycles,
             }]
 
-        elif template_name in ("fast_charge_stress", "thermal_stress_aging"):
+        elif template_name in ("fast_charge_stress", "thermal_stress_aging", "cathode_thermal_stability"):
             # Shared logic: cycle aging under stress conditions
             n_cycles = params.get("n_cycles", 20)
             stress_c_rate = params.get("c_rate", 2.0)

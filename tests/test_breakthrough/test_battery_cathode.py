@@ -9,13 +9,16 @@ import pytest
 
 from breakthrough_engine.battery_domain import (
     DEFAULT_CELL_PARAMS,
+    EXPERIMENT_TEMPLATES,
     check_physical_plausibility,
+    run_experiment,
 )
 from breakthrough_engine.battery_loop import (
     CANDIDATE_FAMILIES,
     CATHODE_ECM_PROFILES,
     PARAM_RANGES,
     _check_cross_parameter_plausibility,
+    compute_robustness_profile,
     generate_battery_candidates,
 )
 
@@ -247,3 +250,57 @@ class TestBenchmarkRegression:
         """n=3 should work without errors."""
         candidates = generate_battery_candidates(n_candidates=3, seed=42)
         assert len(candidates) == 3
+
+
+# ── Cathode thermal stability experiment template ─────────────────────────
+
+class TestCathodeThermalTemplate:
+    def test_template_exists(self):
+        assert "cathode_thermal_stability" in EXPERIMENT_TEMPLATES
+
+    def test_template_params(self):
+        t = EXPERIMENT_TEMPLATES["cathode_thermal_stability"]
+        assert t.parameters["c_rate"] == 2.0
+        assert t.parameters["temperature"] == 55.0
+        assert t.parameters["n_cycles"] == 15
+
+    def test_template_runs_on_default_cell(self):
+        result = run_experiment("cathode_thermal_stability", DEFAULT_CELL_PARAMS)
+        assert result.success
+        assert result.metrics.get("capacity_retention") is not None
+
+    def test_template_runs_on_lfp_profile(self):
+        result = run_experiment("cathode_thermal_stability", CATHODE_ECM_PROFILES["LFP"]["base_params"])
+        assert result.success
+
+    def test_template_runs_on_nmc811_profile(self):
+        result = run_experiment("cathode_thermal_stability", CATHODE_ECM_PROFILES["NMC_811"]["base_params"])
+        assert result.success
+
+    def test_nmc811_degrades_more_than_lfp(self):
+        """NMC-811 should show worse retention than LFP under thermal stress."""
+        nmc = run_experiment("cathode_thermal_stability", CATHODE_ECM_PROFILES["NMC_811"]["base_params"])
+        lfp = run_experiment("cathode_thermal_stability", CATHODE_ECM_PROFILES["LFP"]["base_params"])
+        nmc_ret = nmc.metrics.get("capacity_retention", 100)
+        lfp_ret = lfp.metrics.get("capacity_retention", 100)
+        # NMC-811 has higher fade rate, so should retain less
+        assert nmc_ret <= lfp_ret, f"NMC-811 retention ({nmc_ret}) should be <= LFP ({lfp_ret})"
+
+
+# ── Robustness profile with cathode thermal ───────────────────────────────
+
+class TestRobustnessProfileCathode:
+    def test_robustness_includes_cathode_thermal_keys(self):
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
+        rp = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
+        assert "cathode_thermal_retention" in rp
+        assert "cathode_thermal_fade_rate" in rp
+        assert "cathode_thermal_penalty_pct" in rp
+
+    def test_cathode_thermal_affects_worst_stress_retention(self):
+        """Worst stress retention should consider cathode thermal template."""
+        baseline = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
+        rp = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
+        ct_ret = rp["cathode_thermal_retention"]
+        worst = rp["worst_stress_retention"]
+        assert worst <= ct_ret  # worst is min of all, so always <= each component

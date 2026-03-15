@@ -729,6 +729,9 @@ def compute_robustness_profile(
     # Thermal stress aging (CC-BE-2417)
     thermal_stress_result = run_experiment("thermal_stress_aging", cell_params)
 
+    # Cathode thermal stability (2C/55C, 15 cycles)
+    cathode_thermal_result = run_experiment("cathode_thermal_stability", cell_params)
+
     all_caps = []
     for r in crate_data + thermal_data:
         if r.get("success", True) and r.get("discharge_capacity", 0) > 0:
@@ -748,6 +751,9 @@ def compute_robustness_profile(
             "resistance_growth_pct": 0.0,
             "thermal_stress_fade_rate": 0.0,
             "thermal_stress_penalty_pct": 0.0,
+            "cathode_thermal_retention": 100.0,
+            "cathode_thermal_fade_rate": 0.0,
+            "cathode_thermal_penalty_pct": 0.0,
             "worst_stress_retention": 100.0,
             "sweep_data": [],
         }
@@ -778,10 +784,15 @@ def compute_robustness_profile(
     ts_penalty = thermal_stress_result.metrics.get("stress_penalty_pct", 0.0)
     ts_retention = thermal_stress_result.metrics.get("capacity_retention", 100.0)
 
-    # Worst-case retention across all stress scenarios (including 3C stress)
+    # Cathode thermal stability metrics (2C/55C, 15 cycles)
+    ct_retention = cathode_thermal_result.metrics.get("capacity_retention", 100.0)
+    ct_fade = cathode_thermal_result.metrics.get("stress_fade_rate", 0.0)
+    ct_penalty = cathode_thermal_result.metrics.get("stress_penalty_pct", 0.0)
+
+    # Worst-case retention across all stress scenarios (including 3C stress + cathode thermal)
     standard_retention = aging_result.metrics.get("capacity_retention", 100.0)
     worst_stress_retention = min(
-        standard_retention, fc_retention, ts_retention, rfc_retention,
+        standard_retention, fc_retention, ts_retention, rfc_retention, ct_retention,
     )
 
     return {
@@ -797,6 +808,9 @@ def compute_robustness_profile(
         "resistance_growth_pct": round(rfc_r_growth, 4),
         "thermal_stress_fade_rate": round(ts_fade, 4),
         "thermal_stress_penalty_pct": round(ts_penalty, 4),
+        "cathode_thermal_retention": round(ct_retention, 4),
+        "cathode_thermal_fade_rate": round(ct_fade, 4),
+        "cathode_thermal_penalty_pct": round(ct_penalty, 4),
         "worst_stress_retention": round(worst_stress_retention, 4),
         "sweep_data": crate_data + thermal_data,
     }
@@ -1509,10 +1523,24 @@ class BatteryOptimizationLoop:
                 ecm_metrics=ecm_metrics,
                 error_message="Sidecar not available",
             )
+        # Resolve chemistry and PyBaMM parameter set for cathode candidates
+        chemistry = None
+        pybamm_param_set = None
+        family = candidate.family
+        if family:
+            family_def = next((f for f in CANDIDATE_FAMILIES if f["family"] == family), None)
+            if family_def and "chemistry" in family_def:
+                chem_key = family_def["chemistry"]
+                chemistry = chem_key
+                profile = CATHODE_ECM_PROFILES.get(chem_key, {})
+                pybamm_param_set = profile.get("pybamm_parameter_set")
+
         return self.sidecar.verify_candidate(
             candidate_id=candidate.id,
             ecm_params=candidate.parameters,
             ecm_metrics=ecm_metrics,
+            chemistry=chemistry,
+            pybamm_parameter_set=pybamm_param_set,
         )
 
     def _apply_sidecar_verdict(
