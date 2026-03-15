@@ -542,15 +542,17 @@ The least valuable batch types are:
 ### Now
 - stable broad engine (orchestrator, campaigns, policies, KG retrieval)
 - PV benchmark (complete)
-- battery benchmark v2 (complete, fast-charge and degradation-aware)
+- battery benchmark v2 with PyBaMM sidecar + cathode-focused search (complete)
 - unified benchmark/report contract
 - memory-guided narrow-domain loops
+- **Battery Decision Brief** — first human-facing product artifact
+- **Battery review workflow** — minimal backend review states + CLI
 
 ### Next
-- richer battery solver verification sidecar
-- stronger fast-charge relevance
-- future cathode-focused candidate layer (see `docs/BATTERY_V2_FORWARD_BRIDGE.md`)
+- live PyBaMM sidecar validation (stability checkpoint with real .venv-pybamm)
+- battery evaluation matrix sweep on real infrastructure
 - DC-DC as domain 3
+- Battery Decision Brief rendering in a user-facing interface
 
 ### Later
 - additional energy domains selectively
@@ -591,6 +593,42 @@ The least valuable batch types are:
 - Implementation Safety Harness: `scripts/impl_session.py`, `docs/IMPLEMENTATION_SAFETY_HARNESS.md`
 - Session artifacts: `runtime/sessions/` (gitignored)
 - Pre-commit hook: `.githooks/pre-commit`
+- Battery Decision Brief: `breakthrough_engine/battery_decision_brief.py`
+- Battery review workflow: `breakthrough_engine/battery_review.py`
+- Battery evaluation matrix: `breakthrough_engine/battery_eval_matrix.py`
+- Battery value report: `breakthrough_engine/battery_value_report.py`
+
+---
+
+## Product Artifacts
+
+The system produces two layers of output:
+
+### Backend engine artifacts (machine-grade)
+- Benchmark reports (JSON, deterministic, seed-reproducible)
+- Candidate breakdowns, score components, stress profiles
+- Memory entries (idea + experiment)
+- Promotion records
+
+### Human-facing product artifacts
+- **Battery Decision Brief** — structured artifact translating promoted
+  candidate results into human-readable format with headline, score summary,
+  fast-charge behavior, degradation summary, sidecar verification status,
+  caveats, and recommended next action. Pydantic schema in
+  `battery_decision_brief.py`.
+- **Battery review workflow** — minimal review states (awaiting_review,
+  approved_for_validation, rejected_by_operator, needs_more_analysis,
+  exported) with CLI commands (briefs, inspect, review, export).
+  File-based persistence in `runtime/battery_briefs/`.
+- **Battery evaluation matrix** — formal comparison across architecture
+  modes (ECM-only, sidecar, cathode, full V2) with cross-mode winner
+  change detection.
+- **Battery value report** — decision-grade assessment of whether sidecar
+  and cathode families improve outcomes.
+
+Human-facing artifacts are designed to be renderable in a future UI but
+do not require one. They are structured JSON artifacts with both
+machine-readable fields and human-readable summaries.
 
 ---
 

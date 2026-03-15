@@ -83,6 +83,12 @@ python -m breakthrough_engine battery run [--candidates N] [--threshold T] [--se
 python -m breakthrough_engine battery dry-run [--candidates N] [--seed S]
 python -m breakthrough_engine battery status
 python -m breakthrough_engine battery memory
+
+# Battery review workflow
+python -m breakthrough_engine battery briefs              # list decision briefs
+python -m breakthrough_engine battery inspect <brief_id>  # inspect a brief
+python -m breakthrough_engine battery review <brief_id> --state approved_for_validation --notes "..."
+python -m breakthrough_engine battery export <brief_id>   # export for external use
 ```
 
 ## Invariants
