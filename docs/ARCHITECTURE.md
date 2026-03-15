@@ -52,16 +52,18 @@ The engine is being extended with narrow, measurable domain-specific optimizatio
 
 | Priority | Domain | Status | Why |
 |----------|--------|--------|-----|
-| 1 | **PV I-V Characterization** | **In Progress** | Clear metrics (Voc, Isc, FF, efficiency), cheap simulation via pvlib, strong clean-energy relevance |
-| 2 | Battery Characterization | Planned | Natural extension — similar loop structure, different physics |
+| 1 | **PV I-V Characterization** | **Stable (benchmark)** | Clear metrics (Voc, Isc, FF, efficiency), cheap simulation via pvlib, strong clean-energy relevance |
+| 2 | **Battery ECM + Cycle** | **Active** | Equivalent-circuit and cycle characterization — same loop pattern, energy-storage physics |
 | 3 | DC-DC Converter Optimization | Planned | Power electronics — different candidate space, same loop pattern |
 
 ### What Is Intentionally Deferred
 
-- **Omniverse integration** — Deferred until higher-fidelity validation is justified. Interface placeholders exist (`simulator.py`) but no active development.
-- **Web UI / Project Zero integration** — The engine produces auditable artifacts (JSON, SQLite, Markdown) that a future UI can consume. No UI work in this batch.
-- **Multi-domain breadth** — Focus is narrowing to PV first, not broadening. Battery and DC-DC come after PV loop is proven.
-- **Paper-generation polish** — The publication system exists but PV loop output is scientific data, not papers.
+- **Atomistic materials discovery** — No cathode chemistry invention. Battery v1 operates at the equivalent-circuit / cycle-characterization level.
+- **Pack-scale thermal twins** — No multi-cell thermal simulation. Single-cell characterization only.
+- **Omniverse integration** — Deferred until higher-fidelity validation is justified.
+- **Web UI / Project Zero integration** — The engine produces auditable artifacts (JSON, SQLite, Markdown) that a future UI can consume.
+- **DC-DC domain** — Comes after battery loop is proven.
+- **Paper-generation polish** — The publication system exists but domain loop output is scientific data, not papers.
 
 ## Contract Layer Architecture
 
@@ -81,30 +83,38 @@ ExperimentMemoryEntry — "What experiment data was informative?"
 
 These contracts are Pydantic models, stored in SQLite, and designed to be auditable. They do not replace the existing broad-domain pipeline — they extend it with a domain-specific experiment layer.
 
-## How PV Loop Fits Into Existing Architecture
+## How Domain Loops Fit Into Existing Architecture
 
 ```
 Existing Pipeline (preserved):
   Evidence → Generate → Gate → Score → Publish
 
-PV Loop (new, additive):
-  PV DomainSpec → PV CandidateGenerator → PV ExperimentRunner (pvlib)
-    → PV MetricExtractor → PV Scorer → Promote/Reject
+Domain Loops (additive, per-domain):
+  DomainSpec → CandidateGenerator → ExperimentRunner
+    → MetricExtractor → Scorer → Promote/Reject
     → IdeaMemory + ExperimentMemory persistence
 
+PV Loop (benchmark domain):
+  pvlib single-diode model → STC + sweep experiments → Pmax/FF/efficiency scoring
+
+Battery Loop (active domain):
+  Thevenin ECM + capacity-fade model → charge/discharge + cycle aging + C-rate sweep
+  → capacity retention / coulombic efficiency / resistance / fade scoring
+
 Integration point:
-  New research program (config/research_programs/pv_iv.yaml)
-  New daily profile (config/daily_profiles/pv_evaluation.yaml)
-  Runnable via existing CLI: python -m breakthrough_engine daily run pv_evaluation
+  Research programs:  config/research_programs/{pv_iv,battery_ecm}.yaml
+  Daily profiles:     config/daily_profiles/{pv_evaluation,battery_evaluation}.yaml
+  CLI:                python -m breakthrough_engine {pv,battery} {run,benchmark,...}
 ```
 
-The PV loop runs as a new research program alongside the existing clean-energy program. It does not replace or destabilize the current production path.
+Domain loops run as research programs alongside the existing clean-energy program. They do not replace or destabilize the current production path.
 
 ## Data Sources
 
 ### Production (no API key required)
 - `pvlib` — PV modeling/simulation library (STC conditions, I-V curves, temperature/irradiance sweeps)
 - Built-in PV parameter datasets (CEC module database via pvlib)
+- `numpy` / `scipy` — Battery equivalent-circuit model (Thevenin ECM + capacity-fade simulation)
 - Offline fixtures for testing
 
 ### Optional (API key, disabled by default)
@@ -117,6 +127,7 @@ The PV loop runs as a new research program alongside the existing clean-energy p
 2. Champion-only for production automation (preserved)
 3. All tests offline-safe (preserved)
 4. Existing graph-native retrieval path unchanged
-5. PV experiments are fixed and comparable across runs
-6. All PV candidates scored against explicit physics-based metrics
+5. Domain experiments are fixed and comparable across runs
+6. All candidates scored against explicit physics-based metrics
 7. Hard-fail gates reject unphysical parameter combinations
+8. Each domain loop is self-contained: its own metrics, families, scoring, memory

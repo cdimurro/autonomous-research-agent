@@ -60,6 +60,9 @@
 - Phase 9: [9 Plan](BREAKTHROUGH_ENGINE_PHASE9_PLAN.md), [9B Promotion](BREAKTHROUGH_ENGINE_PHASE9B_PROMOTION_DECISION.md), [9D Results](BREAKTHROUGH_ENGINE_PHASE9D_RESULTS.md), [9E Rollback Guardrails](BREAKTHROUGH_ENGINE_PHASE9E_ROLLBACK_GUARDRAILS.md), [9F Status](BREAKTHROUGH_ENGINE_PHASE9F_STATUS.md)
 - Phase 10: [10A-K] See individual phase docs (PHASE10*.md)
 
+## Domain Loops
+- [Battery ECM Domain](BREAKTHROUGH_ENGINE_BATTERY_DOMAIN.md) — Battery equivalent-circuit and cycle characterization (v1)
+
 ## Integration (Deferred)
 - [Omniverse Integration](BREAKTHROUGH_ENGINE_OMNIVERSE_INTEGRATION.md) — Deferred
 - [GSD Integration](BREAKTHROUGH_ENGINE_GSD_INTEGRATION.md) — Deferred
