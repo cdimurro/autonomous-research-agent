@@ -40,15 +40,26 @@ Replace empirical fade model with physics-based degradation:
 parameters. Current empirical model is sufficient for candidate ranking
 and is more interpretable.
 
-### 4. PyBaMM Integration (Conditional)
+### 4. PyBaMM Sidecar Integration — IMPLEMENTED
 
-If Python 3.14 compatibility is resolved, PyBaMM could provide:
-- DFN (Doyle-Fuller-Newman) electrochemical model
-- Validated parameterization for common cell chemistries
-- More physically meaningful fast-charge and degradation behavior
+PyBaMM DFN verification runs as an isolated sidecar in a separate Python 3.12
+venv (`.venv-pybamm/`), communicating via JSON-over-subprocess. The main engine
+(Python 3.14) never imports PyBaMM.
 
-**Why deferred:** Python 3.14 compatibility is a blocker. Do not force
-this dependency.
+**Architecture:**
+- `breakthrough_engine/battery_sidecar.py` — adapter, mock, ECM-to-DFN mapping, concordance
+- `battery_sidecar/pybamm_runner.py` — subprocess entry point
+- Top-2 qualifying candidates verified through sidecar before promotion
+- Concordance gate: `< 0.30` veto, `0.30–0.60` caveat, `> 0.60` confirmed
+- Four result states: SUCCESS, UNAVAILABLE, ERROR, INVALID
+- `MockPyBaMMSidecar` for offline-safe benchmarks
+- CLI flags: `--no-sidecar`, `--mock-sidecar`
+
+**Setup:**
+```bash
+python3.12 -m venv .venv-pybamm
+.venv-pybamm/bin/pip install -r battery_sidecar/requirements.txt
+```
 
 ### 5. Optional Omniverse Escalation
 

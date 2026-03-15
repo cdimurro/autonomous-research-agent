@@ -329,6 +329,8 @@ def main(argv: list[str] | None = None):
     bat_run_p.add_argument("--candidates", type=int, default=6, help="Number of candidates to generate")
     bat_run_p.add_argument("--threshold", type=float, default=0.55, help="Promotion score threshold")
     bat_run_p.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    bat_run_p.add_argument("--no-sidecar", action="store_true", help="Disable PyBaMM sidecar verification")
+    bat_run_p.add_argument("--mock-sidecar", action="store_true", help="Use mock sidecar for deterministic testing")
     bat_sub.add_parser("status", help="Show battery loop history and memory")
     bat_sub.add_parser("memory", help="Show accumulated battery idea and experiment memory")
     bat_dry_p = bat_sub.add_parser("dry-run", help="Preview battery candidates without running experiments")
@@ -338,6 +340,8 @@ def main(argv: list[str] | None = None):
     bat_bench_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
     bat_bench_p.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold")
     bat_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility)")
+    bat_bench_p.add_argument("--no-sidecar", action="store_true", help="Disable PyBaMM sidecar verification")
+    bat_bench_p.add_argument("--mock-sidecar", action="store_true", help="Use mock sidecar for deterministic testing")
 
     # Phase 10A: KG shadow foundation
     ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
@@ -2099,6 +2103,20 @@ def _cmd_pv(repo: Repository, args):
 # Battery domain loop
 # ---------------------------------------------------------------------------
 
+def _resolve_battery_sidecar(args):
+    """Resolve sidecar from CLI flags: --no-sidecar, --mock-sidecar, or auto."""
+    if getattr(args, "no_sidecar", False):
+        return None
+    if getattr(args, "mock_sidecar", False):
+        from .battery_sidecar import MockPyBaMMSidecar
+        seed = getattr(args, "seed", 42) or 42
+        return MockPyBaMMSidecar(seed=seed)
+    # Auto: try live sidecar, fall back to None (ECM-only)
+    from .battery_sidecar import PyBaMMSidecar
+    sidecar = PyBaMMSidecar()
+    return sidecar if sidecar.is_available() else None
+
+
 def _cmd_battery(repo: Repository, args):
     """Battery ECM + cycle characterization optimization loop."""
     battery_command = getattr(args, "battery_command", None)
@@ -2138,10 +2156,14 @@ def _cmd_battery(repo: Repository, args):
         seed = getattr(args, "seed", None)
         run_id = f"battery_run_{seed or 'auto'}"
 
-        print(f"Battery Run: {n} candidates, threshold={threshold}, seed={seed}")
+        # Sidecar configuration
+        sidecar = _resolve_battery_sidecar(args)
+        sidecar_label = "mock" if getattr(args, "mock_sidecar", False) else ("off" if getattr(args, "no_sidecar", False) else "auto")
+
+        print(f"Battery Run: {n} candidates, threshold={threshold}, seed={seed}, sidecar={sidecar_label}")
         print("=" * 60)
 
-        loop = BatteryOptimizationLoop(repo, n_candidates=n, promotion_threshold=threshold, seed=seed)
+        loop = BatteryOptimizationLoop(repo, n_candidates=n, promotion_threshold=threshold, seed=seed, sidecar=sidecar)
         result = loop.run(run_id=run_id)
         summary = result.summary()
 
@@ -2210,11 +2232,13 @@ def _cmd_battery(repo: Repository, args):
         n = getattr(args, "candidates", 6)
         threshold = getattr(args, "threshold", 0.55)
         seed = getattr(args, "seed", 42)
+        sidecar = _resolve_battery_sidecar(args)
+        sidecar_label = "mock" if getattr(args, "mock_sidecar", False) else ("off" if getattr(args, "no_sidecar", False) else "auto")
 
-        print(f"Battery Benchmark: {n} candidates, threshold={threshold}, seed={seed}")
+        print(f"Battery Benchmark: {n} candidates, threshold={threshold}, seed={seed}, sidecar={sidecar_label}")
         print("=" * 60)
 
-        report = run_battery_benchmark(repo, n_candidates=n, seed=seed, promotion_threshold=threshold)
+        report = run_battery_benchmark(repo, n_candidates=n, seed=seed, promotion_threshold=threshold, sidecar=sidecar)
 
         # Print baseline
         base = report["baseline_candidate"]["baseline_metrics"]

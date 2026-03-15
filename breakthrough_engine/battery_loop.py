@@ -1575,6 +1575,7 @@ def run_battery_benchmark(
     n_candidates: int = 6,
     seed: int = 42,
     promotion_threshold: float = 0.55,
+    sidecar=None,
 ) -> dict:
     """Run battery benchmark: full loop + held-out realism check + stress profile.
 
@@ -1589,6 +1590,7 @@ def run_battery_benchmark(
     loop = BatteryOptimizationLoop(
         repo, n_candidates=n_candidates,
         promotion_threshold=promotion_threshold, seed=seed,
+        sidecar=sidecar,
     )
     result = loop.run(run_id=f"benchmark_{seed}")
     baseline = result.baseline_metrics
