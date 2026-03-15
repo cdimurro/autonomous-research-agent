@@ -19,8 +19,8 @@ def repo():
 
 
 class TestEvalModes:
-    def test_four_modes_defined(self):
-        assert len(EVAL_MODES) == 4
+    def test_six_modes_defined(self):
+        assert len(EVAL_MODES) == 6
 
     def test_mode_keys(self):
         assert "ecm_only" in EVAL_MODES

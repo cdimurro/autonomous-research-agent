@@ -27,7 +27,7 @@ from .battery_loop import (
     BatteryOptimizationLoop,
     run_battery_benchmark,
 )
-from .battery_sidecar import MockPyBaMMSidecar, SidecarStatus
+from .battery_sidecar import MockPyBaMMSidecar, PyBaMMSidecar, SidecarStatus
 from .db import Repository
 
 
@@ -46,6 +46,11 @@ EVAL_MODES = {
         "sidecar": "mock",
         "cathode_families": False,
     },
+    "ecm_real_sidecar": {
+        "description": "ECM + real PyBaMM DFN sidecar, original 7 families",
+        "sidecar": "real",
+        "cathode_families": False,
+    },
     "ecm_cathode": {
         "description": "ECM + all 11 families (incl. cathode), no sidecar",
         "sidecar": None,
@@ -54,6 +59,11 @@ EVAL_MODES = {
     "full_v2_mock": {
         "description": "Full Battery V2: ECM + all 11 families + mock sidecar",
         "sidecar": "mock",
+        "cathode_families": True,
+    },
+    "full_v2_real": {
+        "description": "Full Battery V2: ECM + all 11 families + real PyBaMM sidecar",
+        "sidecar": "real",
         "cathode_families": True,
     },
 }
@@ -66,6 +76,9 @@ def _make_sidecar(mode_cfg: dict, seed: int):
     """Create sidecar instance for a mode."""
     if mode_cfg["sidecar"] == "mock":
         return MockPyBaMMSidecar(seed=seed)
+    if mode_cfg["sidecar"] == "real":
+        sidecar = PyBaMMSidecar()
+        return sidecar if sidecar.is_available() else None
     return None
 
 
