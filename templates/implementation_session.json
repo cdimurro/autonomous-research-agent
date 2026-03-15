@@ -1,0 +1,13 @@
+{
+  "session_id": "",
+  "branch": "",
+  "execution_mode": "IMPLEMENT",
+  "scope": "",
+  "files_expected_to_change": [],
+  "risk_level": "low",
+  "tests_expected_to_run": [],
+  "review_gate_required": true,
+  "commit_blocked_until_gate_pass": true,
+  "created_at": "",
+  "notes": ""
+}

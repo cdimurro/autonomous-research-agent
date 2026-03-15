@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Implementation Safety Harness — pre-commit gate
+# Blocks commit unless session + review gates pass.
+#
+# Install: git config core.hooksPath .githooks
+# Bypass (EMERGENCY ONLY): git commit --no-verify
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SESSION_FILE="$REPO_ROOT/runtime/sessions/active_session.json"
+REVIEW_FILE="$REPO_ROOT/runtime/sessions/active_review.json"
+
+# Skip gate for commits that only touch non-code files (docs-only, etc.)
+CHANGED=$(git diff --cached --name-only)
+CODE_CHANGED=$(echo "$CHANGED" | grep -v '^runtime/' | grep -v '^docs/' | grep -v '\.md$' || true)
+
+if [ -z "$CODE_CHANGED" ]; then
+    # Docs-only commit — no gate required
+    exit 0
+fi
+
+# If no session file, warn but allow (harness may not be initialized yet)
+if [ ! -f "$SESSION_FILE" ]; then
+    echo "⚠  ISH: No active session found. Consider running:"
+    echo "   python scripts/impl_session.py init --scope '...'"
+    echo "   Allowing commit (session not required for this commit)."
+    exit 0
+fi
+
+# Run gate check
+"$REPO_ROOT/.venv/bin/python3" "$REPO_ROOT/scripts/impl_session.py" gate
+GATE_RC=$?
+
+if [ $GATE_RC -ne 0 ]; then
+    echo ""
+    echo "COMMIT BLOCKED by Implementation Safety Harness."
+    echo "Fix issues, then rerun: python scripts/impl_session.py gate"
+    echo "Emergency bypass: git commit --no-verify"
+    exit 1
+fi
+
+exit 0
