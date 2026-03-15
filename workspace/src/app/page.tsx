@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useJobs } from "@/hooks/useJobs";
+import JobList from "@/components/jobs/JobList";
 
 const QUICK_ACTIONS = [
   {
@@ -28,6 +32,8 @@ const QUICK_ACTIONS = [
 ];
 
 export default function HomePage() {
+  const { jobs, loading } = useJobs();
+
   return (
     <div className="p-8 max-w-5xl">
       {/* Header */}
@@ -68,30 +74,28 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Job Status — placeholder, wired in CC-BE-2454 */}
+      {/* Job Status */}
       <section className="mb-10">
         <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
           Recent Jobs
         </h2>
-        <div
-          id="job-status-container"
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6"
-        >
-          <p className="text-sm text-[var(--text-muted)] text-center">
-            No jobs yet. Launch a workflow to get started.
-          </p>
-        </div>
+        {loading ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            <p className="text-sm text-[var(--text-muted)] text-center">
+              Loading jobs...
+            </p>
+          </div>
+        ) : (
+          <JobList jobs={jobs} />
+        )}
       </section>
 
-      {/* Latest Results — placeholder, wired in CC-BE-2455 */}
+      {/* Latest Results — wired in CC-BE-2455 */}
       <section>
         <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
           Latest Results
         </h2>
-        <div
-          id="latest-results-container"
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6"
-        >
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
           <p className="text-sm text-[var(--text-muted)] text-center">
             Results will appear here as jobs complete.
           </p>
