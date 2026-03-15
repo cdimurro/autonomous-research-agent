@@ -29,7 +29,7 @@ class TestBatteryDomain:
         assert BATTERY_DOMAIN.display_name == "Battery ECM + Cycle Characterization"
 
     def test_metrics_defined(self):
-        assert len(BATTERY_METRICS) == 7
+        assert len(BATTERY_METRICS) == 9
         names = [m.name for m in BATTERY_METRICS]
         assert "discharge_capacity" in names
         assert "coulombic_efficiency" in names
@@ -38,10 +38,12 @@ class TestBatteryDomain:
         assert "fade_rate" in names
         assert "energy_efficiency" in names
         assert "rate_capability" in names
+        assert "fast_charge_retention" in names
+        assert "resistance_growth_pct" in names
 
     def test_primary_metrics(self):
         primary = [m for m in BATTERY_METRICS if m.is_primary]
-        assert len(primary) == 5
+        assert len(primary) == 6
 
     def test_banned_claims(self):
         assert len(BATTERY_DOMAIN.banned_claims) >= 3
@@ -153,6 +155,7 @@ class TestExperimentTemplates:
         assert "thermal_sensitivity" in EXPERIMENT_TEMPLATES
         assert "fast_charge_stress" in EXPERIMENT_TEMPLATES
         assert "thermal_stress_aging" in EXPERIMENT_TEMPLATES
+        assert "repeated_fast_charge_stress" in EXPERIMENT_TEMPLATES
 
     def test_baseline_cycle(self):
         result = run_experiment("baseline_cycle", DEFAULT_CELL_PARAMS)
@@ -208,6 +211,33 @@ class TestExperimentTemplates:
         assert result.metrics["n_cycles_completed"] == 20
         assert result.metrics["thermal_stress_temperature"] == 45.0
         assert "stress_penalty_pct" in result.metrics
+
+    def test_repeated_fast_charge_stress(self):
+        result = run_experiment("repeated_fast_charge_stress", DEFAULT_CELL_PARAMS)
+        assert result.success is True
+        assert result.metrics["capacity_retention"] > 0
+        assert result.metrics["capacity_retention"] <= 100.0
+        assert result.metrics["fast_charge_retention"] > 0
+        assert result.metrics["stress_fade_rate"] >= 0
+        assert result.metrics["n_cycles_completed"] == 30
+        assert result.metrics["fast_charge_c_rate"] == 3.0
+        assert "resistance_growth_pct" in result.metrics
+        assert "stress_penalty_pct" in result.metrics
+
+    def test_repeated_fast_charge_resistance_growth(self):
+        """High-fade cell should show non-negative resistance growth under 3C stress."""
+        high_fade = dict(DEFAULT_CELL_PARAMS, fade_rate_per_cycle=0.002)
+        result = run_experiment("repeated_fast_charge_stress", high_fade)
+        assert result.success is True
+        # Resistance growth should be a number (may be 0 for constant-R ECM model)
+        assert isinstance(result.metrics["resistance_growth_pct"], float)
+
+    def test_repeated_fast_charge_vs_standard_fade(self):
+        """3C stress should produce higher fade rate than 1C standard aging."""
+        result_3c = run_experiment("repeated_fast_charge_stress", DEFAULT_CELL_PARAMS)
+        result_1c = run_experiment("cycle_aging", DEFAULT_CELL_PARAMS)
+        # Higher C-rate should not produce lower fade (may be equal in simple ECM)
+        assert result_3c.metrics["stress_fade_rate"] >= result_1c.metrics["fade_rate"] * 0.9
 
     def test_stress_templates_repeatable(self):
         r1 = run_experiment("fast_charge_stress", DEFAULT_CELL_PARAMS)

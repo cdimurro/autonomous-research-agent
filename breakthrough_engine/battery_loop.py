@@ -538,6 +538,9 @@ def compute_robustness_profile(
     # Fast-charge stress (CC-BE-2417)
     fast_charge_result = run_experiment("fast_charge_stress", cell_params)
 
+    # Repeated fast-charge stress (CC-BE-2427): 3C for 30 cycles
+    repeated_fc_result = run_experiment("repeated_fast_charge_stress", cell_params)
+
     # Thermal stress aging (CC-BE-2417)
     thermal_stress_result = run_experiment("thermal_stress_aging", cell_params)
 
@@ -555,6 +558,9 @@ def compute_robustness_profile(
             "fade_rate": 0.0,
             "fast_charge_fade_rate": 0.0,
             "fast_charge_penalty_pct": 0.0,
+            "repeated_fast_charge_retention": 100.0,
+            "repeated_fast_charge_fade_rate": 0.0,
+            "resistance_growth_pct": 0.0,
             "thermal_stress_fade_rate": 0.0,
             "thermal_stress_penalty_pct": 0.0,
             "worst_stress_retention": 100.0,
@@ -572,19 +578,26 @@ def compute_robustness_profile(
     thermal_caps = [r["discharge_capacity"] for r in thermal_data if r.get("success", True) and r.get("discharge_capacity", 0) > 0]
     thermal_sensitivity = ((max(thermal_caps) - min(thermal_caps)) / max(thermal_caps)) if thermal_caps and max(thermal_caps) > 0 else 0.0
 
-    # Fast-charge stress metrics
+    # Fast-charge stress metrics (2C, 20 cycles)
     fc_fade = fast_charge_result.metrics.get("stress_fade_rate", 0.0)
     fc_penalty = fast_charge_result.metrics.get("stress_penalty_pct", 0.0)
     fc_retention = fast_charge_result.metrics.get("capacity_retention", 100.0)
+
+    # Repeated fast-charge stress metrics (3C, 30 cycles)
+    rfc_retention = repeated_fc_result.metrics.get("fast_charge_retention", 100.0)
+    rfc_fade = repeated_fc_result.metrics.get("stress_fade_rate", 0.0)
+    rfc_r_growth = repeated_fc_result.metrics.get("resistance_growth_pct", 0.0)
 
     # Thermal stress metrics
     ts_fade = thermal_stress_result.metrics.get("stress_fade_rate", 0.0)
     ts_penalty = thermal_stress_result.metrics.get("stress_penalty_pct", 0.0)
     ts_retention = thermal_stress_result.metrics.get("capacity_retention", 100.0)
 
-    # Worst-case retention across all stress scenarios
+    # Worst-case retention across all stress scenarios (including 3C stress)
     standard_retention = aging_result.metrics.get("capacity_retention", 100.0)
-    worst_stress_retention = min(standard_retention, fc_retention, ts_retention)
+    worst_stress_retention = min(
+        standard_retention, fc_retention, ts_retention, rfc_retention,
+    )
 
     return {
         "worst_case_capacity_delta": round(worst_delta, 4),
@@ -594,6 +607,9 @@ def compute_robustness_profile(
         "fade_rate": aging_result.metrics.get("fade_rate", 0.0),
         "fast_charge_fade_rate": round(fc_fade, 4),
         "fast_charge_penalty_pct": round(fc_penalty, 4),
+        "repeated_fast_charge_retention": round(rfc_retention, 4),
+        "repeated_fast_charge_fade_rate": round(rfc_fade, 4),
+        "resistance_growth_pct": round(rfc_r_growth, 4),
         "thermal_stress_fade_rate": round(ts_fade, 4),
         "thermal_stress_penalty_pct": round(ts_penalty, 4),
         "worst_stress_retention": round(worst_stress_retention, 4),
@@ -682,8 +698,26 @@ def score_battery_candidate(
     # --- Stress resilience (fast-charge + thermal stress) ---
     if robustness_profile and "worst_stress_retention" in robustness_profile:
         wsr = robustness_profile["worst_stress_retention"]
-        # 100% → 1.0, 90% → 0.75, 70% → 0.25, 50% → 0.0
-        components["stress_resilience"] = max(0.0, min(1.0, (wsr - 50.0) / 50.0))
+        # Base stress resilience: 100% → 1.0, 90% → 0.75, 70% → 0.25, 50% → 0.0
+        stress_score = max(0.0, min(1.0, (wsr - 50.0) / 50.0))
+
+        # Resistance growth penalty: penalize candidates whose impedance
+        # grows significantly under fast-charge stress (>5% growth is a flag)
+        r_growth = robustness_profile.get("resistance_growth_pct", 0)
+        if r_growth > 5.0:
+            r_growth_penalty = min(0.15, (r_growth - 5.0) / 50.0)
+            stress_score = max(0.0, stress_score - r_growth_penalty)
+
+        # Repeated fast-charge retention penalty: if 3C/30-cycle retention
+        # is significantly worse than 2C/20-cycle, flag the degradation trend
+        rfc_retention = robustness_profile.get("repeated_fast_charge_retention", 100)
+        fc_retention_2c = robustness_profile.get("fast_charge_fade_rate", 0)
+        if rfc_retention < 90.0:
+            # Additional penalty for poor sustained fast-charge retention
+            rfc_penalty = min(0.10, (90.0 - rfc_retention) / 100.0)
+            stress_score = max(0.0, stress_score - rfc_penalty)
+
+        components["stress_resilience"] = stress_score
 
         fc_fade = robustness_profile.get("fast_charge_fade_rate", 0)
         ts_fade = robustness_profile.get("thermal_stress_fade_rate", 0)
@@ -694,6 +728,17 @@ def score_battery_candidate(
             caveats.append(
                 f"Fast-charge fragility: {fc_fade:.3f}%/cycle fade at 2C "
                 f"(penalty {fc_penalty:.1f}% vs 1C baseline)"
+            )
+        rfc_fade = robustness_profile.get("repeated_fast_charge_fade_rate", 0)
+        if rfc_fade > 0.06:
+            caveats.append(
+                f"Sustained fast-charge degradation: {rfc_fade:.3f}%/cycle at 3C "
+                f"over 30 cycles (retention {rfc_retention:.1f}%)"
+            )
+        if r_growth > 5.0:
+            caveats.append(
+                f"Resistance growth under fast-charge: {r_growth:.1f}% increase "
+                "after 3C stress cycling"
             )
         if ts_fade > 0.08:
             caveats.append(
@@ -1331,6 +1376,9 @@ def run_battery_benchmark(
             "standard_fade_rate": rp.get("fade_rate", 0),
             "fast_charge_fade_rate": rp.get("fast_charge_fade_rate", 0),
             "fast_charge_penalty_pct": rp.get("fast_charge_penalty_pct", 0),
+            "repeated_fast_charge_retention": rp.get("repeated_fast_charge_retention", 0),
+            "repeated_fast_charge_fade_rate": rp.get("repeated_fast_charge_fade_rate", 0),
+            "resistance_growth_pct": rp.get("resistance_growth_pct", 0),
             "thermal_stress_fade_rate": rp.get("thermal_stress_fade_rate", 0),
             "thermal_stress_penalty_pct": rp.get("thermal_stress_penalty_pct", 0),
             "worst_stress_retention": rp.get("worst_stress_retention", 0),

@@ -373,6 +373,9 @@ class TestRobustnessProfile:
         profile = compute_robustness_profile(DEFAULT_CELL_PARAMS, baseline.metrics)
         assert "fast_charge_fade_rate" in profile
         assert "fast_charge_penalty_pct" in profile
+        assert "repeated_fast_charge_retention" in profile
+        assert "repeated_fast_charge_fade_rate" in profile
+        assert "resistance_growth_pct" in profile
         assert "thermal_stress_fade_rate" in profile
         assert "thermal_stress_penalty_pct" in profile
         assert "worst_stress_retention" in profile
@@ -665,6 +668,9 @@ class TestBatteryBenchmark:
             sp = report["stress_profile"]
             assert sp is not None
             assert "fast_charge_fade_rate" in sp
+            assert "repeated_fast_charge_retention" in sp
+            assert "repeated_fast_charge_fade_rate" in sp
+            assert "resistance_growth_pct" in sp
             assert "thermal_stress_fade_rate" in sp
             assert "worst_stress_retention" in sp
             assert "standard_retention" in sp

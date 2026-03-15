@@ -41,6 +41,12 @@ BATTERY_METRICS = [
                lower_bound=0.0, upper_bound=100.0, higher_is_better=True),
     MetricSpec(name="rate_capability", unit="ratio", description="Capacity at high C-rate / capacity at low C-rate",
                lower_bound=0.0, upper_bound=1.0, higher_is_better=True),
+    MetricSpec(name="fast_charge_retention", unit="%",
+               description="Capacity retention after repeated fast-charge cycling at 3C",
+               lower_bound=0.0, upper_bound=100.0, higher_is_better=True, is_primary=True),
+    MetricSpec(name="resistance_growth_pct", unit="%",
+               description="Resistance increase after fast-charge stress vs initial",
+               higher_is_better=False),
 ]
 
 BATTERY_DOMAIN = DomainSpec(
@@ -282,6 +288,14 @@ EXPERIMENT_TEMPLATES = {
         parameters={"c_rate": 1.0, "temperature": 45.0, "n_cycles": 20},
         expected_duration_seconds=8.0,
     ),
+    "repeated_fast_charge_stress": ExperimentTemplate(
+        domain_name="battery_ecm",
+        name="repeated_fast_charge_stress",
+        description="30-cycle aging at 3C charge/discharge, measuring sustained "
+                    "fast-charge degradation, capacity retention, and resistance growth",
+        parameters={"c_rate": 3.0, "temperature": 25.0, "n_cycles": 30},
+        expected_duration_seconds=12.0,
+    ),
 }
 
 
@@ -441,6 +455,77 @@ def run_experiment(
                 "capacity_thermal_sensitivity": round(cap_sensitivity, 4),
                 "resistance_thermal_sensitivity": round(r_sensitivity, 4),
             }
+
+        elif template_name == "repeated_fast_charge_stress":
+            # Aggressive fast-charge stress: 3C for 30 cycles with resistance tracking
+            n_cycles = params.get("n_cycles", 30)
+            stress_c_rate = params.get("c_rate", 3.0)
+            stress_temp = params.get("temperature", 25.0)
+            cycle_caps = []
+            cycle_resistances = []
+            for i in range(n_cycles):
+                result = simulate_cycle(
+                    cell_params,
+                    c_rate=stress_c_rate,
+                    temperature=stress_temp,
+                    n_prior_cycles=i,
+                )
+                if not result["success"]:
+                    break
+                cycle_caps.append(result["discharge_capacity"])
+                cycle_resistances.append(result["internal_resistance"])
+                if i == 0 or i == n_cycles - 1 or i % 5 == 0:
+                    raw_data["cycle_results"].append(result)
+
+            if len(cycle_caps) < 2:
+                raise RuntimeError("repeated_fast_charge_stress produced fewer than 2 valid cycles")
+
+            initial_cap = cycle_caps[0]
+            final_cap = cycle_caps[-1]
+            retention = (final_cap / initial_cap * 100.0) if initial_cap > 0 else 0.0
+            observed_fade = (
+                (initial_cap - final_cap) / initial_cap / len(cycle_caps) * 100.0
+            ) if initial_cap > 0 else 0.0
+
+            # Resistance growth: compare first and last cycle
+            initial_r = cycle_resistances[0] if cycle_resistances else 0
+            final_r = cycle_resistances[-1] if cycle_resistances else 0
+            resistance_growth_pct = (
+                (final_r - initial_r) / initial_r * 100.0
+            ) if initial_r > 0 else 0.0
+
+            # Compare to 1C/25C baseline for stress penalty
+            baseline_1c = simulate_cycle(cell_params, c_rate=1.0, temperature=25.0)
+            baseline_cap = baseline_1c["discharge_capacity"] if baseline_1c["success"] else initial_cap
+            stress_penalty = (
+                (baseline_cap - initial_cap) / baseline_cap * 100.0
+            ) if baseline_cap > 0 else 0.0
+
+            summary_metrics = {
+                "capacity_retention": round(retention, 4),
+                "fast_charge_retention": round(retention, 4),
+                "fade_rate": round(observed_fade, 4),
+                "stress_fade_rate": round(observed_fade, 4),
+                "initial_capacity": round(initial_cap, 4),
+                "final_capacity": round(final_cap, 4),
+                "n_cycles_completed": len(cycle_caps),
+                "stress_penalty_pct": round(max(0.0, stress_penalty), 4),
+                "resistance_growth_pct": round(resistance_growth_pct, 4),
+                "initial_resistance": round(initial_r, 4),
+                "final_resistance": round(final_r, 4),
+                "fast_charge_c_rate": stress_c_rate,
+                "discharge_capacity": round(initial_cap, 4),
+                "coulombic_efficiency": (
+                    raw_data["cycle_results"][0].get("coulombic_efficiency", 0)
+                    if raw_data["cycle_results"] else 0
+                ),
+                "internal_resistance": round(initial_r, 4),
+            }
+            raw_data["conditions"] = [{
+                "c_rate": stress_c_rate,
+                "temperature": stress_temp,
+                "n_cycles": n_cycles,
+            }]
 
         elif template_name in ("fast_charge_stress", "thermal_stress_aging"):
             # Shared logic: cycle aging under stress conditions
