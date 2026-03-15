@@ -250,14 +250,117 @@ def generate_pv_candidates(
 
 
 # ---------------------------------------------------------------------------
-# PV Scoring
+# Robustness stress evaluation (CC-BE-2407)
+# ---------------------------------------------------------------------------
+
+def compute_robustness_profile(
+    cell_params: dict,
+    baseline_metrics: dict,
+) -> dict:
+    """Run multi-axis stress sweeps and compute robustness indicators.
+
+    Returns a robustness profile dict with:
+      - worst_case_pmax_delta: worst Pmax % drop vs baseline across all conditions
+      - worst_case_ff_delta: worst FF % drop vs baseline
+      - efficiency_stability: 1 - CV(efficiency) across all sweep points
+      - temperature_sensitivity: Pmax range / max across temp sweep
+      - irradiance_sensitivity: Pmax range / max across irr sweep
+      - combined_fragility: worst-case Pmax drop in combined sweep
+      - sweep_data: all sweep points for persistence
+    """
+    base_pmax = baseline_metrics.get("Pmax", 1)
+    base_ff = baseline_metrics.get("fill_factor", 1)
+
+    all_points: list[dict] = []
+
+    # Temperature sweep
+    temp_result = run_experiment("temperature_sweep", cell_params)
+    temp_sweep = temp_result.raw_data.get("sweep_results", [])
+    all_points.extend(temp_sweep)
+
+    # Irradiance sweep
+    irr_result = run_experiment("irradiance_sweep", cell_params)
+    irr_sweep = irr_result.raw_data.get("sweep_results", [])
+    all_points.extend(irr_sweep)
+
+    # Combined stress sweep
+    combined_result = run_experiment("combined_sensitivity", cell_params)
+    combined_sweep = combined_result.raw_data.get("sweep_results", [])
+    all_points.extend(combined_sweep)
+
+    # Compute worst-case deltas
+    if not all_points:
+        return {
+            "worst_case_pmax_delta": 0.0,
+            "worst_case_ff_delta": 0.0,
+            "efficiency_stability": 0.5,
+            "temperature_sensitivity": 0.0,
+            "irradiance_sensitivity": 0.0,
+            "combined_fragility": 0.0,
+            "sweep_data": [],
+        }
+
+    pmaxes_all = [p.get("Pmax", 0) for p in all_points if p.get("Pmax", 0) > 0]
+    ffs_all = [p.get("fill_factor", 0) for p in all_points if p.get("fill_factor", 0) > 0]
+    effs_all = [p.get("efficiency", 0) for p in all_points if p.get("efficiency", 0) > 0]
+
+    # Worst-case Pmax drop (negative = degradation)
+    worst_pmax = min(pmaxes_all) if pmaxes_all else 0
+    worst_case_pmax_delta = (worst_pmax - base_pmax) / base_pmax if base_pmax > 0 else 0.0
+
+    # Worst-case FF drop
+    worst_ff = min(ffs_all) if ffs_all else 0
+    worst_case_ff_delta = (worst_ff - base_ff) / base_ff if base_ff > 0 else 0.0
+
+    # Efficiency stability (1 - CV)
+    if effs_all and len(effs_all) > 1:
+        mean_eff = sum(effs_all) / len(effs_all)
+        var_eff = sum((e - mean_eff) ** 2 for e in effs_all) / len(effs_all)
+        cv_eff = (var_eff ** 0.5) / mean_eff if mean_eff > 0 else 1.0
+        efficiency_stability = max(0.0, min(1.0, 1.0 - cv_eff * 2))
+    else:
+        efficiency_stability = 0.5
+
+    # Per-sweep sensitivities
+    temp_pmaxes = [p.get("Pmax", 0) for p in temp_sweep if p.get("Pmax", 0) > 0]
+    temperature_sensitivity = (
+        (max(temp_pmaxes) - min(temp_pmaxes)) / max(temp_pmaxes)
+        if temp_pmaxes and max(temp_pmaxes) > 0 else 0.0
+    )
+
+    irr_pmaxes = [p.get("Pmax", 0) for p in irr_sweep if p.get("Pmax", 0) > 0]
+    irradiance_sensitivity = (
+        (max(irr_pmaxes) - min(irr_pmaxes)) / max(irr_pmaxes)
+        if irr_pmaxes and max(irr_pmaxes) > 0 else 0.0
+    )
+
+    comb_pmaxes = [p.get("Pmax", 0) for p in combined_sweep if p.get("Pmax", 0) > 0]
+    combined_fragility = (
+        (max(comb_pmaxes) - min(comb_pmaxes)) / max(comb_pmaxes)
+        if comb_pmaxes and max(comb_pmaxes) > 0 else 0.0
+    )
+
+    return {
+        "worst_case_pmax_delta": round(worst_case_pmax_delta, 4),
+        "worst_case_ff_delta": round(worst_case_ff_delta, 4),
+        "efficiency_stability": round(efficiency_stability, 4),
+        "temperature_sensitivity": round(temperature_sensitivity, 4),
+        "irradiance_sensitivity": round(irradiance_sensitivity, 4),
+        "combined_fragility": round(combined_fragility, 4),
+        "sweep_data": all_points,
+    }
+
+
+# ---------------------------------------------------------------------------
+# PV Scoring (updated CC-BE-2407)
 # ---------------------------------------------------------------------------
 
 PV_SCORE_WEIGHTS = {
-    "pmax_improvement": 0.30,
-    "ff_improvement": 0.20,
-    "efficiency_improvement": 0.20,
-    "robustness": 0.15,
+    "pmax_improvement": 0.25,
+    "ff_improvement": 0.15,
+    "efficiency_improvement": 0.15,
+    "robustness": 0.20,
+    "stress_resilience": 0.10,
     "plausibility_penalty": 0.15,
 }
 
@@ -266,9 +369,11 @@ def score_pv_candidate(
     candidate_metrics: dict,
     baseline_metrics: dict,
     sweep_results: Optional[list[dict]] = None,
+    robustness_profile: Optional[dict] = None,
 ) -> EvaluationResult:
     """Score a PV candidate against baseline metrics.
 
+    Uses multi-axis stress sweeps for robustness scoring when available.
     Returns EvaluationResult with score components and hard-fail assessment.
     """
     components: dict = {}
@@ -281,7 +386,6 @@ def score_pv_candidate(
     cand_pmax = candidate_metrics.get("Pmax", 0)
     if base_pmax > 0:
         pmax_delta = (cand_pmax - base_pmax) / base_pmax
-        # Sigmoid-like mapping: 0 at no improvement, 1 at +20% improvement
         components["pmax_improvement"] = min(1.0, max(0.0, (pmax_delta + 0.05) / 0.25))
     else:
         components["pmax_improvement"] = 0.0
@@ -314,19 +418,52 @@ def score_pv_candidate(
     else:
         components["efficiency_improvement"] = 0.0
 
-    # --- Robustness (from sweep data) ---
+    # --- Robustness (from sweep data — backward compatible) ---
     if sweep_results and len(sweep_results) > 1:
         pmaxes = [s.get("Pmax", 0) for s in sweep_results if s.get("Pmax", 0) > 0]
         if pmaxes:
             mean_pmax = sum(pmaxes) / len(pmaxes)
             variance = sum((p - mean_pmax) ** 2 for p in pmaxes) / len(pmaxes)
             cv = (variance ** 0.5) / mean_pmax if mean_pmax > 0 else 1.0
-            # Lower CV = more robust = higher score
             components["robustness"] = max(0.0, min(1.0, 1.0 - cv * 2))
         else:
             components["robustness"] = 0.0
     else:
         components["robustness"] = 0.5  # neutral if no sweep data
+
+    # --- Stress resilience (CC-BE-2407: from robustness profile) ---
+    if robustness_profile:
+        # Composite stress score: penalize large worst-case drops and fragility
+        wc_pmax = robustness_profile.get("worst_case_pmax_delta", 0)
+        wc_ff = robustness_profile.get("worst_case_ff_delta", 0)
+        eff_stab = robustness_profile.get("efficiency_stability", 0.5)
+        fragility = robustness_profile.get("combined_fragility", 0)
+
+        # Worst-case Pmax: 0 at -50% or worse, 1 at 0% or better
+        stress_pmax = max(0.0, min(1.0, (wc_pmax + 0.5) / 0.5))
+        # Worst-case FF: 0 at -30% or worse, 1 at 0% or better
+        stress_ff = max(0.0, min(1.0, (wc_ff + 0.3) / 0.3))
+        # Fragility: 0 at 80%+ variation, 1 at <10% variation
+        stress_frag = max(0.0, min(1.0, 1.0 - fragility))
+
+        components["stress_resilience"] = round(
+            0.4 * stress_pmax + 0.2 * stress_ff + 0.2 * eff_stab + 0.2 * stress_frag, 4
+        )
+
+        # Caveats for stress weaknesses
+        if wc_pmax < -0.30:
+            caveats.append(f"Severe worst-case Pmax drop: {wc_pmax:.1%} under stress")
+        elif wc_pmax < -0.15:
+            caveats.append(f"Moderate worst-case Pmax drop: {wc_pmax:.1%} under stress")
+        if fragility > 0.5:
+            caveats.append(f"High combined fragility: {fragility:.1%} Pmax variation across conditions")
+        if robustness_profile.get("temperature_sensitivity", 0) > 0.3:
+            caveats.append(
+                f"Temperature-sensitive: {robustness_profile['temperature_sensitivity']:.1%} "
+                "Pmax variation across temperature sweep"
+            )
+    else:
+        components["stress_resilience"] = 0.5  # neutral if no profile
 
     # --- Plausibility penalty ---
     ok, reasons = check_metrics_plausibility(candidate_metrics)
@@ -494,15 +631,14 @@ class PVOptimizationLoop:
                 decision=decision, experiment_metrics={}, sweep_data=[],
             )
 
-        # Run temperature sweep for robustness data
-        temp_result = run_experiment("temperature_sweep", candidate.parameters)
-        temp_result.candidate_id = candidate.id
-        self.repo.save_experiment_result(temp_result)
-        sweep_data = temp_result.raw_data.get("sweep_results", [])
+        # Run full robustness stress battery (CC-BE-2407)
+        robustness = compute_robustness_profile(candidate.parameters, baseline_metrics)
+        sweep_data = robustness.get("sweep_data", [])
 
-        # Score
+        # Score with robustness profile
         eval_result = score_pv_candidate(
             stc_result.metrics, baseline_metrics, sweep_data,
+            robustness_profile=robustness,
         )
         eval_result.candidate_id = candidate.id
         self.repo.save_evaluation_result(eval_result)
@@ -543,6 +679,7 @@ class PVOptimizationLoop:
             decision=decision,
             experiment_metrics=stc_result.metrics,
             sweep_data=sweep_data,
+            robustness_profile=robustness,
         )
 
     def _persist_memory(
@@ -624,12 +761,14 @@ class PVCandidateResult:
         decision: PromotionDecision,
         experiment_metrics: dict,
         sweep_data: list[dict],
+        robustness_profile: Optional[dict] = None,
     ):
         self.candidate = candidate
         self.evaluation = evaluation
         self.decision = decision
         self.experiment_metrics = experiment_metrics
         self.sweep_data = sweep_data
+        self.robustness_profile = robustness_profile or {}
 
 
 class PVLoopResult:
@@ -656,7 +795,7 @@ class PVLoopResult:
 
     def summary(self) -> dict:
         """Return a summary dict suitable for logging/persistence."""
-        return {
+        summary: dict = {
             "run_id": self.run_id,
             "total_candidates": self.total_candidates,
             "promoted": self.promoted_count,
@@ -667,3 +806,9 @@ class PVLoopResult:
             "best_promoted_score": self.best_promoted.evaluation.final_score if self.best_promoted else None,
             "best_promoted_pmax": self.best_promoted.experiment_metrics.get("Pmax", 0) if self.best_promoted else None,
         }
+        if self.best_promoted and self.best_promoted.robustness_profile:
+            rp = self.best_promoted.robustness_profile
+            summary["best_promoted_robustness"] = {
+                k: v for k, v in rp.items() if k != "sweep_data"
+            }
+        return summary
