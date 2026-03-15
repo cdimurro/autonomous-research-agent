@@ -31,6 +31,14 @@ from .models import (
     SimulationResult,
     SimulationSpec,
 )
+from .domain_models import (
+    CandidateSpec,
+    EvaluationResult,
+    ExperimentMemoryEntry,
+    ExperimentRunResult,
+    IdeaMemoryEntry,
+    PromotionRecord,
+)
 
 def _utcnow() -> str:
     """Return current UTC time as ISO-8601 string."""
@@ -824,6 +832,106 @@ CREATE INDEX IF NOT EXISTS idx_bt_kgf_candidate ON bt_kg_findings(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_bt_kgf_domain ON bt_kg_findings(domain);
 CREATE INDEX IF NOT EXISTS idx_bt_kgf_status ON bt_kg_findings(status);
 CREATE INDEX IF NOT EXISTS idx_bt_kgf_valid ON bt_kg_findings(valid_from);
+""",
+    13: """
+-- Domain optimization loop tables (PV foundation loop batch).
+
+-- Domain-specific candidates.
+CREATE TABLE IF NOT EXISTS bt_domain_candidates (
+    id TEXT PRIMARY KEY,
+    domain_name TEXT NOT NULL,
+    run_id TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    parameters TEXT NOT NULL DEFAULT '{}',
+    rationale TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'generated',
+    parent_id TEXT DEFAULT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    rejection_reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_domain ON bt_domain_candidates(domain_name);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_run ON bt_domain_candidates(run_id);
+CREATE INDEX IF NOT EXISTS idx_bt_dc_status ON bt_domain_candidates(status);
+
+-- Experiment run results.
+CREATE TABLE IF NOT EXISTS bt_experiment_results (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    template_id TEXT NOT NULL DEFAULT '',
+    domain_name TEXT NOT NULL,
+    metrics TEXT NOT NULL DEFAULT '{}',
+    raw_data TEXT NOT NULL DEFAULT '{}',
+    duration_seconds REAL DEFAULT 0.0,
+    success INTEGER NOT NULL DEFAULT 1,
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_er_candidate ON bt_experiment_results(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_er_domain ON bt_experiment_results(domain_name);
+
+-- Evaluation results (scored).
+CREATE TABLE IF NOT EXISTS bt_evaluation_results (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    domain_name TEXT NOT NULL,
+    score_components TEXT NOT NULL DEFAULT '{}',
+    final_score REAL DEFAULT 0.0,
+    hard_fail INTEGER NOT NULL DEFAULT 0,
+    hard_fail_reasons TEXT NOT NULL DEFAULT '[]',
+    caveats TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_eval_candidate ON bt_evaluation_results(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_eval_domain ON bt_evaluation_results(domain_name);
+
+-- Promotion decisions.
+CREATE TABLE IF NOT EXISTS bt_promotion_records (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    domain_name TEXT NOT NULL,
+    decision TEXT NOT NULL DEFAULT 'rejected',
+    evaluation_id TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    baseline_score REAL DEFAULT NULL,
+    candidate_score REAL DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_pr_candidate ON bt_promotion_records(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_bt_pr_domain ON bt_promotion_records(domain_name);
+
+-- Idea memory.
+CREATE TABLE IF NOT EXISTS bt_idea_memory (
+    id TEXT PRIMARY KEY,
+    domain_name TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    candidate_title TEXT NOT NULL DEFAULT '',
+    candidate_family TEXT NOT NULL DEFAULT '',
+    rationale TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '',
+    lesson TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_im_domain ON bt_idea_memory(domain_name);
+CREATE INDEX IF NOT EXISTS idx_bt_im_family ON bt_idea_memory(candidate_family);
+
+-- Experiment memory.
+CREATE TABLE IF NOT EXISTS bt_experiment_memory (
+    id TEXT PRIMARY KEY,
+    domain_name TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    template_name TEXT NOT NULL DEFAULT '',
+    informative_metrics TEXT NOT NULL DEFAULT '[]',
+    weakness_exposed TEXT NOT NULL DEFAULT '',
+    stability_notes TEXT NOT NULL DEFAULT '',
+    runtime_seconds REAL DEFAULT 0.0,
+    reproducibility_score REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bt_em_domain ON bt_experiment_memory(domain_name);
+CREATE INDEX IF NOT EXISTS idx_bt_em_candidate ON bt_experiment_memory(candidate_id);
 """,
 }
 
@@ -2003,3 +2111,153 @@ class Repository:
             "SELECT * FROM bt_kg_findings WHERE id=?", (finding_id,)
         ).fetchone()
         return dict(row) if row else None
+
+    # -- Domain candidates --
+
+    def save_domain_candidate(self, c: CandidateSpec) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_domain_candidates
+               (id, domain_name, run_id, title, description, parameters,
+                rationale, source, parent_id, status, rejection_reason, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (c.id, c.domain_name, c.run_id, c.title, c.description,
+             json.dumps(c.parameters), c.rationale, c.source,
+             c.parent_id, c.status.value, c.rejection_reason,
+             _iso(c.created_at)),
+        )
+        self.db.commit()
+
+    def update_domain_candidate_status(
+        self, candidate_id: str, status: str, reason: str = "",
+    ) -> None:
+        self.db.execute(
+            "UPDATE bt_domain_candidates SET status=?, rejection_reason=? WHERE id=?",
+            (status, reason, candidate_id),
+        )
+        self.db.commit()
+
+    def list_domain_candidates(
+        self, domain_name: str, limit: int = 50,
+    ) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_domain_candidates WHERE domain_name=? ORDER BY created_at DESC LIMIT ?",
+            (domain_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_domain_candidate(self, candidate_id: str) -> Optional[dict]:
+        row = self.db.execute(
+            "SELECT * FROM bt_domain_candidates WHERE id=?", (candidate_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    # -- Experiment results --
+
+    def save_experiment_result(self, r: ExperimentRunResult) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_experiment_results
+               (id, candidate_id, template_id, domain_name, metrics, raw_data,
+                duration_seconds, success, error_message, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (r.id, r.candidate_id, r.template_id, r.domain_name,
+             json.dumps(r.metrics), json.dumps(r.raw_data),
+             r.duration_seconds, 1 if r.success else 0,
+             r.error_message, _iso(r.created_at)),
+        )
+        self.db.commit()
+
+    def list_experiment_results(
+        self, candidate_id: str,
+    ) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_experiment_results WHERE candidate_id=? ORDER BY created_at",
+            (candidate_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Evaluation results --
+
+    def save_evaluation_result(self, e: EvaluationResult) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_evaluation_results
+               (id, candidate_id, domain_name, score_components, final_score,
+                hard_fail, hard_fail_reasons, caveats, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (e.id, e.candidate_id, e.domain_name,
+             json.dumps(e.score_components), e.final_score,
+             1 if e.hard_fail else 0,
+             json.dumps(e.hard_fail_reasons), json.dumps(e.caveats),
+             _iso(e.created_at)),
+        )
+        self.db.commit()
+
+    # -- Promotion records --
+
+    def save_promotion_record(self, p: PromotionRecord) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_promotion_records
+               (id, candidate_id, domain_name, decision, evaluation_id,
+                reason, baseline_score, candidate_score, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (p.id, p.candidate_id, p.domain_name, p.decision.value,
+             p.evaluation_id, p.reason, p.baseline_score,
+             p.candidate_score, _iso(p.created_at)),
+        )
+        self.db.commit()
+
+    def list_promotion_records(
+        self, domain_name: str, limit: int = 50,
+    ) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_promotion_records WHERE domain_name=? ORDER BY created_at DESC LIMIT ?",
+            (domain_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Idea memory --
+
+    def save_idea_memory(self, m: IdeaMemoryEntry) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_idea_memory
+               (id, domain_name, candidate_id, candidate_title, candidate_family,
+                rationale, outcome, lesson, tags, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (m.id, m.domain_name, m.candidate_id, m.candidate_title,
+             m.candidate_family, m.rationale, m.outcome, m.lesson,
+             json.dumps(m.tags), _iso(m.created_at)),
+        )
+        self.db.commit()
+
+    def list_idea_memory(
+        self, domain_name: str, limit: int = 100,
+    ) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_idea_memory WHERE domain_name=? ORDER BY created_at DESC LIMIT ?",
+            (domain_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Experiment memory --
+
+    def save_experiment_memory(self, m: ExperimentMemoryEntry) -> None:
+        self.db.execute(
+            """INSERT OR REPLACE INTO bt_experiment_memory
+               (id, domain_name, candidate_id, template_name, informative_metrics,
+                weakness_exposed, stability_notes, runtime_seconds,
+                reproducibility_score, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (m.id, m.domain_name, m.candidate_id, m.template_name,
+             json.dumps(m.informative_metrics), m.weakness_exposed,
+             m.stability_notes, m.runtime_seconds,
+             m.reproducibility_score, _iso(m.created_at)),
+        )
+        self.db.commit()
+
+    def list_experiment_memory(
+        self, domain_name: str, limit: int = 100,
+    ) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT * FROM bt_experiment_memory WHERE domain_name=? ORDER BY created_at DESC LIMIT ?",
+            (domain_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
