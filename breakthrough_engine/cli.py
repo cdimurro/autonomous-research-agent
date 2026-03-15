@@ -322,6 +322,23 @@ def main(argv: list[str] | None = None):
     pv_bench_p.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold")
     pv_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility")
 
+    # Battery domain loop
+    bat_p = sub.add_parser("battery", help="Battery ECM + cycle characterization optimization loop")
+    bat_sub = bat_p.add_subparsers(dest="battery_command")
+    bat_run_p = bat_sub.add_parser("run", help="Run one battery optimization loop iteration")
+    bat_run_p.add_argument("--candidates", type=int, default=6, help="Number of candidates to generate")
+    bat_run_p.add_argument("--threshold", type=float, default=0.55, help="Promotion score threshold")
+    bat_run_p.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    bat_sub.add_parser("status", help="Show battery loop history and memory")
+    bat_sub.add_parser("memory", help="Show accumulated battery idea and experiment memory")
+    bat_dry_p = bat_sub.add_parser("dry-run", help="Preview battery candidates without running experiments")
+    bat_dry_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
+    bat_dry_p.add_argument("--seed", type=int, default=None, help="Random seed")
+    bat_bench_p = bat_sub.add_parser("benchmark", help="Run battery benchmark with held-out realism check")
+    bat_bench_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
+    bat_bench_p.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold")
+    bat_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility)")
+
     # Phase 10A: KG shadow foundation
     ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
     ingest_sub = ingest_p.add_subparsers(dest="ingest_command")
@@ -427,6 +444,8 @@ def main(argv: list[str] | None = None):
         _cmd_challenger_trial(repo, args)
     elif args.command == "pv":
         _cmd_pv(repo, args)
+    elif args.command == "battery":
+        _cmd_battery(repo, args)
     elif args.command == "ingest":
         _cmd_ingest(repo, args)
     elif args.command == "kg":
@@ -2080,6 +2099,187 @@ def _cmd_pv(repo: Repository, args):
         return
 
     print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory|benchmark]")
+
+
+# ---------------------------------------------------------------------------
+# Battery domain loop
+# ---------------------------------------------------------------------------
+
+def _cmd_battery(repo: Repository, args):
+    """Battery ECM + cycle characterization optimization loop."""
+    battery_command = getattr(args, "battery_command", None)
+
+    if not battery_command:
+        print("Usage: python -m breakthrough_engine battery [run|dry-run|status|memory|benchmark]")
+        return
+
+    if battery_command == "dry-run":
+        from .battery_loop import generate_battery_candidates
+        n = getattr(args, "candidates", 6)
+        seed = getattr(args, "seed", None)
+        prior_lessons = repo.list_idea_memory("battery_ecm", limit=50)
+        candidates = generate_battery_candidates(n_candidates=n, seed=seed, prior_lessons=prior_lessons)
+        print(f"Battery dry-run: {len(candidates)} candidates generated (seed={seed})")
+        print()
+        for i, c in enumerate(candidates):
+            print(f"  {i+1}. {c.title}")
+            print(f"     Family: {c.title.split('variant')[0].replace('Battery ', '').strip()}")
+            print(f"     Rationale: {c.rationale}")
+            changed = []
+            from .battery_domain import DEFAULT_CELL_PARAMS as BAT_DEFAULTS
+            for param in ("R0_mohm", "R1_mohm", "capacity_ah", "coulombic_eff", "fade_rate_per_cycle"):
+                base_val = BAT_DEFAULTS.get(param, 0)
+                cand_val = c.parameters.get(param, base_val)
+                if base_val and abs(cand_val - base_val) / max(abs(base_val), 1e-15) > 0.01:
+                    changed.append(f"{param}: {base_val} → {cand_val:.4g}")
+            if changed:
+                print(f"     Changes: {'; '.join(changed)}")
+            print()
+        return
+
+    if battery_command == "run":
+        from .battery_loop import BatteryOptimizationLoop
+        n = getattr(args, "candidates", 6)
+        threshold = getattr(args, "threshold", 0.55)
+        seed = getattr(args, "seed", None)
+        run_id = f"battery_run_{seed or 'auto'}"
+
+        print(f"Battery Run: {n} candidates, threshold={threshold}, seed={seed}")
+        print("=" * 60)
+
+        loop = BatteryOptimizationLoop(repo, n_candidates=n, promotion_threshold=threshold, seed=seed)
+        result = loop.run(run_id=run_id)
+        summary = result.summary()
+
+        print(f"\nTotal candidates: {summary['total_candidates']}")
+        print(f"Promoted: {summary['promoted']}, Rejected: {summary['rejected']}, Hard-fail: {summary['hard_fail']}")
+        print(f"Baseline capacity: {summary['baseline_capacity']:.3f} Ah")
+        print(f"Baseline resistance: {summary['baseline_resistance']:.1f} mOhm")
+
+        if result.best_promoted:
+            bp = result.best_promoted
+            print(f"\nBest promoted: {bp.candidate.title}")
+            print(f"  Score: {bp.evaluation.final_score:.4f}")
+            m = bp.experiment_metrics
+            print(f"  Capacity: {m.get('discharge_capacity', 0):.3f} Ah")
+            print(f"  Coulombic eff: {m.get('coulombic_efficiency', 0):.2f}%")
+            print(f"  Resistance: {m.get('internal_resistance', 0):.1f} mOhm")
+            if bp.promotion_caveats:
+                print(f"  Caveats ({len(bp.promotion_caveats)}):")
+                for caveat in bp.promotion_caveats:
+                    print(f"    - {caveat}")
+
+        # Write artifact
+        runtime_dir = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        artifact_dir = os.path.join(runtime_dir, "battery_loop")
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, f"battery_run_{seed or 'auto'}.json")
+        with open(artifact_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        print(f"\nArtifact: {artifact_path}")
+        return
+
+    if battery_command == "status":
+        candidates = repo.list_domain_candidates("battery_ecm", limit=20)
+        promos = repo.list_promotion_records("battery_ecm", limit=20)
+        print(f"Battery loop status:")
+        print(f"  Domain candidates: {len(candidates)}")
+        print(f"  Promotion records: {len(promos)}")
+        promoted = [p for p in promos if p.get("decision") == "promoted"]
+        rejected = [p for p in promos if p.get("decision") == "rejected"]
+        print(f"  Promoted: {len(promoted)}, Rejected: {len(rejected)}")
+        if candidates:
+            print(f"\n  Recent candidates:")
+            for c in candidates[:5]:
+                print(f"    {c.get('title', 'unknown')} — {c.get('status', 'unknown')}")
+        return
+
+    if battery_command == "memory":
+        ideas = repo.list_idea_memory("battery_ecm", limit=20)
+        exp_mem = repo.list_experiment_memory("battery_ecm", limit=20)
+        print(f"Battery idea memory: {len(ideas)} entries")
+        for m in ideas[:10]:
+            print(f"  {m['candidate_title']} — {m['outcome']}")
+            if m['lesson']:
+                print(f"    Lesson: {m['lesson']}")
+        print()
+        print(f"Battery experiment memory: {len(exp_mem)} entries")
+        for m in exp_mem[:10]:
+            print(f"  {m['template_name']} — candidate {m['candidate_id'][:8]}")
+            if m['weakness_exposed']:
+                print(f"    Weakness: {m['weakness_exposed']}")
+        return
+
+    if battery_command == "benchmark":
+        from .battery_loop import run_battery_benchmark
+
+        n = getattr(args, "candidates", 6)
+        threshold = getattr(args, "threshold", 0.55)
+        seed = getattr(args, "seed", 42)
+
+        print(f"Battery Benchmark: {n} candidates, threshold={threshold}, seed={seed}")
+        print("=" * 60)
+
+        report = run_battery_benchmark(repo, n_candidates=n, seed=seed, promotion_threshold=threshold)
+
+        # Print baseline
+        base = report["baseline_candidate"]["baseline_metrics"]
+        print(f"\nBaseline (default cell params):")
+        print(f"  Capacity={base.get('discharge_capacity', 0):.3f}Ah  "
+              f"CE={base.get('coulombic_efficiency', 0):.2f}%  "
+              f"R={base.get('internal_resistance', 0):.1f}mOhm")
+
+        # Print best candidate
+        if report["best_candidate"]:
+            bc = report["best_candidate"]
+            m = bc["metrics"]
+            print(f"\nBest candidate: {bc['title']}")
+            print(f"  Score: {bc['score']:.4f}")
+            print(f"  Capacity={m.get('discharge_capacity', 0):.3f}Ah  "
+                  f"CE={m.get('coulombic_efficiency', 0):.2f}%  "
+                  f"R={m.get('internal_resistance', 0):.1f}mOhm")
+
+        if report.get("robustness_profile"):
+            rp = report["robustness_profile"]
+            print(f"\nRobustness profile:")
+            print(f"  Worst-case capacity delta: {rp.get('worst_case_capacity_delta', 0):.1%}")
+            print(f"  C-rate sensitivity: {rp.get('crate_sensitivity', 0):.1%}")
+            print(f"  Thermal sensitivity: {rp.get('thermal_sensitivity', 0):.1%}")
+            print(f"  Capacity retention: {rp.get('capacity_retention', 0):.1f}%")
+            print(f"  Fade rate: {rp.get('fade_rate', 0):.4f}%/cycle")
+
+        if report.get("caveats"):
+            print(f"\nCaveats ({len(report['caveats'])}):")
+            for c in report["caveats"]:
+                print(f"  - {c}")
+
+        # Held-out reference
+        ref = report["reference_comparison"]
+        ref_m = ref.get("reference_metrics", {})
+        print(f"\nHeld-out reference ({ref['reference_name']}):")
+        print(f"  Capacity={ref_m.get('discharge_capacity', 0):.3f}Ah  "
+              f"CE={ref_m.get('coulombic_efficiency', 0):.2f}%  "
+              f"R={ref_m.get('internal_resistance', 0):.1f}mOhm")
+        if "capacity_vs_reference" in ref:
+            print(f"  Candidate vs reference capacity: {ref['capacity_vs_reference']:.1%}")
+        if "within_reference_envelope" in ref:
+            print(f"  Within reference envelope: {'PASS' if ref['within_reference_envelope'] else 'FAIL'}")
+
+        print(f"\nPromotion decision: {report['promotion_decision']}")
+        s = report["summary"]
+        print(f"\nSummary: {s['promoted']} promoted, {s['rejected']} rejected, {s['hard_fail']} hard-fail")
+
+        # Export artifact
+        runtime_dir = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        artifact_dir = os.path.join(runtime_dir, "battery_loop")
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, f"battery_benchmark_{seed}.json")
+        with open(artifact_path, "w") as f:
+            json.dump(report, f, indent=2, default=str)
+        print(f"\nBenchmark report: {artifact_path}")
+        return
+
+    print("Usage: python -m breakthrough_engine battery [run|dry-run|status|memory|benchmark]")
 
 
 # ---------------------------------------------------------------------------
