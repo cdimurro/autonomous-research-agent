@@ -661,10 +661,19 @@ For the first 7-14 days after adoption, monitor:
 2. **Graph context skipped** — KG canonicalization often produces 0 canonical concepts, causing graph context to be skipped. The system still works (falls back to flat evidence), but graph-conditioned generation is underutilized.
 
 ### Planned Next Steps
-1. **Post-adoption monitoring** — 14-day observation window with labeling
-2. **KG corpus expansion** — Ingest more papers to increase canonical concept coverage and enable graph-conditioned generation
-3. **`diversity_steering_v1` challenger** — Next policy surface (design-only, not yet registered)
-4. **Graph context enrichment** — Improve canonicalization to produce more canonical concepts
+1. **PV Foundation Loop** (`pv-foundation-loop` batch) — First narrow-domain optimization loop for PV I-V characterization. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full design.
+2. **Post-adoption monitoring** — 14-day observation window with labeling
+3. **Battery domain pack** — Second domain loop (after PV is proven)
+4. **DC-DC domain pack** — Third domain loop
+5. **KG corpus expansion** — Ingest more papers to increase canonical concept coverage
+6. **`diversity_steering_v1` challenger** — Next policy surface (design-only, not yet registered)
+
+### Domain Rollout Order
+1. **PV I-V Characterization** — In progress (pvlib-backed, fixed experiments, explicit metrics)
+2. **Battery Characterization** — Planned
+3. **DC-DC Converter Optimization** — Planned
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture details and [docs/INDEX.md](docs/INDEX.md) for documentation navigation.
 
 ---
 

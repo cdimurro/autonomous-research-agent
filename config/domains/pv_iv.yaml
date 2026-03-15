@@ -1,0 +1,91 @@
+name: pv_iv
+display_name: "PV I-V Characterization"
+description: "Photovoltaic current-voltage characterization using single-diode model"
+
+metrics:
+  - name: Voc
+    unit: V
+    description: Open-circuit voltage
+    higher_is_better: true
+    is_primary: true
+  - name: Isc
+    unit: A
+    description: Short-circuit current
+    higher_is_better: true
+    is_primary: true
+  - name: Vmp
+    unit: V
+    description: Voltage at maximum power point
+    higher_is_better: true
+  - name: Imp
+    unit: A
+    description: Current at maximum power point
+    higher_is_better: true
+  - name: Pmax
+    unit: W
+    description: Maximum power output
+    higher_is_better: true
+    is_primary: true
+  - name: fill_factor
+    unit: ""
+    description: "Fill factor (Pmax / (Voc * Isc))"
+    lower_bound: 0.0
+    upper_bound: 1.0
+    higher_is_better: true
+    is_primary: true
+  - name: efficiency
+    unit: "%"
+    description: Power conversion efficiency
+    lower_bound: 0.0
+    upper_bound: 100.0
+    higher_is_better: true
+    is_primary: true
+
+banned_claims:
+  - "perpetual motion"
+  - "over-unity device"
+  - "efficiency above Shockley-Queisser limit without multi-junction justification"
+  - "free energy"
+
+safety_constraints:
+  - "Must not violate thermodynamic limits"
+  - "Efficiency must not exceed Shockley-Queisser limit for single-junction (~33.7%)"
+  - "All parameters must be physically realizable"
+  - "Series resistance must be non-negative"
+  - "Shunt resistance must be positive"
+
+experiment_templates:
+  - name: stc_baseline
+    description: "Standard Test Conditions: 1000 W/m2, 25C cell temp"
+    parameters:
+      irradiance: 1000
+      temperature: 25
+
+  - name: irradiance_sweep
+    description: "Irradiance sweep from 200 to 1200 W/m2 at 25C"
+    parameters:
+      irradiance_range: [200, 400, 600, 800, 1000, 1200]
+      temperature: 25
+
+  - name: temperature_sweep
+    description: "Temperature sweep from 15C to 75C at 1000 W/m2"
+    parameters:
+      irradiance: 1000
+      temperature_range: [15, 25, 35, 45, 55, 65, 75]
+
+  - name: combined_sensitivity
+    description: "Combined irradiance x temperature sensitivity matrix"
+    parameters:
+      irradiance_range: [400, 700, 1000]
+      temperature_range: [25, 45, 65]
+
+# Default cell parameters (typical crystalline Si)
+default_cell_params:
+  I_L_ref: 9.5
+  I_o_ref: 1.0e-10
+  R_s: 0.5
+  R_sh_ref: 400.0
+  a_ref: 1.5
+  alpha_sc: 0.003
+  N_s: 60
+  cell_area_cm2: 156.25

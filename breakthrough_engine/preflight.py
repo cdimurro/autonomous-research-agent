@@ -9,6 +9,7 @@ status and operator-readable remediation hints.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -729,7 +730,7 @@ class PreflightEngine:
             )
 
     def _check_campaign_lock(self) -> CheckResult:
-        """Check no existing campaign lockfile."""
+        """Check no existing campaign lockfile. Auto-clears stale locks from dead PIDs."""
         t0 = time.time()
         elapsed = lambda: (time.time() - t0) * 1000
         lock_path = os.path.join(
@@ -738,19 +739,39 @@ class PreflightEngine:
         if os.path.exists(lock_path):
             try:
                 with open(lock_path) as f:
-                    lock_info = f.read().strip()
+                    lock_info = json.loads(f.read().strip())
+                pid = lock_info.get("pid", 0)
+                # Auto-clear stale locks from dead processes
+                if pid and not self._is_pid_alive(pid):
+                    os.unlink(lock_path)
+                    return CheckResult(
+                        name="campaign_lock",
+                        status="PASS",
+                        detail=f"Stale lock from dead PID {pid} auto-cleared",
+                        elapsed_ms=elapsed(),
+                    )
+                # Lock held by a live process
                 return CheckResult(
                     name="campaign_lock",
                     status="FAIL",
-                    detail=f"Campaign lock exists: {lock_info}",
-                    remediation=f"Remove {lock_path} if no campaign is running",
+                    detail=f"Campaign lock held by PID {pid} (campaign {lock_info.get('campaign_id', 'unknown')})",
+                    remediation=f"Wait for campaign to finish or remove {lock_path} if stuck",
+                    elapsed_ms=elapsed(),
+                )
+            except (json.JSONDecodeError, KeyError):
+                # Corrupt lock file — remove it
+                os.unlink(lock_path)
+                return CheckResult(
+                    name="campaign_lock",
+                    status="PASS",
+                    detail="Corrupt lock file auto-cleared",
                     elapsed_ms=elapsed(),
                 )
             except Exception:
                 return CheckResult(
                     name="campaign_lock",
                     status="FAIL",
-                    detail="Campaign lock file exists",
+                    detail="Campaign lock file exists (unreadable)",
                     remediation=f"Remove {lock_path}",
                     elapsed_ms=elapsed(),
                 )
@@ -760,6 +781,14 @@ class PreflightEngine:
             detail="No active campaign lock",
             elapsed_ms=elapsed(),
         )
+
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
 
     def _check_campaign_profiles(self) -> CheckResult:
         """Check campaign profile configs exist."""
