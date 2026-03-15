@@ -19,5 +19,8 @@ flask>=3.0
 feedparser>=6.0
 requests>=2.31
 
+# PV domain (I-V characterization)
+pvlib>=0.15
+
 # Config
 pyyaml>=6.0
