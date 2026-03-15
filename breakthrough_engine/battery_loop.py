@@ -239,33 +239,46 @@ PROPOSAL_TAG_MEMORY = "memory-supported"
 PROPOSAL_TAG_EXPLORATORY = "exploratory"
 PROPOSAL_TAG_RECOVERY = "recovery"
 PROPOSAL_TAG_RETRY = "retry-with-correction"
+PROPOSAL_TAG_STRESS_INFORMED = "stress-informed"
 
 
 def _compute_family_weights(
     prior_lessons: Optional[list[dict]],
     experiment_memories: Optional[list[dict]] = None,
 ) -> tuple[dict[str, float], dict[str, str]]:
-    """Compute per-family selection weights from memory."""
+    """Compute per-family selection weights from idea memory and experiment memory.
+
+    Uses two memory sources:
+    1. IdeaMemory (prior_lessons): outcome-based weighting (promoted/rejected/hard_fail)
+    2. ExperimentMemory (experiment_memories): weakness-based penalization
+
+    Families with stress fragility or exposed weaknesses get additional
+    down-weighting so the loop steers toward robust candidates.
+    """
     weights: dict[str, float] = {f["family"]: 1.0 for f in CANDIDATE_FAMILIES}
     tags: dict[str, str] = {f["family"]: PROPOSAL_TAG_EXPLORATORY for f in CANDIDATE_FAMILIES}
 
-    if not prior_lessons:
+    if not prior_lessons and not experiment_memories:
         return weights, tags
 
+    # --- Phase 1: Outcome-based weighting from IdeaMemory ---
     family_stats: dict[str, dict] = {}
-    for lesson in prior_lessons:
-        fam = lesson.get("candidate_family", "")
-        outcome = lesson.get("outcome", "")
-        if not fam:
-            continue
-        stats = family_stats.setdefault(fam, {"promoted": 0, "rejected": 0, "hard_fail": 0, "total": 0})
-        stats["total"] += 1
-        if outcome == "promoted":
-            stats["promoted"] += 1
-        elif outcome == "hard_fail":
-            stats["hard_fail"] += 1
-        elif outcome == "rejected":
-            stats["rejected"] += 1
+    if prior_lessons:
+        for lesson in prior_lessons:
+            fam = lesson.get("candidate_family", "")
+            outcome = lesson.get("outcome", "")
+            if not fam:
+                continue
+            stats = family_stats.setdefault(
+                fam, {"promoted": 0, "rejected": 0, "hard_fail": 0, "total": 0}
+            )
+            stats["total"] += 1
+            if outcome == "promoted":
+                stats["promoted"] += 1
+            elif outcome == "hard_fail":
+                stats["hard_fail"] += 1
+            elif outcome == "rejected":
+                stats["rejected"] += 1
 
     for fam, stats in family_stats.items():
         if fam not in weights:
@@ -290,7 +303,44 @@ def _compute_family_weights(
             weights[fam] = 0.5
             tags[fam] = PROPOSAL_TAG_RECOVERY
 
+    # --- Phase 2: Weakness-based penalization from ExperimentMemory ---
+    if experiment_memories:
+        weakness_counts: dict[str, int] = {}
+        stress_fragile: dict[str, int] = {}
+        for mem in experiment_memories:
+            cid = mem.get("candidate_id", "")
+            weakness = mem.get("weakness_exposed", "")
+            if not weakness:
+                continue
+            # Map candidate back to family via idea memory
+            fam = _candidate_id_to_family(cid, prior_lessons)
+            if fam:
+                weakness_counts[fam] = weakness_counts.get(fam, 0) + 1
+                if "stress" in weakness.lower() or "fragile" in weakness.lower():
+                    stress_fragile[fam] = stress_fragile.get(fam, 0) + 1
+
+        for fam, count in weakness_counts.items():
+            if fam in weights and count >= 2:
+                # Repeated weakness → down-weight further
+                weights[fam] *= 0.7
+                if fam in stress_fragile and stress_fragile[fam] >= 2:
+                    weights[fam] *= 0.5
+                    tags[fam] = PROPOSAL_TAG_STRESS_INFORMED
+
     return weights, tags
+
+
+def _candidate_id_to_family(
+    candidate_id: str,
+    prior_lessons: Optional[list[dict]],
+) -> str:
+    """Look up the family of a candidate from prior lessons."""
+    if not prior_lessons:
+        return ""
+    for lesson in prior_lessons:
+        if lesson.get("candidate_id", "") == candidate_id:
+            return lesson.get("candidate_family", "")
+    return ""
 
 
 def _select_families_weighted(
@@ -1042,7 +1092,9 @@ class BatteryOptimizationLoop:
         )
         self.repo.save_promotion_record(promo)
 
-        self._persist_memory(candidate, eval_result, decision, cycle_result.metrics)
+        self._persist_memory(
+            candidate, eval_result, decision, cycle_result.metrics, robustness,
+        )
 
         return BatteryCandidateResult(
             candidate=candidate,
@@ -1058,18 +1110,35 @@ class BatteryOptimizationLoop:
         evaluation: EvaluationResult,
         decision: PromotionDecision,
         metrics: dict,
+        robustness_profile: Optional[dict] = None,
     ) -> None:
-        """Persist idea memory and experiment memory."""
+        """Persist idea memory and experiment memory with stress data.
+
+        Memory entries include:
+        - Outcome and lesson (strongest/weakest component)
+        - Stress fragility indicators from robustness profile
+        - Weakness detection: low CE, low capacity, or stress fragility
+        """
+        components = evaluation.score_components or {}
+
         if evaluation.hard_fail:
             lesson = f"Hard fail: {'; '.join(evaluation.hard_fail_reasons)}"
         elif decision == PromotionDecision.PROMOTED:
-            components = evaluation.score_components
             best_component = max(components, key=components.get) if components else "unknown"
             lesson = f"Promoted with score {evaluation.final_score:.4f}. Strongest component: {best_component}"
         else:
-            components = evaluation.score_components
             worst_component = min(components, key=components.get) if components else "unknown"
             lesson = f"Rejected (score {evaluation.final_score:.4f}). Weakest component: {worst_component}"
+
+        # Add stress summary to lesson if available
+        if robustness_profile:
+            wsr = robustness_profile.get("worst_stress_retention", 100)
+            fc_fade = robustness_profile.get("fast_charge_fade_rate", 0)
+            ts_fade = robustness_profile.get("thermal_stress_fade_rate", 0)
+            if wsr < 90:
+                lesson += f". Stress-fragile: worst retention {wsr:.1f}%"
+            if fc_fade > 0.05:
+                lesson += f". Fast-charge fade: {fc_fade:.3f}%/cycle"
 
         family = ""
         for fam_def in CANDIDATE_FAMILIES:
@@ -1092,7 +1161,9 @@ class BatteryOptimizationLoop:
         informative_metrics = []
         weakness = ""
         if metrics:
-            informative_metrics = ["discharge_capacity", "coulombic_efficiency", "internal_resistance"]
+            informative_metrics = [
+                "discharge_capacity", "coulombic_efficiency", "internal_resistance",
+            ]
             cap = metrics.get("discharge_capacity", 0)
             coul = metrics.get("coulombic_efficiency", 0)
             if coul < 98.0:
@@ -1100,10 +1171,18 @@ class BatteryOptimizationLoop:
             elif cap < 2.5:
                 weakness = f"Low discharge capacity: {cap:.3f} Ah"
 
+        # Stress-informed weakness detection
+        if robustness_profile and not weakness:
+            wsr = robustness_profile.get("worst_stress_retention", 100)
+            if wsr < 85:
+                weakness = f"Stress-fragile: worst retention {wsr:.1f}% under stress"
+
+        template_name = "baseline_cycle+cycle_aging+crate_sweep+fast_charge_stress+thermal_stress_aging"
+
         exp_mem = ExperimentMemoryEntry(
             domain_name="battery_ecm",
             candidate_id=candidate.id,
-            template_name="baseline_cycle+cycle_aging+crate_sweep",
+            template_name=template_name,
             informative_metrics=informative_metrics,
             weakness_exposed=weakness,
             runtime_seconds=0.0,

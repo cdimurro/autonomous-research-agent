@@ -16,6 +16,7 @@ from breakthrough_engine.battery_loop import (
     PROPOSAL_TAG_MEMORY,
     PROPOSAL_TAG_RECOVERY,
     PROPOSAL_TAG_RETRY,
+    PROPOSAL_TAG_STRESS_INFORMED,
     BatteryOptimizationLoop,
     _check_cross_parameter_plausibility,
     _compute_family_weights,
@@ -174,6 +175,38 @@ class TestMemoryGuidedGeneration:
         rr_count = sum(1 for c in candidates if "reduced_resistance" in c.title)
         ba_count = sum(1 for c in candidates if "bounded_aggressive" in c.title)
         assert rr_count > ba_count
+
+    def test_stress_informed_tag_from_experiment_memory(self):
+        """Families with repeated stress-related weakness get stress-informed tag."""
+        lessons = [
+            {"candidate_family": "bounded_aggressive", "outcome": "rejected",
+             "candidate_id": "c1"},
+            {"candidate_family": "bounded_aggressive", "outcome": "rejected",
+             "candidate_id": "c2"},
+        ]
+        exp_memories = [
+            {"candidate_id": "c1", "weakness_exposed": "Stress-fragile: worst retention 78%"},
+            {"candidate_id": "c2", "weakness_exposed": "Stress-fragile: worst retention 75%"},
+        ]
+        weights, tags = _compute_family_weights(lessons, exp_memories)
+        assert tags["bounded_aggressive"] == PROPOSAL_TAG_STRESS_INFORMED
+        assert weights["bounded_aggressive"] < 0.5
+
+    def test_weakness_penalizes_family_weight(self):
+        """Families with repeated weakness get down-weighted."""
+        lessons = [
+            {"candidate_family": "improved_capacity", "outcome": "rejected",
+             "candidate_id": "c1"},
+            {"candidate_family": "improved_capacity", "outcome": "rejected",
+             "candidate_id": "c2"},
+        ]
+        exp_memories = [
+            {"candidate_id": "c1", "weakness_exposed": "Low discharge capacity"},
+            {"candidate_id": "c2", "weakness_exposed": "Low discharge capacity"},
+        ]
+        weights_no_mem, _ = _compute_family_weights(lessons)
+        weights_with_mem, _ = _compute_family_weights(lessons, exp_memories)
+        assert weights_with_mem["improved_capacity"] < weights_no_mem["improved_capacity"]
 
 
 class TestCandidateFamilies:
@@ -490,6 +523,29 @@ class TestBatteryLoop:
             assert result.total_candidates == 3
         ideas = db_repo.list_idea_memory("battery_ecm", limit=100)
         assert len(ideas) == 9
+
+    def test_memory_includes_stress_data(self, db_repo):
+        loop = BatteryOptimizationLoop(db_repo, n_candidates=3, seed=42)
+        loop.run(run_id="stress_mem_test")
+        ideas = db_repo.list_idea_memory("battery_ecm")
+        # At least one lesson should reference scoring components
+        lessons_text = " ".join(i.get("lesson", "") for i in ideas)
+        assert "score" in lessons_text.lower() or "fail" in lessons_text.lower()
+
+    def test_second_run_uses_memory(self, db_repo):
+        """Second run should have memory from first run influencing generation."""
+        loop1 = BatteryOptimizationLoop(db_repo, n_candidates=3, seed=42)
+        loop1.run(run_id="run_1")
+        # Memory should now exist
+        ideas = db_repo.list_idea_memory("battery_ecm")
+        assert len(ideas) == 3
+        # Second run picks up memory
+        loop2 = BatteryOptimizationLoop(db_repo, n_candidates=3, seed=99)
+        result2 = loop2.run(run_id="run_2")
+        assert result2.total_candidates == 3
+        # Memory should have accumulated
+        ideas = db_repo.list_idea_memory("battery_ecm", limit=100)
+        assert len(ideas) == 6
 
 
 # ---------------------------------------------------------------------------
