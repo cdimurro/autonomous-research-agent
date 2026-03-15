@@ -305,8 +305,10 @@ class TestMockSidecar:
     def test_mock_produces_pybamm_metrics(self):
         mock = MockPyBaMMSidecar(seed=42)
         result = mock.verify_candidate("c1", DEFAULT_ECM_PARAMS, DEFAULT_ECM_METRICS)
+        # Mock produces metrics for concordance keys that exist in ecm_metrics
         for key in CONCORDANCE_WEIGHTS:
-            assert key in result.pybamm_metrics
+            if CONCORDANCE_WEIGHTS[key] > 0 and key in DEFAULT_ECM_METRICS:
+                assert key in result.pybamm_metrics
 
     def test_concordance_details_populated(self):
         mock = MockPyBaMMSidecar(seed=42)

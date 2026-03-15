@@ -82,22 +82,24 @@ def run_dfn_simulation(request: dict) -> dict:
         # Build model
         model = pybamm.lithium_ion.DFN()
 
-        # Build experiment
+        v_lo = str(dfn_params.get("lower_voltage_cut_off", 2.5))
+        v_hi = str(dfn_params.get("upper_voltage_cut_off", 4.2))
+
+        # Build experiment: baseline 1C + optional high-rate verification
         pybamm_experiments = []
         for exp_name in experiments:
             if exp_name == "baseline_1c":
-                pybamm_experiments.append(
-                    "Discharge at 1C until " + str(dfn_params.get("lower_voltage_cut_off", 2.5)) + " V"
-                )
-                pybamm_experiments.append(
-                    "Charge at 1C until " + str(dfn_params.get("upper_voltage_cut_off", 4.2)) + " V"
-                )
+                pybamm_experiments.append(f"Discharge at 1C until {v_lo} V")
+                pybamm_experiments.append(f"Charge at 1C until {v_hi} V")
+            elif exp_name == "high_rate_2c":
+                pybamm_experiments.append(f"Discharge at 2C until {v_lo} V")
+                pybamm_experiments.append(f"Charge at 1C until {v_hi} V")
+            elif exp_name == "high_rate_3c":
+                pybamm_experiments.append(f"Discharge at 3C until {v_lo} V")
+                pybamm_experiments.append(f"Charge at 1C until {v_hi} V")
             elif exp_name == "crate_sweep":
                 for crate in ["0.33C", "0.5C", "1C", "2C", "3C"]:
-                    pybamm_experiments.append(
-                        f"Discharge at {crate} until "
-                        + str(dfn_params.get("lower_voltage_cut_off", 2.5)) + " V"
-                    )
+                    pybamm_experiments.append(f"Discharge at {crate} until {v_lo} V")
 
         experiment = pybamm.Experiment(pybamm_experiments)
 
@@ -105,8 +107,26 @@ def run_dfn_simulation(request: dict) -> dict:
         sim = pybamm.Simulation(model, parameter_values=param_set, experiment=experiment)
         sol = sim.solve()
 
-        # Extract metrics
-        discharge_cap = float(sol["Discharge capacity [A.h]"].entries[-1])
+        # Extract per-step metrics from solution cycles
+        # PyBaMM Experiment solutions have a .cycles property where each
+        # cycle contains discharge/charge steps.
+        step_caps = []  # (rate_label, discharge_capacity)
+        try:
+            for i, cycle in enumerate(sol.cycles):
+                cap = float(cycle["Discharge capacity [A.h]"].entries[-1])
+                label = pybamm_experiments[i * 2] if i * 2 < len(pybamm_experiments) else f"step_{i}"
+                step_caps.append((label, cap))
+        except (AttributeError, IndexError, KeyError):
+            # Fallback: single experiment, use total
+            try:
+                cap = float(sol["Discharge capacity [A.h]"].entries[-1])
+                step_caps.append(("total", cap))
+            except (KeyError, IndexError):
+                pass
+
+        # Primary metric: 1C discharge capacity (first step)
+        discharge_cap = step_caps[0][1] if step_caps else 0.0
+
         terminal_v = sol["Terminal voltage [V]"].entries
         current = sol["Current [A]"].entries
 
@@ -118,6 +138,28 @@ def run_dfn_simulation(request: dict) -> dict:
             r_internal = (v_ocv_approx - v_loaded) / i_loaded * 1000  # mOhm
         else:
             r_internal = 30.0  # fallback
+
+        # Compute high-rate retention from step capacities
+        # cap_at_high_rate / cap_at_1c shows how much capacity the DFN
+        # model loses under fast-charge conditions
+        cap_1c = None
+        cap_2c = None
+        cap_3c = None
+        for label, cap in step_caps:
+            if "1C" in label and "0.33" not in label and "0.5" not in label:
+                if cap_1c is None:  # take first 1C step only
+                    cap_1c = cap
+            elif "2C" in label and "0.5" not in label:
+                cap_2c = cap
+            elif "3C" in label:
+                cap_3c = cap
+
+        high_rate_retention = None
+        if cap_1c and cap_1c > 0:
+            if cap_3c is not None:
+                high_rate_retention = round((cap_3c / cap_1c) * 100, 2)
+            elif cap_2c is not None:
+                high_rate_retention = round((cap_2c / cap_1c) * 100, 2)
 
         # DFN CE and energy efficiency are best computed from dedicated
         # charge/discharge cycles. For this baseline run we use the DFN's
@@ -148,12 +190,15 @@ def run_dfn_simulation(request: dict) -> dict:
         #   coulombic_efficiency: % (not fraction)
         #   internal_resistance: mOhm
         #   energy_efficiency: % (not fraction)
+        #   high_rate_retention: % (capacity at highest rate / capacity at 1C)
         metrics = {
             "discharge_capacity": round(discharge_cap, 4),
             "coulombic_efficiency": ce_pct,
             "internal_resistance": round(max(0.1, r_internal), 4),
             "energy_efficiency": energy_eff_pct,
         }
+        if high_rate_retention is not None:
+            metrics["high_rate_retention"] = high_rate_retention
 
         # Extract solve time safely (PyBaMM API changed across versions)
         solve_time = 0.0

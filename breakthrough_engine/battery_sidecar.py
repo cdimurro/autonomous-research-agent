@@ -66,11 +66,12 @@ CONCORDANCE_CONFIRM_THRESHOLD = 0.60
 # discharge_capacity is the primary comparison metric after cell-matched
 # normalization (scaling PyBaMM output to ECM nominal capacity).
 CONCORDANCE_WEIGHTS = {
-    "discharge_capacity": 0.45,
-    "coulombic_efficiency": 0.15,
+    "discharge_capacity": 0.35,
+    "coulombic_efficiency": 0.10,
     "internal_resistance": 0.0,
-    "energy_efficiency": 0.25,
-    "rate_capability": 0.15,
+    "energy_efficiency": 0.20,
+    "high_rate_retention": 0.25,  # DFN high-rate capacity retention (2C or 3C)
+    "rate_capability": 0.10,
 }
 
 
@@ -477,7 +478,7 @@ class PyBaMMSidecar:
             "dfn_params": {k: v for k, v in dfn_params.items() if not k.startswith("_")},
             "pybamm_parameter_set": dfn_params.get("_pybamm_parameter_set", DEFAULT_PYBAMM_PARAMETER_SET),
             "chemistry": dfn_params.get("_chemistry", "NMC"),
-            "experiments": ["baseline_1c", "crate_sweep"],
+            "experiments": ["baseline_1c", "high_rate_2c", "high_rate_3c"],
         }
 
         # Run subprocess

@@ -1514,21 +1514,31 @@ class BatteryOptimizationLoop:
     ) -> PyBaMMSidecarResult:
         """Send candidate to sidecar for DFN verification.
 
+        Enriches ecm_metrics with robustness data (high_rate_retention)
+        for better concordance on rate-dependent behavior.
+
         Returns PyBaMMSidecarResult with status. If sidecar is None or
         unavailable, returns UNAVAILABLE status.
         """
+        # Enrich ECM metrics with robustness data for concordance
+        enriched_metrics = dict(ecm_metrics)
+        if robustness_profile:
+            rfc_ret = robustness_profile.get("repeated_fast_charge_retention")
+            if rfc_ret is not None:
+                enriched_metrics["high_rate_retention"] = rfc_ret
+
         if self.sidecar is None:
             return PyBaMMSidecarResult(
                 candidate_id=candidate.id,
                 status=SidecarStatus.UNAVAILABLE,
-                ecm_metrics=ecm_metrics,
+                ecm_metrics=enriched_metrics,
                 error_message="No sidecar configured",
             )
         if not self.sidecar.is_available():
             return PyBaMMSidecarResult(
                 candidate_id=candidate.id,
                 status=SidecarStatus.UNAVAILABLE,
-                ecm_metrics=ecm_metrics,
+                ecm_metrics=enriched_metrics,
                 error_message="Sidecar not available",
             )
         # Resolve chemistry and PyBaMM parameter set for cathode candidates
@@ -1546,7 +1556,7 @@ class BatteryOptimizationLoop:
         return self.sidecar.verify_candidate(
             candidate_id=candidate.id,
             ecm_params=candidate.parameters,
-            ecm_metrics=ecm_metrics,
+            ecm_metrics=enriched_metrics,
             chemistry=chemistry,
             pybamm_parameter_set=pybamm_param_set,
         )
