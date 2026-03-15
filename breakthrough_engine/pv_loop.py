@@ -1049,3 +1049,126 @@ class PVLoopResult:
             if self.alternate.promotion_caveats:
                 summary["alternate_caveats"] = self.alternate.promotion_caveats
         return summary
+
+
+# ---------------------------------------------------------------------------
+# PV Benchmark mode (CC-BE-2410)
+# ---------------------------------------------------------------------------
+
+# Held-out reference module: representative commercial mono-Si module
+# (based on typical CEC database values for a ~300W module)
+REFERENCE_MODULE_PARAMS = {
+    "I_L_ref": 9.8,
+    "I_o_ref": 2.5e-10,
+    "R_s": 0.35,
+    "R_sh_ref": 450.0,
+    "a_ref": 1.45,
+    "alpha_sc": 0.0032,
+    "N_s": 60,
+    "cell_area_cm2": 156.25,
+    "reference_name": "benchmark_mono_si_300w",
+}
+
+
+def run_pv_benchmark(
+    repo: Repository,
+    n_candidates: int = 6,
+    seed: int = 42,
+    promotion_threshold: float = 0.55,
+) -> dict:
+    """Run PV benchmark: full loop + held-out realism check.
+
+    Returns a compact benchmark report dict with:
+    - baseline_candidate: STC metrics for default params
+    - best_candidate: best promoted candidate (if any) with metrics
+    - robustness_profile: stress evaluation of best candidate
+    - caveats: all caveats for best candidate
+    - promotion_decision: promoted / rejected / none
+    - reference_comparison: held-out check against reference module
+    - summary: counts and decisions
+    """
+    # Run full optimization loop
+    loop = PVOptimizationLoop(
+        repo, n_candidates=n_candidates,
+        promotion_threshold=promotion_threshold, seed=seed,
+    )
+    result = loop.run(run_id=f"benchmark_{seed}")
+
+    # Baseline metrics
+    baseline = result.baseline_metrics
+
+    # Held-out realism check: compare best candidate against reference module
+    ref_result = run_experiment("stc_baseline", REFERENCE_MODULE_PARAMS)
+    ref_metrics = ref_result.metrics
+
+    ref_robustness = compute_robustness_profile(REFERENCE_MODULE_PARAMS, ref_metrics)
+
+    reference_comparison: dict = {
+        "reference_name": REFERENCE_MODULE_PARAMS["reference_name"],
+        "reference_stc_metrics": ref_metrics,
+        "reference_robustness": {
+            k: v for k, v in ref_robustness.items() if k != "sweep_data"
+        },
+    }
+
+    # Compare best candidate to reference
+    if result.best_promoted:
+        bp = result.best_promoted
+        ref_pmax = ref_metrics.get("Pmax", 0)
+        cand_pmax = bp.experiment_metrics.get("Pmax", 0)
+        if ref_pmax > 0:
+            reference_comparison["pmax_vs_reference"] = round(
+                (cand_pmax - ref_pmax) / ref_pmax, 4
+            )
+        ref_ff = ref_metrics.get("fill_factor", 0)
+        cand_ff = bp.experiment_metrics.get("fill_factor", 0)
+        if ref_ff > 0:
+            reference_comparison["ff_vs_reference"] = round(
+                (cand_ff - ref_ff) / ref_ff, 4
+            )
+        # Realism check: is candidate within plausible range of reference?
+        reference_comparison["within_reference_envelope"] = (
+            abs(reference_comparison.get("pmax_vs_reference", 0)) < 0.50
+            and abs(reference_comparison.get("ff_vs_reference", 0)) < 0.30
+        )
+
+    # Build report
+    report: dict = {
+        "benchmark_domain": "pv_iv",
+        "seed": seed,
+        "baseline_candidate": {
+            "params": "DEFAULT_CELL_PARAMS",
+            "stc_metrics": baseline,
+        },
+        "best_candidate": None,
+        "robustness_profile": None,
+        "caveats": [],
+        "promotion_decision": "none",
+        "reference_comparison": reference_comparison,
+        "summary": result.summary(),
+    }
+
+    if result.best_promoted:
+        bp = result.best_promoted
+        report["best_candidate"] = {
+            "title": bp.candidate.title,
+            "score": bp.evaluation.final_score,
+            "stc_metrics": bp.experiment_metrics,
+            "family": bp.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+        }
+        report["robustness_profile"] = {
+            k: v for k, v in bp.robustness_profile.items() if k != "sweep_data"
+        }
+        report["caveats"] = bp.promotion_caveats
+        report["promotion_decision"] = "promoted"
+    elif result.alternate:
+        alt = result.alternate
+        report["best_candidate"] = {
+            "title": alt.candidate.title,
+            "score": alt.evaluation.final_score,
+            "stc_metrics": alt.experiment_metrics,
+            "family": alt.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+        }
+        report["promotion_decision"] = "alternate_only"
+
+    return report

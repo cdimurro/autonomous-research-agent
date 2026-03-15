@@ -21,11 +21,13 @@ from breakthrough_engine.pv_loop import (
     PROPOSAL_TAG_RETRY,
     PV_SCORE_WEIGHTS,
     PVOptimizationLoop,
+    REFERENCE_MODULE_PARAMS,
     _check_cross_parameter_plausibility,
     _compute_family_weights,
     compute_robustness_profile,
     generate_candidate_caveats,
     generate_pv_candidates,
+    run_pv_benchmark,
     score_pv_candidate,
 )
 
@@ -581,3 +583,79 @@ class TestMemoryGuidedGeneration:
         # All candidates should have rationale tags
         for cr in r2.candidates:
             assert "[" in cr.candidate.rationale  # tag marker
+
+
+# ---------------------------------------------------------------------------
+# CC-BE-2410: PV benchmark and held-out realism check tests
+# ---------------------------------------------------------------------------
+
+class TestPVBenchmark:
+    @pytest.fixture
+    def db_repo(self):
+        db = init_db(in_memory=True)
+        return Repository(db)
+
+    def test_benchmark_report_structure(self, db_repo):
+        """Benchmark report should have all required fields."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        assert "benchmark_domain" in report
+        assert report["benchmark_domain"] == "pv_iv"
+        assert "baseline_candidate" in report
+        assert "best_candidate" in report
+        assert "caveats" in report
+        assert "promotion_decision" in report
+        assert "reference_comparison" in report
+        assert "summary" in report
+
+    def test_benchmark_baseline_has_metrics(self, db_repo):
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        base = report["baseline_candidate"]["stc_metrics"]
+        assert base["Pmax"] > 0
+        assert base["fill_factor"] > 0
+        assert base["efficiency"] > 0
+
+    def test_benchmark_reference_comparison(self, db_repo):
+        """Reference comparison should include STC metrics and robustness."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        ref = report["reference_comparison"]
+        assert ref["reference_name"] == "benchmark_mono_si_300w"
+        assert "reference_stc_metrics" in ref
+        assert ref["reference_stc_metrics"]["Pmax"] > 0
+        assert "reference_robustness" in ref
+
+    def test_benchmark_is_deterministic(self, db_repo):
+        """Same seed should produce same benchmark report."""
+        db2 = init_db(in_memory=True)
+        repo2 = Repository(db2)
+        r1 = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        r2 = run_pv_benchmark(repo2, n_candidates=4, seed=42)
+        assert r1["summary"]["promoted"] == r2["summary"]["promoted"]
+        assert r1["promotion_decision"] == r2["promotion_decision"]
+        if r1["best_candidate"] and r2["best_candidate"]:
+            assert r1["best_candidate"]["score"] == r2["best_candidate"]["score"]
+
+    def test_benchmark_json_serializable(self, db_repo):
+        """Benchmark report should be fully JSON-serializable."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        json_str = json.dumps(report, default=str)
+        loaded = json.loads(json_str)
+        assert loaded["benchmark_domain"] == "pv_iv"
+
+    def test_reference_module_params_plausible(self):
+        """Reference module params should pass plausibility checks."""
+        from breakthrough_engine.pv_domain import check_physical_plausibility
+        ok, reasons = check_physical_plausibility(REFERENCE_MODULE_PARAMS)
+        assert ok, f"Reference params failed plausibility: {reasons}"
+
+    def test_reference_module_produces_output(self):
+        """Reference module should produce valid STC output."""
+        result = run_experiment("stc_baseline", REFERENCE_MODULE_PARAMS)
+        assert result.success
+        assert result.metrics["Pmax"] > 0
+        assert 0 < result.metrics["efficiency"] < 33.7
+
+    def test_benchmark_with_high_threshold(self, db_repo):
+        """High threshold benchmark should report no promotion."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42, promotion_threshold=0.99)
+        assert report["promotion_decision"] == "none"
+        assert report["best_candidate"] is None

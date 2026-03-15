@@ -317,6 +317,10 @@ def main(argv: list[str] | None = None):
     pv_dry_p = pv_sub.add_parser("dry-run", help="Preview PV candidates without running experiments")
     pv_dry_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
     pv_dry_p.add_argument("--seed", type=int, default=None, help="Random seed")
+    pv_bench_p = pv_sub.add_parser("benchmark", help="Run PV benchmark with held-out realism check")
+    pv_bench_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
+    pv_bench_p.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold")
+    pv_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility")
 
     # Phase 10A: KG shadow foundation
     ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
@@ -1896,7 +1900,7 @@ def _cmd_pv(repo: Repository, args):
     pv_command = getattr(args, "pv_command", None)
 
     if not pv_command:
-        print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory]")
+        print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory|benchmark]")
         return
 
     if pv_command == "dry-run":
@@ -2005,7 +2009,77 @@ def _cmd_pv(repo: Repository, args):
                 print(f"    Weakness: {m['weakness_exposed']}")
         return
 
-    print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory]")
+    if pv_command == "benchmark":
+        from .pv_loop import run_pv_benchmark
+
+        n = getattr(args, "candidates", 6)
+        threshold = getattr(args, "threshold", 0.55)
+        seed = getattr(args, "seed", 42)
+
+        print(f"PV Benchmark: {n} candidates, threshold={threshold}, seed={seed}")
+        print("=" * 60)
+
+        report = run_pv_benchmark(repo, n_candidates=n, seed=seed, promotion_threshold=threshold)
+
+        # Print baseline
+        base = report["baseline_candidate"]["stc_metrics"]
+        print(f"\nBaseline (default cell params):")
+        print(f"  Pmax={base.get('Pmax', 0):.2f}W  FF={base.get('fill_factor', 0):.4f}  "
+              f"eff={base.get('efficiency', 0):.2f}%")
+
+        # Print best candidate
+        if report["best_candidate"]:
+            bc = report["best_candidate"]
+            stc = bc["stc_metrics"]
+            print(f"\nBest candidate: {bc['title']}")
+            print(f"  Score: {bc['score']:.4f}")
+            print(f"  Pmax={stc.get('Pmax', 0):.2f}W  FF={stc.get('fill_factor', 0):.4f}  "
+                  f"eff={stc.get('efficiency', 0):.2f}%")
+
+        # Print robustness
+        if report["robustness_profile"]:
+            rp = report["robustness_profile"]
+            print(f"\nRobustness profile:")
+            print(f"  Worst-case Pmax delta: {rp.get('worst_case_pmax_delta', 0):.1%}")
+            print(f"  Temperature sensitivity: {rp.get('temperature_sensitivity', 0):.1%}")
+            print(f"  Combined fragility: {rp.get('combined_fragility', 0):.1%}")
+            print(f"  Efficiency stability: {rp.get('efficiency_stability', 0):.4f}")
+
+        # Print caveats
+        if report["caveats"]:
+            print(f"\nCaveats ({len(report['caveats'])}):")
+            for caveat in report["caveats"]:
+                print(f"  - {caveat}")
+
+        # Print reference comparison
+        ref = report["reference_comparison"]
+        ref_stc = ref.get("reference_stc_metrics", {})
+        print(f"\nHeld-out reference ({ref.get('reference_name', 'unknown')}):")
+        print(f"  Pmax={ref_stc.get('Pmax', 0):.2f}W  FF={ref_stc.get('fill_factor', 0):.4f}  "
+              f"eff={ref_stc.get('efficiency', 0):.2f}%")
+        if "pmax_vs_reference" in ref:
+            print(f"  Candidate vs reference Pmax: {ref['pmax_vs_reference']:.1%}")
+        if "within_reference_envelope" in ref:
+            status = "PASS" if ref["within_reference_envelope"] else "FAIL"
+            print(f"  Within reference envelope: {status}")
+
+        # Print promotion decision
+        print(f"\nPromotion decision: {report['promotion_decision']}")
+        print(f"\nSummary: {report['summary']['promoted']} promoted, "
+              f"{report['summary']['rejected']} rejected, "
+              f"{report['summary']['hard_fail']} hard-fail")
+
+        # Export report artifact
+        runtime_dir = os.environ.get("SCIRES_RUNTIME_ROOT", "runtime")
+        artifact_dir = os.path.join(runtime_dir, "pv_loop")
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, f"pv_benchmark_{seed}.json")
+        with open(artifact_path, "w") as f:
+            json.dump(report, f, indent=2, default=str)
+        print(f"\nBenchmark report: {artifact_path}")
+        return
+
+    print("Usage: python -m breakthrough_engine pv [run|dry-run|status|memory|benchmark]")
 
 
 # ---------------------------------------------------------------------------
