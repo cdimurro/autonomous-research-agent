@@ -330,6 +330,19 @@ class TestLiveSidecarUnavailable:
         assert result.success is False
         assert "not found" in result.error_message
 
+    def test_health_check_unavailable(self, tmp_path):
+        sidecar = PyBaMMSidecar(venv_path=tmp_path / "nonexistent")
+        health = sidecar.check_health()
+        assert health["available"] is False
+        assert health["error"] is not None
+
+    def test_health_check_returns_required_keys(self, tmp_path):
+        sidecar = PyBaMMSidecar(venv_path=tmp_path / "nonexistent")
+        health = sidecar.check_health()
+        required = {"available", "python_version", "pybamm_version",
+                     "parameter_set_ok", "runner_ok", "error"}
+        assert required == set(health.keys())
+
 
 # ── Concordance gate semantics ────────────────────────────────────────────
 

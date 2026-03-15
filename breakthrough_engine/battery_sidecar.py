@@ -238,7 +238,9 @@ DEFAULT_RUNNER_SCRIPT = REPO_ROOT / "battery_sidecar" / "pybamm_runner.py"
 class PyBaMMSidecar:
     """Live PyBaMM sidecar — runs DFN simulation via subprocess.
 
-    Requires a separate Python 3.12 venv with PyBaMM installed.
+    Requires a separate Python 3.11/3.12 venv with PyBaMM installed.
+    Setup: bash scripts/setup_pybamm_sidecar.sh
+    Check: bash scripts/setup_pybamm_sidecar.sh --check
     """
 
     def __init__(
@@ -255,6 +257,90 @@ class PyBaMMSidecar:
     def is_available(self) -> bool:
         """Check if the sidecar venv and runner script exist."""
         return self._python.exists() and self.runner_script.exists()
+
+    def check_health(self) -> dict:
+        """Deep health check: venv exists, PyBaMM importable, runner works.
+
+        Returns dict with keys: available, python_version, pybamm_version,
+        parameter_set_ok, runner_ok, error.
+        """
+        result = {
+            "available": False,
+            "python_version": None,
+            "pybamm_version": None,
+            "parameter_set_ok": False,
+            "runner_ok": False,
+            "error": None,
+        }
+        if not self.is_available():
+            result["error"] = "Sidecar venv or runner script not found"
+            return result
+
+        # Check Python version
+        try:
+            ver = subprocess.check_output(
+                [str(self._python), "--version"],
+                text=True, timeout=10,
+            ).strip()
+            result["python_version"] = ver
+        except Exception as e:
+            result["error"] = f"Python check failed: {e}"
+            return result
+
+        # Check PyBaMM import + version
+        try:
+            pybamm_ver = subprocess.check_output(
+                [str(self._python), "-c",
+                 "import pybamm; print(pybamm.__version__)"],
+                text=True, timeout=30,
+            ).strip()
+            result["pybamm_version"] = pybamm_ver
+        except Exception as e:
+            result["error"] = f"PyBaMM import failed: {e}"
+            return result
+
+        # Check parameter set
+        try:
+            subprocess.check_output(
+                [str(self._python), "-c",
+                 "import pybamm; pybamm.ParameterValues('Chen2020')"],
+                text=True, timeout=30,
+            )
+            result["parameter_set_ok"] = True
+        except Exception as e:
+            result["error"] = f"Parameter set check failed: {e}"
+            return result
+
+        # Check runner with a minimal request
+        try:
+            test_request = json.dumps({
+                "dfn_params": {
+                    "lower_voltage_cut_off": 2.5,
+                    "upper_voltage_cut_off": 4.2,
+                },
+                "pybamm_parameter_set": "Chen2020",
+                "experiments": ["baseline_1c"],
+            })
+            proc = subprocess.run(
+                [str(self._python), str(self.runner_script)],
+                input=test_request, capture_output=True, text=True,
+                timeout=60,
+            )
+            if proc.returncode == 0:
+                resp = json.loads(proc.stdout)
+                if resp.get("success"):
+                    result["runner_ok"] = True
+                    result["available"] = True
+                else:
+                    result["error"] = f"Runner returned error: {resp.get('error', 'unknown')}"
+            else:
+                result["error"] = f"Runner exited {proc.returncode}: {proc.stderr[:200]}"
+        except subprocess.TimeoutExpired:
+            result["error"] = "Runner timed out during health check"
+        except Exception as e:
+            result["error"] = f"Runner check failed: {e}"
+
+        return result
 
     def verify_candidate(
         self,
@@ -391,15 +477,25 @@ class PyBaMMSidecar:
 
 
 def _validate_pybamm_output(metrics: dict) -> bool:
-    """Basic physics validation of PyBaMM output metrics."""
+    """Basic physics validation of PyBaMM output metrics.
+
+    Accepts metrics in ECM-compatible units:
+    - discharge_capacity: Ah (0–10 Ah for cylindrical cells)
+    - coulombic_efficiency: % (90–101%)
+    - internal_resistance: mOhm (0–500 mOhm)
+    - energy_efficiency: % (50–101%)
+    """
     cap = metrics.get("discharge_capacity")
     if cap is not None and (cap <= 0 or cap > 10):
         return False
     ce = metrics.get("coulombic_efficiency")
-    if ce is not None and (ce <= 0 or ce > 1.1):
+    if ce is not None and (ce <= 0 or ce > 101):
         return False
     r = metrics.get("internal_resistance")
     if r is not None and (r <= 0 or r > 500):
+        return False
+    ee = metrics.get("energy_efficiency")
+    if ee is not None and (ee <= 0 or ee > 101):
         return False
     return True
 

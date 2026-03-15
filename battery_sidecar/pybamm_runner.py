@@ -2,8 +2,9 @@
 """PyBaMM DFN sidecar runner — subprocess entry point.
 
 Reads JSON from stdin, runs PyBaMM DFN simulation, writes JSON to stdout.
-This script runs in a separate Python 3.12 venv (.venv-pybamm/) and is
+This script runs in a separate Python 3.11/3.12 venv (.venv-pybamm/) and is
 invoked by the main engine via subprocess.
+Setup: bash scripts/setup_pybamm_sidecar.sh
 
 Input (JSON on stdin):
     {
@@ -118,20 +119,59 @@ def run_dfn_simulation(request: dict) -> dict:
         else:
             r_internal = 30.0  # fallback
 
+        # DFN CE and energy efficiency are best computed from dedicated
+        # charge/discharge cycles. For this baseline run we use the DFN's
+        # loss mechanisms to estimate values in ECM-compatible units.
+        #
+        # The key concordance metrics are discharge_capacity and
+        # internal_resistance. CE and energy_efficiency from a DFN
+        # single cycle are model-derived estimates, not measured.
+
+        # CE: DFN models predict ~99.3-99.8% for healthy NMC cells
+        # Use parameter-set-appropriate default
+        ce_pct = 99.5  # DFN default for NMC (conservative)
+        try:
+            # If the solution has loss of lithium inventory data, use it
+            if hasattr(sol, 'summary_variables') and sol.summary_variables:
+                lli = sol.summary_variables.get("Loss of lithium inventory [%]")
+                if lli is not None:
+                    ce_pct = round(100.0 - float(lli[-1]) / 100.0, 2)
+        except Exception:
+            pass
+
+        # Energy efficiency: estimate from voltage efficiency
+        # V_discharge / V_charge ≈ 1 - 2*I*R / V_ocv
+        energy_eff_pct = round(max(80.0, 100.0 - 2.0 * r_internal / 3.7 * 100), 2)
+
+        # NOTE: All metrics are in ECM-compatible units:
+        #   discharge_capacity: Ah
+        #   coulombic_efficiency: % (not fraction)
+        #   internal_resistance: mOhm
+        #   energy_efficiency: % (not fraction)
         metrics = {
             "discharge_capacity": round(discharge_cap, 4),
-            "coulombic_efficiency": 0.995,  # approximate for DFN single cycle
+            "coulombic_efficiency": ce_pct,
             "internal_resistance": round(max(0.1, r_internal), 4),
-            "energy_efficiency": 0.92,  # approximate
-            "rate_capability": 0.85,  # approximate from C-rate sweep if available
+            "energy_efficiency": energy_eff_pct,
         }
+
+        # Extract solve time safely (PyBaMM API changed across versions)
+        solve_time = 0.0
+        if hasattr(sol, 'solve_time'):
+            st = sol.solve_time
+            if hasattr(st, 'total_seconds'):
+                solve_time = round(st.total_seconds(), 2)
+            elif hasattr(st, 'value'):
+                solve_time = round(float(st.value), 2)
+            elif isinstance(st, (int, float)):
+                solve_time = round(float(st), 2)
 
         return {
             "success": True,
             "metrics": metrics,
             "raw_summary": {
                 "n_experiments": len(pybamm_experiments),
-                "solve_time_s": round(sol.solve_time.total_seconds(), 2) if hasattr(sol, 'solve_time') else 0,
+                "solve_time_s": solve_time,
                 "parameter_set": param_set_name,
             },
             "error": "",
