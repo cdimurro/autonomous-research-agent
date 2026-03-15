@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useJobs } from "@/hooks/useJobs";
+import { useBriefs } from "@/hooks/useBriefs";
 import JobList from "@/components/jobs/JobList";
+import DecisionBriefCard from "@/components/results/DecisionBriefCard";
 
 const QUICK_ACTIONS = [
   {
@@ -33,6 +35,7 @@ const QUICK_ACTIONS = [
 
 export default function HomePage() {
   const { jobs, loading } = useJobs();
+  const { briefs, loading: briefsLoading } = useBriefs();
 
   return (
     <div className="p-8 max-w-5xl">
@@ -90,16 +93,41 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* Latest Results — wired in CC-BE-2455 */}
+      {/* Latest Decision Briefs */}
       <section>
         <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-          Latest Results
+          Latest Decision Briefs
         </h2>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
-          <p className="text-sm text-[var(--text-muted)] text-center">
-            Results will appear here as jobs complete.
-          </p>
-        </div>
+        {briefsLoading ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            <p className="text-sm text-[var(--text-muted)] text-center">
+              Loading briefs...
+            </p>
+          </div>
+        ) : briefs.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            <p className="text-sm text-[var(--text-muted)] text-center">
+              No decision briefs yet. Run a validation to generate results.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {briefs.slice(0, 3).map((brief) => (
+              <DecisionBriefCard
+                key={brief.id as string}
+                brief={brief as Parameters<typeof DecisionBriefCard>[0]["brief"]}
+              />
+            ))}
+            {briefs.length > 3 && (
+              <Link
+                href="/results"
+                className="block text-center text-xs text-[var(--accent-blue)] hover:underline py-2"
+              >
+                View all {briefs.length} briefs
+              </Link>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );
