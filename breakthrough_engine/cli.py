@@ -2041,7 +2041,7 @@ def _cmd_pv(repo: Repository, args):
         report = run_pv_benchmark(repo, n_candidates=n, seed=seed, promotion_threshold=threshold)
 
         # Print baseline
-        base = report["baseline_candidate"]["stc_metrics"]
+        base = report["baseline_candidate"]["baseline_metrics"]
         print(f"\nBaseline (default cell params):")
         print(f"  Pmax={base.get('Pmax', 0):.2f}W  FF={base.get('fill_factor', 0):.4f}  "
               f"eff={base.get('efficiency', 0):.2f}%")
@@ -2049,11 +2049,11 @@ def _cmd_pv(repo: Repository, args):
         # Print best candidate
         if report["best_candidate"]:
             bc = report["best_candidate"]
-            stc = bc["stc_metrics"]
+            m = bc["metrics"]
             print(f"\nBest candidate: {bc['title']}")
             print(f"  Score: {bc['score']:.4f}")
-            print(f"  Pmax={stc.get('Pmax', 0):.2f}W  FF={stc.get('fill_factor', 0):.4f}  "
-                  f"eff={stc.get('efficiency', 0):.2f}%")
+            print(f"  Pmax={m.get('Pmax', 0):.2f}W  FF={m.get('fill_factor', 0):.4f}  "
+                  f"eff={m.get('efficiency', 0):.2f}%")
 
         # Print robustness
         if report["robustness_profile"]:
@@ -2072,10 +2072,10 @@ def _cmd_pv(repo: Repository, args):
 
         # Print reference comparison
         ref = report["reference_comparison"]
-        ref_stc = ref.get("reference_stc_metrics", {})
+        ref_m = ref.get("reference_metrics", {})
         print(f"\nHeld-out reference ({ref.get('reference_name', 'unknown')}):")
-        print(f"  Pmax={ref_stc.get('Pmax', 0):.2f}W  FF={ref_stc.get('fill_factor', 0):.4f}  "
-              f"eff={ref_stc.get('efficiency', 0):.2f}%")
+        print(f"  Pmax={ref_m.get('Pmax', 0):.2f}W  FF={ref_m.get('fill_factor', 0):.4f}  "
+              f"eff={ref_m.get('efficiency', 0):.2f}%")
         if "pmax_vs_reference" in ref:
             print(f"  Candidate vs reference Pmax: {ref['pmax_vs_reference']:.1%}")
         if "within_reference_envelope" in ref:

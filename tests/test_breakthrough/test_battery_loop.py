@@ -559,14 +559,12 @@ class TestBatteryBenchmark:
         return Repository(db)
 
     def test_benchmark_report_structure(self, db_repo):
+        from breakthrough_engine.domain_models import BENCHMARK_REPORT_REQUIRED_KEYS
         report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
+        for key in BENCHMARK_REPORT_REQUIRED_KEYS:
+            assert key in report, f"Missing required key: {key}"
         assert report["benchmark_domain"] == "battery_ecm"
-        assert report["benchmark_version"] == 2
-        assert "baseline_candidate" in report
-        assert "reference_comparison" in report
-        assert "summary" in report
-        assert "candidate_breakdown" in report
-        assert "stress_profile" in report
+        assert report["benchmark_version"] >= 3
 
     def test_benchmark_baseline_metrics(self, db_repo):
         report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)
@@ -592,7 +590,7 @@ class TestBatteryBenchmark:
         json_str = json.dumps(report, default=str)
         loaded = json.loads(json_str)
         assert loaded["benchmark_domain"] == "battery_ecm"
-        assert loaded["benchmark_version"] == 2
+        assert loaded["benchmark_version"] >= 3
 
     def test_benchmark_candidate_breakdown(self, db_repo):
         report = run_battery_benchmark(db_repo, n_candidates=3, seed=42)

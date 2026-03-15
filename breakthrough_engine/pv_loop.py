@@ -1080,15 +1080,19 @@ def run_pv_benchmark(
 ) -> dict:
     """Run PV benchmark: full loop + held-out realism check.
 
-    Returns a compact benchmark report dict with:
-    - baseline_candidate: STC metrics for default params
+    Returns a unified benchmark report dict (see BENCHMARK_REPORT_REQUIRED_KEYS
+    in domain_models) with:
+    - baseline_candidate: baseline metrics for default params
     - best_candidate: best promoted candidate (if any) with metrics
     - robustness_profile: stress evaluation of best candidate
     - caveats: all caveats for best candidate
-    - promotion_decision: promoted / rejected / none
+    - promotion_decision: promoted / alternate_only / none
     - reference_comparison: held-out check against reference module
+    - candidate_breakdown: per-candidate decisions and scores
     - summary: counts and decisions
     """
+    from .domain_models import BENCHMARK_REPORT_VERSION
+
     # Run full optimization loop
     loop = PVOptimizationLoop(
         repo, n_candidates=n_candidates,
@@ -1107,7 +1111,7 @@ def run_pv_benchmark(
 
     reference_comparison: dict = {
         "reference_name": REFERENCE_MODULE_PARAMS["reference_name"],
-        "reference_stc_metrics": ref_metrics,
+        "reference_metrics": ref_metrics,
         "reference_robustness": {
             k: v for k, v in ref_robustness.items() if k != "sweep_data"
         },
@@ -1134,19 +1138,42 @@ def run_pv_benchmark(
             and abs(reference_comparison.get("ff_vs_reference", 0)) < 0.30
         )
 
-    # Build report
+    # Per-candidate breakdown (unified with battery)
+    candidate_breakdown = []
+    for cr in result.candidates:
+        entry: dict = {
+            "title": cr.candidate.title,
+            "score": cr.evaluation.final_score,
+            "decision": cr.decision.value,
+            "hard_fail": cr.evaluation.hard_fail,
+        }
+        if cr.evaluation.hard_fail:
+            entry["hard_fail_reasons"] = cr.evaluation.hard_fail_reasons
+        elif cr.decision.value == "rejected":
+            entry["rejection_reason"] = cr.candidate.rejection_reason
+        if cr.robustness_profile:
+            entry["worst_case_pmax_delta"] = cr.robustness_profile.get(
+                "worst_case_pmax_delta", None,
+            )
+        candidate_breakdown.append(entry)
+
+    # Build report (unified schema)
     report: dict = {
+        "benchmark_version": BENCHMARK_REPORT_VERSION,
         "benchmark_domain": "pv_iv",
         "seed": seed,
+        "n_candidates": n_candidates,
+        "promotion_threshold": promotion_threshold,
         "baseline_candidate": {
             "params": "DEFAULT_CELL_PARAMS",
-            "stc_metrics": baseline,
+            "baseline_metrics": baseline,
         },
         "best_candidate": None,
         "robustness_profile": None,
         "caveats": [],
         "promotion_decision": "none",
         "reference_comparison": reference_comparison,
+        "candidate_breakdown": candidate_breakdown,
         "summary": result.summary(),
     }
 
@@ -1155,8 +1182,9 @@ def run_pv_benchmark(
         report["best_candidate"] = {
             "title": bp.candidate.title,
             "score": bp.evaluation.final_score,
-            "stc_metrics": bp.experiment_metrics,
+            "metrics": bp.experiment_metrics,
             "family": bp.candidate.family or bp.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+            "score_components": bp.evaluation.score_components,
         }
         report["robustness_profile"] = {
             k: v for k, v in bp.robustness_profile.items() if k != "sweep_data"
@@ -1168,8 +1196,9 @@ def run_pv_benchmark(
         report["best_candidate"] = {
             "title": alt.candidate.title,
             "score": alt.evaluation.final_score,
-            "stc_metrics": alt.experiment_metrics,
+            "metrics": alt.experiment_metrics,
             "family": alt.candidate.family or alt.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+            "score_components": alt.evaluation.score_components,
         }
         report["promotion_decision"] = "alternate_only"
 

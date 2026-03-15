@@ -1211,8 +1211,8 @@ REFERENCE_CELL_PARAMS = {
     "reference_name": "benchmark_nmc_21700_3200mah",
 }
 
-# Benchmark report version — increment when report schema changes
-BENCHMARK_REPORT_VERSION = 2
+# Use shared benchmark report version from domain_models
+from .domain_models import BENCHMARK_REPORT_VERSION
 
 
 def run_battery_benchmark(

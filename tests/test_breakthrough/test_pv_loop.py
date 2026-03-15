@@ -596,31 +596,28 @@ class TestPVBenchmark:
         return Repository(db)
 
     def test_benchmark_report_structure(self, db_repo):
-        """Benchmark report should have all required fields."""
+        """Benchmark report should have all required unified fields."""
+        from breakthrough_engine.domain_models import BENCHMARK_REPORT_REQUIRED_KEYS
         report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
-        assert "benchmark_domain" in report
+        for key in BENCHMARK_REPORT_REQUIRED_KEYS:
+            assert key in report, f"Missing required key: {key}"
         assert report["benchmark_domain"] == "pv_iv"
-        assert "baseline_candidate" in report
-        assert "best_candidate" in report
-        assert "caveats" in report
-        assert "promotion_decision" in report
-        assert "reference_comparison" in report
-        assert "summary" in report
+        assert report["benchmark_version"] >= 3
 
     def test_benchmark_baseline_has_metrics(self, db_repo):
         report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
-        base = report["baseline_candidate"]["stc_metrics"]
+        base = report["baseline_candidate"]["baseline_metrics"]
         assert base["Pmax"] > 0
         assert base["fill_factor"] > 0
         assert base["efficiency"] > 0
 
     def test_benchmark_reference_comparison(self, db_repo):
-        """Reference comparison should include STC metrics and robustness."""
+        """Reference comparison should include metrics and robustness."""
         report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
         ref = report["reference_comparison"]
         assert ref["reference_name"] == "benchmark_mono_si_300w"
-        assert "reference_stc_metrics" in ref
-        assert ref["reference_stc_metrics"]["Pmax"] > 0
+        assert "reference_metrics" in ref
+        assert ref["reference_metrics"]["Pmax"] > 0
         assert "reference_robustness" in ref
 
     def test_benchmark_is_deterministic(self, db_repo):
@@ -659,3 +656,20 @@ class TestPVBenchmark:
         report = run_pv_benchmark(db_repo, n_candidates=4, seed=42, promotion_threshold=0.99)
         assert report["promotion_decision"] == "none"
         assert report["best_candidate"] is None
+
+    def test_benchmark_candidate_breakdown(self, db_repo):
+        """Benchmark should include per-candidate breakdown."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        breakdown = report["candidate_breakdown"]
+        assert len(breakdown) == 4
+        for entry in breakdown:
+            assert "title" in entry
+            assert "score" in entry
+            assert "decision" in entry
+
+    def test_benchmark_promoted_has_score_components(self, db_repo):
+        """Promoted candidate should include score_components."""
+        report = run_pv_benchmark(db_repo, n_candidates=4, seed=42)
+        if report["promotion_decision"] == "promoted":
+            bc = report["best_candidate"]
+            assert "score_components" in bc

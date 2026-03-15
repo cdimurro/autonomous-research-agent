@@ -188,3 +188,28 @@ class ExperimentMemoryEntry(BaseModel):
     runtime_seconds: float = 0.0
     reproducibility_score: float = 1.0  # 0-1, how reproducible the result was
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark report contract
+# ---------------------------------------------------------------------------
+
+# Increment when the shared benchmark report schema changes.
+BENCHMARK_REPORT_VERSION = 3
+
+# Required top-level keys in any benchmark report.
+BENCHMARK_REPORT_REQUIRED_KEYS = frozenset({
+    "benchmark_version",
+    "benchmark_domain",
+    "seed",
+    "n_candidates",
+    "promotion_threshold",
+    "baseline_candidate",
+    "best_candidate",
+    "robustness_profile",
+    "caveats",
+    "promotion_decision",
+    "reference_comparison",
+    "candidate_breakdown",
+    "summary",
+})
