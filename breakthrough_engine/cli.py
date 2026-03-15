@@ -342,6 +342,20 @@ def main(argv: list[str] | None = None):
     bat_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility)")
     bat_bench_p.add_argument("--no-sidecar", action="store_true", help="Disable PyBaMM sidecar verification")
     bat_bench_p.add_argument("--mock-sidecar", action="store_true", help="Use mock sidecar for deterministic testing")
+    # Battery review workflow
+    bat_sub.add_parser("briefs", help="List battery decision briefs")
+    bat_inspect_p = bat_sub.add_parser("inspect", help="Inspect a battery decision brief")
+    bat_inspect_p.add_argument("brief_id", help="Brief ID to inspect")
+    bat_review_p = bat_sub.add_parser("review", help="Set review state on a brief")
+    bat_review_p.add_argument("brief_id", help="Brief ID to review")
+    bat_review_p.add_argument("--state", required=True,
+                              choices=["approved_for_validation", "rejected_by_operator",
+                                       "needs_more_analysis", "exported"],
+                              help="Review state to set")
+    bat_review_p.add_argument("--reviewer", default="", help="Reviewer name")
+    bat_review_p.add_argument("--notes", default="", help="Review notes")
+    bat_export_p = bat_sub.add_parser("export", help="Export a brief for external use")
+    bat_export_p.add_argument("brief_id", help="Brief ID to export")
 
     # Phase 10A: KG shadow foundation
     ingest_p = sub.add_parser("ingest", help="Phase 10A paper ingestion into KG staging")
@@ -2297,7 +2311,56 @@ def _cmd_battery(repo: Repository, args):
         print(f"\nBenchmark report: {artifact_path}")
         return
 
-    print("Usage: python -m breakthrough_engine battery [run|dry-run|status|memory|benchmark]")
+    if battery_command == "briefs":
+        from .battery_review import BriefStore
+        store = BriefStore()
+        briefs = store.list_briefs()
+        if not briefs:
+            print("No battery decision briefs found.")
+            return
+        print(f"Battery Decision Briefs ({len(briefs)}):")
+        for b in briefs:
+            state = b.get("review_state", "?")
+            score = b.get("final_score", 0)
+            print(f"  {b.get('id', '?')[:12]}  score={score:.3f}  state={state}  {b.get('title', '')}")
+        return
+
+    if battery_command == "inspect":
+        from .battery_review import BriefStore
+        store = BriefStore()
+        brief = store.get_brief(args.brief_id)
+        if not brief:
+            print(f"Brief not found: {args.brief_id}")
+            return
+        print(json.dumps(brief, indent=2, default=str))
+        return
+
+    if battery_command == "review":
+        from .battery_review import BriefStore
+        store = BriefStore()
+        record = store.update_review_state(
+            args.brief_id, args.state,
+            reviewer=args.reviewer, notes=args.notes,
+        )
+        if not record:
+            print(f"Brief not found: {args.brief_id}")
+            return
+        print(f"Review recorded: {args.brief_id} → {args.state}")
+        if args.notes:
+            print(f"  Notes: {args.notes}")
+        return
+
+    if battery_command == "export":
+        from .battery_review import BriefStore
+        store = BriefStore()
+        path = store.export_brief(args.brief_id)
+        if not path:
+            print(f"Brief not found: {args.brief_id}")
+            return
+        print(f"Exported: {path}")
+        return
+
+    print("Usage: python -m breakthrough_engine battery [run|dry-run|status|memory|benchmark|briefs|inspect|review|export]")
 
 
 # ---------------------------------------------------------------------------
