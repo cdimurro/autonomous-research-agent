@@ -25,5 +25,11 @@ __pycache__/
 # Claude Code
 .claude/
 
+# Workspace (Next.js)
+workspace/node_modules/
+workspace/.next/
+workspace/out/
+
 # Project summary (generated, not source)
 project_summary.md
+breakthrough_engine_physics_foundation_build_plan.md
