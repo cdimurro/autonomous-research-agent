@@ -1,0 +1,31 @@
+# Battery ECM Evaluation Profile
+# Second narrow-domain optimization loop
+#
+# Purpose: Run one battery optimization loop iteration per day.
+# Uses Thevenin ECM with numpy/scipy — no external API keys required.
+
+profile_name: battery_evaluation
+profile_type: battery_domain_loop
+campaign_profile: ""
+domain: battery-characterization
+max_runs_per_day: 1
+dry_run_default: false
+
+# Battery-specific configuration
+battery_candidates: 6
+battery_promotion_threshold: 0.55
+battery_seed: null
+
+# Output requirements
+require_integrity_ok: false
+require_falsification_complete: false
+export_evaluation_pack: true
+insert_review_queue: false
+
+# Description for operator logs
+description: >
+  Daily battery ECM cycle characterization optimization loop.
+  Generates candidate cell parameter variations, runs baseline cycle,
+  aging, and C-rate sweep experiments via Thevenin ECM, scores against
+  baseline, promotes or rejects. No external API keys required.
+  Fully offline-safe.

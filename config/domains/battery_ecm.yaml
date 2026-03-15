@@ -1,0 +1,105 @@
+name: battery_ecm
+display_name: "Battery ECM + Cycle Characterization"
+description: "Li-ion cell equivalent-circuit and cycle characterization using Thevenin ECM"
+
+metrics:
+  - name: discharge_capacity
+    unit: Ah
+    description: Delivered discharge capacity
+    higher_is_better: true
+    is_primary: true
+  - name: coulombic_efficiency
+    unit: "%"
+    description: Charge/discharge coulombic efficiency
+    lower_bound: 0.0
+    upper_bound: 100.0
+    higher_is_better: true
+    is_primary: true
+  - name: internal_resistance
+    unit: mOhm
+    description: Total internal resistance (R0+R1)
+    higher_is_better: false
+    is_primary: true
+  - name: capacity_retention
+    unit: "%"
+    description: Capacity retention after cycling
+    lower_bound: 0.0
+    upper_bound: 100.0
+    higher_is_better: true
+    is_primary: true
+  - name: fade_rate
+    unit: "%/cycle"
+    description: Capacity fade rate per cycle
+    higher_is_better: false
+    is_primary: true
+  - name: energy_efficiency
+    unit: "%"
+    description: Round-trip energy efficiency
+    lower_bound: 0.0
+    upper_bound: 100.0
+    higher_is_better: true
+  - name: rate_capability
+    unit: ratio
+    description: Capacity at high C-rate / capacity at low C-rate
+    lower_bound: 0.0
+    upper_bound: 1.0
+    higher_is_better: true
+
+banned_claims:
+  - "perpetual battery"
+  - "zero degradation over infinite cycles"
+  - "coulombic efficiency above 100%"
+  - "negative internal resistance"
+  - "capacity increasing with cycling without physical mechanism"
+
+safety_constraints:
+  - "Coulombic efficiency must not exceed 100%"
+  - "Internal resistance must be positive"
+  - "Capacity must degrade or remain constant with cycling"
+  - "Voltage must remain within safe cell limits (2.5V-4.2V for Li-ion)"
+  - "Capacity fade rate must be non-negative"
+
+experiment_templates:
+  - name: baseline_cycle
+    description: "Single 1C charge/discharge cycle at 25C"
+    parameters:
+      c_rate: 1.0
+      temperature: 25.0
+
+  - name: cycle_aging
+    description: "50-cycle aging at 1C, tracking capacity retention and fade"
+    parameters:
+      c_rate: 1.0
+      temperature: 25.0
+      n_cycles: 50
+
+  - name: crate_sweep
+    description: "Discharge at C/3, C/2, 1C, 2C, 3C to measure rate capability"
+    parameters:
+      c_rates: [0.333, 0.5, 1.0, 2.0, 3.0]
+      temperature: 25.0
+
+  - name: pulse_resistance
+    description: "10s discharge pulse at 50% SOC for resistance characterization"
+    parameters:
+      pulse_c_rate: 2.0
+      soc_target: 0.5
+      temperature: 25.0
+
+  - name: thermal_sensitivity
+    description: "Baseline cycle at 10C, 25C, 40C, 55C"
+    parameters:
+      temperatures: [10.0, 25.0, 40.0, 55.0]
+      c_rate: 1.0
+
+default_cell_params:
+  capacity_ah: 3.0
+  R0_mohm: 30.0
+  R1_mohm: 15.0
+  C1_F: 500.0
+  v_min: 2.5
+  v_max: 4.2
+  coulombic_eff: 0.995
+  fade_rate_per_cycle: 0.0005
+  temp_coeff_r0: 0.003
+  ocv_coeffs: [3.0, 1.5, -1.2, 0.85]

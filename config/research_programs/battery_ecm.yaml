@@ -1,0 +1,29 @@
+name: battery_ecm
+domain: battery-characterization
+goal: "Optimize battery cell parameters through equivalent-circuit and cycle characterization"
+candidate_budget: 6
+simulation_budget: 6
+scoring_weights:
+  novelty: 0.05
+  plausibility: 0.30
+  impact: 0.25
+  evidence_strength: 0.10
+  simulation_readiness: 0.20
+  inverse_validation_cost: 0.10
+novelty_threshold: 0.1
+evidence_minimum: 0
+allowed_simulators:
+  - thevenin_ecm
+publication_threshold: 0.55
+banned_claims:
+  - "perpetual battery"
+  - "zero degradation over infinite cycles"
+  - "coulombic efficiency above 100%"
+  - "negative internal resistance"
+safety_constraints:
+  - "Coulombic efficiency must not exceed 100%"
+  - "Internal resistance must be positive"
+  - "Capacity must degrade or remain constant with cycling"
+runtime_budget_minutes: 10
+validation_policy: strict
+mode: demo_local
