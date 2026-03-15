@@ -50,25 +50,32 @@ logger = logging.getLogger(__name__)
 # Rationale for each bound:
 #   capacity_ah:          2.0–5.5 Ah   (18650: 2.0–3.5, 21700: 4.0–5.0)
 #                         Floor raised from 1.5: sub-2Ah NMC cells are legacy
-#   R0_mohm:              12–80 mOhm   (fresh: 15–40, aged: 50–80)
-#                         Floor raised from 10: sub-12 impossible without
-#                         tab-less design; cap lowered from 100: >80 is EOL
-#   R1_mohm:              5–50 mOhm    (fresh: 8–20, aged: 25–50)
-#                         Cap lowered from 80: >50 is extreme degradation
-#   C1_F:                 200–1500 F   (typical: 300–800)
-#                         Tightened both ends for realistic RC dynamics
-#   coulombic_eff:        0.97–0.9995  (good cell: 0.995+, best: 0.9995)
-#                         Floor raised from 0.95: sub-97% indicates cell defect
-#                         Ceiling raised to 0.9995: best-in-class NMC
-#   fade_rate_per_cycle:  0.0001–0.003 (0.01–0.3% per cycle)
-#                         Cap lowered from 0.005: >0.3%/cycle is catastrophic
+#   R0_mohm:              14–70 mOhm   (fresh: 15–40, aged: 50–70)
+#                         Floor raised: sub-14 requires tab-less or prismatic
+#                         Cap tightened from 80: >70 is deep-EOL
+#   R1_mohm:              6–45 mOhm    (fresh: 8–20, aged: 25–45)
+#                         Tightened both ends for realistic charge-transfer
+#   C1_F:                 250–1200 F   (typical: 300–800)
+#                         Tightened: sub-250 implies unrealistic fast dynamics;
+#                         >1200 implies excessive double-layer contribution
+#   coulombic_eff:        0.975–0.9995 (good cell: 0.995+, best: 0.9995)
+#                         Floor raised from 0.97: sub-97.5% indicates
+#                         significant parasitic losses incompatible with
+#                         modern NMC cells
+#   fade_rate_per_cycle:  0.0001–0.0025 (0.01–0.25% per cycle)
+#                         Cap lowered from 0.003: >0.25%/cycle implies
+#                         severe degradation (lithium plating or
+#                         electrolyte decomposition)
+#   temp_coeff_r0:        0.001–0.008 (per degC from 25C)
+#                         Added: bounds on realistic temperature sensitivity
 PARAM_RANGES = {
     "capacity_ah": (2.0, 5.5),
-    "R0_mohm": (12.0, 80.0),
-    "R1_mohm": (5.0, 50.0),
-    "C1_F": (200.0, 1500.0),
-    "coulombic_eff": (0.97, 0.9995),
-    "fade_rate_per_cycle": (0.0001, 0.003),
+    "R0_mohm": (14.0, 70.0),
+    "R1_mohm": (6.0, 45.0),
+    "C1_F": (250.0, 1200.0),
+    "coulombic_eff": (0.975, 0.9995),
+    "fade_rate_per_cycle": (0.0001, 0.0025),
+    "temp_coeff_r0": (0.001, 0.008),
 }
 
 # Commercial cell reference data for grounding candidate generation.
@@ -80,25 +87,36 @@ COMMERCIAL_CELL_REFERENCES = [
         "name": "Sony_VTC6_18650",
         "capacity_ah": 3.0, "R0_mohm": 30.0, "R1_mohm": 15.0,
         "coulombic_eff": 0.995, "fade_rate_per_cycle": 0.0005,
+        "temp_coeff_r0": 0.003,
         "notes": "Baseline NMC 18650, balanced performance",
     },
     {
         "name": "Samsung_50E_21700",
         "capacity_ah": 5.0, "R0_mohm": 35.0, "R1_mohm": 18.0,
         "coulombic_eff": 0.996, "fade_rate_per_cycle": 0.0004,
+        "temp_coeff_r0": 0.004,
         "notes": "High-capacity 21700, moderate resistance",
     },
     {
         "name": "Samsung_30Q_18650",
         "capacity_ah": 3.0, "R0_mohm": 22.0, "R1_mohm": 12.0,
         "coulombic_eff": 0.997, "fade_rate_per_cycle": 0.0003,
+        "temp_coeff_r0": 0.003,
         "notes": "Low-resistance NMC 18650, good rate capability",
     },
     {
         "name": "LG_MJ1_18650",
         "capacity_ah": 3.5, "R0_mohm": 40.0, "R1_mohm": 20.0,
         "coulombic_eff": 0.994, "fade_rate_per_cycle": 0.0006,
+        "temp_coeff_r0": 0.004,
         "notes": "High-capacity 18650, trades resistance for capacity",
+    },
+    {
+        "name": "Molicel_P42A_21700",
+        "capacity_ah": 4.2, "R0_mohm": 18.0, "R1_mohm": 10.0,
+        "coulombic_eff": 0.996, "fade_rate_per_cycle": 0.0005,
+        "temp_coeff_r0": 0.003,
+        "notes": "High-power 21700, fast-charge capable, low impedance",
     },
 ]
 
@@ -111,56 +129,83 @@ CANDIDATE_FAMILIES = [
         "family": "reduced_resistance",
         "rationale": "Lower R0/R1 via improved electrolyte conductivity or "
                      "tab-less electrode design reduces ohmic losses. "
-                     "Bounded: 3–10 mOhm R0 reduction is achievable via "
+                     "Bounded: 3–8 mOhm R0 reduction is achievable via "
                      "electrolyte optimization (e.g., LiPF6 concentration tuning)",
-        "perturbations": {"R0_mohm": (-10.0, -3.0), "R1_mohm": (-6.0, -1.5)},
-        "tradeoff_risk": "Lower R0 may indicate thinner separator → safety concern",
+        "perturbations": {"R0_mohm": (-8.0, -3.0), "R1_mohm": (-5.0, -1.5)},
+        "tradeoff_risk": "Lower R0 may indicate thinner separator → safety concern; "
+                         "fast-charge fade may worsen if heat dissipation changes",
     },
     {
         "family": "improved_capacity",
         "rationale": "Higher capacity via silicon-graphite blended anode or "
                      "higher Ni-content cathode increases energy density. "
-                     "Bounded: 0.1–0.4 Ah gain is realistic for incremental "
+                     "Bounded: 0.1–0.35 Ah gain is realistic for incremental "
                      "active material improvements",
-        "perturbations": {"capacity_ah": (0.1, 0.4)},
-        "tradeoff_risk": "Higher capacity often trades cycle life (higher Ni = faster fade)",
+        "perturbations": {
+            "capacity_ah": (0.1, 0.35),
+            "fade_rate_per_cycle": (0.00002, 0.00008),
+        },
+        "tradeoff_risk": "Higher capacity often trades cycle life (higher Ni = faster fade); "
+                         "thicker electrodes degrade rate capability under fast-charge",
     },
     {
         "family": "reduced_fade",
         "rationale": "Lower fade rate via electrolyte additives (FEC, VC) or "
                      "atomic layer deposition coatings improves SEI stability. "
                      "Bounded: 0.01–0.02%/cycle reduction is realistic",
-        "perturbations": {"fade_rate_per_cycle": (-0.0002, -0.0001)},
-        "tradeoff_risk": "Additives may increase impedance or reduce rate capability",
+        "perturbations": {
+            "fade_rate_per_cycle": (-0.0002, -0.0001),
+            "R1_mohm": (0.5, 2.0),
+        },
+        "tradeoff_risk": "Additives may increase impedance or reduce rate capability; "
+                         "surface coatings add charge-transfer resistance",
     },
     {
         "family": "improved_efficiency",
         "rationale": "Higher coulombic efficiency via reduced parasitic reactions "
                      "(improved electrolyte purity, surface coatings). "
-                     "Bounded: 0.1–0.3% improvement is realistic",
-        "perturbations": {"coulombic_eff": (0.001, 0.003)},
-        "tradeoff_risk": "Marginal CE gains may not survive high-temperature operation",
+                     "Bounded: 0.1–0.25% improvement is realistic",
+        "perturbations": {"coulombic_eff": (0.001, 0.0025)},
+        "tradeoff_risk": "Marginal CE gains may not survive high-temperature operation; "
+                         "gains observed at 25C may vanish at elevated temperatures",
     },
     {
         "family": "combined_moderate",
         "rationale": "Co-optimized resistance reduction and fade improvement "
                      "reflecting a multi-lever cell redesign (electrolyte + coating). "
-                     "Each lever kept conservative: R0 -2 to -6 mOhm, fade -0.005 to -0.015%/cycle",
-        "perturbations": {"R0_mohm": (-6.0, -2.0), "fade_rate_per_cycle": (-0.00015, -0.00005)},
-        "tradeoff_risk": "Multi-lever changes harder to attribute; interaction effects possible",
+                     "Each lever kept conservative: R0 -2 to -5 mOhm, fade -0.005 to -0.015%/cycle",
+        "perturbations": {"R0_mohm": (-5.0, -2.0), "fade_rate_per_cycle": (-0.00015, -0.00005)},
+        "tradeoff_risk": "Multi-lever changes harder to attribute; interaction effects possible; "
+                         "combined benefit may not survive fast-charge stress",
+    },
+    {
+        "family": "rate_optimized",
+        "rationale": "Optimized for fast-charge capability via lower R0 and R1 "
+                     "with modest capacity tradeoff. Targets Molicel P42A-class "
+                     "impedance profile suited for 2C+ charge rates",
+        "perturbations": {
+            "R0_mohm": (-10.0, -5.0),
+            "R1_mohm": (-6.0, -3.0),
+            "capacity_ah": (-0.15, 0.05),
+            "temp_coeff_r0": (-0.001, 0.0),
+        },
+        "tradeoff_risk": "Low-impedance design may sacrifice energy density; "
+                         "thermal management becomes critical at high rates; "
+                         "capacity tradeoff may not justify rate improvement",
     },
     {
         "family": "bounded_aggressive",
         "rationale": "Near-best-in-class across R0, capacity, and fade — "
                      "represents what the best commercial cells achieve. "
-                     "Bounded: Samsung 30Q-class resistance + modest capacity gain + good fade",
+                     "Bounded: P42A-class resistance + modest capacity gain + good fade",
         "perturbations": {
-            "R0_mohm": (-12.0, -6.0),
-            "capacity_ah": (0.15, 0.5),
-            "fade_rate_per_cycle": (-0.0002, -0.0001),
+            "R0_mohm": (-10.0, -5.0),
+            "capacity_ah": (0.15, 0.4),
+            "fade_rate_per_cycle": (-0.00015, -0.00005),
         },
         "tradeoff_risk": "Simultaneously achieving all three is rare; likely requires "
-                         "advanced manufacturing (tab-less + high-Ni + premium electrolyte)",
+                         "advanced manufacturing (tab-less + high-Ni + premium electrolyte); "
+                         "fast-charge stress performance unverified",
     },
 ]
 
@@ -229,6 +274,17 @@ def _check_cross_parameter_plausibility(params: dict) -> tuple[bool, list[str]]:
         reasons.append(
             f"Contradictory: high fade ({fade*100:.2f}%/cycle) with near-perfect CE "
             f"({coul*100:.2f}%) — rapid fade implies side reactions that lower CE"
+        )
+
+    # 7. Very low fade + very high R0 is suspicious:
+    #    Low degradation with high impedance suggests the cell was only
+    #    tested at very gentle conditions. Under fast-charge stress,
+    #    high-R0 cells generate more heat → accelerated degradation.
+    if fade < 0.00015 and r0 > 50.0:
+        reasons.append(
+            f"Suspicious: very low fade ({fade*100:.3f}%/cycle) with high R0 "
+            f"({r0:.1f} mOhm) — low fade unlikely to survive fast-charge stress "
+            "due to resistive heating"
         )
 
     return len(reasons) == 0, reasons

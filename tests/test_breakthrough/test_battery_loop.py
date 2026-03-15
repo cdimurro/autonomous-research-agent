@@ -121,11 +121,25 @@ class TestCrossParameterPlausibility:
     def test_all_commercial_references_pass(self):
         for ref in COMMERCIAL_CELL_REFERENCES:
             params = dict(DEFAULT_CELL_PARAMS)
-            for k in ("capacity_ah", "R0_mohm", "R1_mohm", "coulombic_eff", "fade_rate_per_cycle"):
+            for k in ("capacity_ah", "R0_mohm", "R1_mohm", "coulombic_eff",
+                       "fade_rate_per_cycle", "temp_coeff_r0"):
                 if k in ref:
                     params[k] = ref[k]
             ok, reasons = _check_cross_parameter_plausibility(params)
             assert ok is True, f"{ref['name']} failed: {reasons}"
+
+    def test_low_fade_high_r0_rejected(self):
+        """Very low fade with high R0 is suspicious — unlikely under fast-charge stress."""
+        params = dict(DEFAULT_CELL_PARAMS, fade_rate_per_cycle=0.0001, R0_mohm=55.0)
+        ok, reasons = _check_cross_parameter_plausibility(params)
+        assert ok is False
+        assert any("fade" in r.lower() and "R0" in r for r in reasons)
+
+    def test_moderate_fade_high_r0_passes(self):
+        """Normal fade with high R0 is fine — just a high-impedance cell."""
+        params = dict(DEFAULT_CELL_PARAMS, fade_rate_per_cycle=0.0005, R0_mohm=55.0)
+        ok, _ = _check_cross_parameter_plausibility(params)
+        assert ok is True
 
 
 class TestMemoryGuidedGeneration:
@@ -217,6 +231,7 @@ class TestCandidateFamilies:
         assert "reduced_fade" in family_names
         assert "improved_efficiency" in family_names
         assert "combined_moderate" in family_names
+        assert "rate_optimized" in family_names
         assert "bounded_aggressive" in family_names
 
     def test_all_families_have_rationale(self):
@@ -252,12 +267,55 @@ class TestCandidateFamilies:
                     )
 
     def test_commercial_references_data(self):
-        assert len(COMMERCIAL_CELL_REFERENCES) >= 3
+        assert len(COMMERCIAL_CELL_REFERENCES) >= 4
         for ref in COMMERCIAL_CELL_REFERENCES:
             assert "name" in ref
             assert "capacity_ah" in ref
             assert "R0_mohm" in ref
             assert "notes" in ref
+
+    def test_rate_optimized_family_targets_low_impedance(self):
+        """Rate-optimized family should produce lower R0 and R1 than baseline."""
+        rate_fam = next(f for f in CANDIDATE_FAMILIES if f["family"] == "rate_optimized")
+        r0_lo, r0_hi = rate_fam["perturbations"]["R0_mohm"]
+        r1_lo, r1_hi = rate_fam["perturbations"]["R1_mohm"]
+        assert r0_hi < 0  # Always reduces R0
+        assert r1_hi < 0  # Always reduces R1
+
+    def test_improved_capacity_includes_fade_tradeoff(self):
+        """Improved capacity family should include a small fade penalty."""
+        cap_fam = next(f for f in CANDIDATE_FAMILIES if f["family"] == "improved_capacity")
+        assert "fade_rate_per_cycle" in cap_fam["perturbations"]
+        fade_lo, fade_hi = cap_fam["perturbations"]["fade_rate_per_cycle"]
+        assert fade_lo > 0  # Penalty: fade increases with higher capacity
+
+    def test_reduced_fade_includes_r1_tradeoff(self):
+        """Reduced fade family should include a small R1 penalty."""
+        fade_fam = next(f for f in CANDIDATE_FAMILIES if f["family"] == "reduced_fade")
+        assert "R1_mohm" in fade_fam["perturbations"]
+        r1_lo, r1_hi = fade_fam["perturbations"]["R1_mohm"]
+        assert r1_lo > 0  # Penalty: coatings add impedance
+
+    def test_param_ranges_include_temp_coeff(self):
+        assert "temp_coeff_r0" in PARAM_RANGES
+
+    def test_tightened_r0_upper_bound(self):
+        """R0 upper bound should be tightened to 70 mOhm (from 80)."""
+        assert PARAM_RANGES["R0_mohm"][1] <= 70.0
+
+    def test_tightened_fade_upper_bound(self):
+        """Fade rate upper bound should be tightened to 0.25%/cycle."""
+        assert PARAM_RANGES["fade_rate_per_cycle"][1] <= 0.0025
+
+    def test_all_commercial_references_within_param_ranges(self):
+        """Every commercial reference should fall within PARAM_RANGES."""
+        for ref in COMMERCIAL_CELL_REFERENCES:
+            for param, (lo, hi) in PARAM_RANGES.items():
+                if param in ref:
+                    val = ref[param]
+                    assert lo <= val <= hi, (
+                        f"{ref['name']}.{param}={val} outside [{lo}, {hi}]"
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -623,3 +681,29 @@ class TestBatteryBenchmark:
         rejected = [c for c in report["candidate_breakdown"] if c["decision"] == "rejected"]
         for r in rejected:
             assert "rejection_reason" in r or r.get("hard_fail", False)
+
+
+class TestBaselineFreeze:
+    """Verify the frozen v1 baseline artifact exists and is valid."""
+
+    def test_frozen_baseline_exists(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "..", "runtime", "battery_loop", "battery_baseline_v1_frozen.json",
+        )
+        path = os.path.normpath(path)
+        assert os.path.exists(path), "Frozen v1 baseline artifact missing"
+
+    def test_frozen_baseline_valid_json(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "..", "runtime", "battery_loop", "battery_baseline_v1_frozen.json",
+        )
+        path = os.path.normpath(path)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["benchmark_domain"] == "battery_ecm"
+        assert data["promotion_decision"] in ("promoted", "none")
+        assert data["baseline_candidate"]["baseline_metrics"]["discharge_capacity"] > 0

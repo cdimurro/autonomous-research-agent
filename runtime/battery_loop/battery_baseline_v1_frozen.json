@@ -1,0 +1,75 @@
+{
+  "benchmark_domain": "battery_ecm",
+  "seed": 42,
+  "baseline_candidate": {
+    "params": "DEFAULT_CELL_PARAMS",
+    "baseline_metrics": {
+      "discharge_capacity": 3.0,
+      "coulombic_efficiency": 100.0,
+      "energy_efficiency": 98.7432,
+      "internal_resistance": 45.0,
+      "avg_discharge_voltage": 3.4278
+    }
+  },
+  "best_candidate": {
+    "title": "Battery combined_moderate variant 5",
+    "score": 0.7871,
+    "metrics": {
+      "discharge_capacity": 3.0,
+      "coulombic_efficiency": 100.0,
+      "energy_efficiency": 98.4207,
+      "internal_resistance": 40.0321,
+      "avg_discharge_voltage": 3.4427
+    },
+    "family": "combined_moderate"
+  },
+  "robustness_profile": {
+    "worst_case_capacity_delta": 0.0,
+    "crate_sensitivity": 0.0006,
+    "thermal_sensitivity": 0.0,
+    "capacity_retention": 98.5267,
+    "fade_rate": 0.0295
+  },
+  "caveats": [
+    "Parameter changes: R0_mohm: 30.0 \u2192 25.03; fade_rate_per_cycle: 0.0005 \u2192 0.000304",
+    "Gain concentrated in robustness (score=1.00)"
+  ],
+  "promotion_decision": "promoted",
+  "reference_comparison": {
+    "reference_name": "benchmark_nmc_21700_3200mah",
+    "reference_metrics": {
+      "discharge_capacity": 3.2,
+      "coulombic_efficiency": 100.0,
+      "energy_efficiency": 98.411,
+      "internal_resistance": 37.0,
+      "avg_discharge_voltage": 3.4443
+    },
+    "capacity_vs_reference": -0.0625,
+    "resistance_vs_reference": 0.0819,
+    "within_reference_envelope": true
+  },
+  "summary": {
+    "run_id": "benchmark_42",
+    "total_candidates": 6,
+    "promoted": 1,
+    "rejected": 4,
+    "hard_fail": 0,
+    "baseline_capacity": 3.0,
+    "baseline_resistance": 45.0,
+    "best_promoted_title": "Battery combined_moderate variant 5",
+    "best_promoted_score": 0.7871,
+    "best_promoted_robustness": {
+      "worst_case_capacity_delta": 0.0,
+      "crate_sensitivity": 0.0006,
+      "thermal_sensitivity": 0.0,
+      "capacity_retention": 98.5267,
+      "fade_rate": 0.0295
+    },
+    "best_promoted_caveats": [
+      "Parameter changes: R0_mohm: 30.0 \u2192 25.03; fade_rate_per_cycle: 0.0005 \u2192 0.000304",
+      "Gain concentrated in robustness (score=1.00)"
+    ],
+    "alternate_title": "Battery reduced_resistance variant 2",
+    "alternate_score": 0.7793
+  }
+}
