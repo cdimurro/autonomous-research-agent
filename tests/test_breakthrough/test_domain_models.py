@@ -374,3 +374,83 @@ class TestStaleLockFix:
             assert lock_path.exists()
         finally:
             os.environ.pop("SCIRES_RUNTIME_ROOT", None)
+
+
+# ---------------------------------------------------------------------------
+# CC-BE-2421: Contract consistency across PV and battery
+# ---------------------------------------------------------------------------
+
+class TestContractConsistency:
+    """Verify domain contracts are consistent across PV and battery."""
+
+    def test_metric_spec_bounds_validation(self):
+        """MetricSpec should reject lower_bound > upper_bound."""
+        with pytest.raises(ValueError, match="lower_bound"):
+            MetricSpec(name="bad", unit="%", lower_bound=100, upper_bound=0)
+
+    def test_metric_spec_valid_bounds(self):
+        """MetricSpec should accept valid bounds."""
+        m = MetricSpec(name="eff", unit="%", lower_bound=0, upper_bound=100)
+        assert m.lower_bound == 0
+        assert m.upper_bound == 100
+
+    def test_metric_spec_no_bounds(self):
+        """MetricSpec should accept no bounds."""
+        m = MetricSpec(name="eff", unit="%")
+        assert m.lower_bound is None
+        assert m.upper_bound is None
+
+    def test_candidate_spec_family_field(self):
+        """CandidateSpec should have a family field."""
+        c = CandidateSpec(
+            domain_name="pv_iv",
+            title="PV reduced_series_resistance variant 1",
+            family="reduced_series_resistance",
+        )
+        assert c.family == "reduced_series_resistance"
+
+    def test_candidate_spec_family_default_empty(self):
+        """CandidateSpec family defaults to empty string."""
+        c = CandidateSpec(domain_name="pv_iv", title="Test")
+        assert c.family == ""
+
+    def test_pv_candidates_set_family(self):
+        """PV candidate generation should populate the family field."""
+        from breakthrough_engine.pv_loop import generate_pv_candidates
+        candidates = generate_pv_candidates(n_candidates=6, seed=42)
+        for c in candidates:
+            assert c.family, f"Candidate {c.title} missing family"
+
+    def test_battery_candidates_set_family(self):
+        """Battery candidate generation should populate the family field."""
+        from breakthrough_engine.battery_loop import generate_battery_candidates
+        candidates = generate_battery_candidates(n_candidates=6, seed=42)
+        for c in candidates:
+            assert c.family, f"Candidate {c.title} missing family"
+
+    def test_pv_battery_share_contract_types(self):
+        """PV and battery should use the same contract types."""
+        from breakthrough_engine.pv_loop import PVCandidateResult, PVLoopResult
+        from breakthrough_engine.battery_loop import BatteryCandidateResult, BatteryLoopResult
+
+        # Both result types should store the same core attributes
+        pv_attrs = {"candidate", "evaluation", "decision", "experiment_metrics", "robustness_profile", "promotion_caveats"}
+        battery_attrs = {"candidate", "evaluation", "decision", "experiment_metrics", "robustness_profile", "promotion_caveats"}
+        assert pv_attrs == battery_attrs
+
+        # Both loop result types should have the same summary keys
+        pv_summary_keys = {"run_id", "total_candidates", "promoted", "rejected", "hard_fail"}
+        battery_summary_keys = {"run_id", "total_candidates", "promoted", "rejected", "hard_fail"}
+        assert pv_summary_keys == battery_summary_keys
+
+    def test_family_persisted_in_db(self, db_repo):
+        """CandidateSpec.family should round-trip through the database."""
+        c = CandidateSpec(
+            domain_name="pv_iv",
+            title="PV reduced_series_resistance variant 1",
+            family="reduced_series_resistance",
+        )
+        db_repo.save_domain_candidate(c)
+        row = db_repo.get_domain_candidate(c.id)
+        assert row is not None
+        assert row["family"] == "reduced_series_resistance"

@@ -427,6 +427,7 @@ def generate_battery_candidates(
             domain_name="battery_ecm",
             title=f"Battery {family['family']} variant {i+1}",
             description=", ".join(description_parts),
+            family=family["family"],
             parameters=params,
             rationale=f"[{proposal_tag}] {family['rationale']}",
             source="perturbation",
@@ -1140,11 +1141,12 @@ class BatteryOptimizationLoop:
             if fc_fade > 0.05:
                 lesson += f". Fast-charge fade: {fc_fade:.3f}%/cycle"
 
-        family = ""
-        for fam_def in CANDIDATE_FAMILIES:
-            if fam_def["family"] in candidate.title:
-                family = fam_def["family"]
-                break
+        family = candidate.family
+        if not family:
+            for fam_def in CANDIDATE_FAMILIES:
+                if fam_def["family"] in candidate.title:
+                    family = fam_def["family"]
+                    break
 
         idea = IdeaMemoryEntry(
             domain_name="battery_ecm",
@@ -1325,7 +1327,7 @@ def run_battery_benchmark(
             "title": bp.candidate.title,
             "score": bp.evaluation.final_score,
             "metrics": bp.experiment_metrics,
-            "family": bp.candidate.title.split("variant")[0].replace("Battery ", "").strip(),
+            "family": bp.candidate.family or bp.candidate.title.split("variant")[0].replace("Battery ", "").strip(),
             "score_components": bp.evaluation.score_components,
         }
         report["robustness_profile"] = {

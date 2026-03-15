@@ -340,6 +340,7 @@ def generate_pv_candidates(
             domain_name="pv_iv",
             title=f"PV {family['family']} variant {i+1}",
             description=", ".join(description_parts),
+            family=family["family"],
             parameters=params,
             rationale=f"[{proposal_tag}] {family['rationale']}",
             source="perturbation",
@@ -928,12 +929,13 @@ class PVOptimizationLoop:
             worst_component = min(components, key=components.get) if components else "unknown"
             lesson = f"Rejected (score {evaluation.final_score:.4f}). Weakest component: {worst_component}"
 
-        # Extract family from title
-        family = ""
-        for fam_def in CANDIDATE_FAMILIES:
-            if fam_def["family"] in candidate.title:
-                family = fam_def["family"]
-                break
+        # Use family field, fall back to title extraction for legacy candidates
+        family = candidate.family
+        if not family:
+            for fam_def in CANDIDATE_FAMILIES:
+                if fam_def["family"] in candidate.title:
+                    family = fam_def["family"]
+                    break
 
         idea = IdeaMemoryEntry(
             domain_name="pv_iv",
@@ -1154,7 +1156,7 @@ def run_pv_benchmark(
             "title": bp.candidate.title,
             "score": bp.evaluation.final_score,
             "stc_metrics": bp.experiment_metrics,
-            "family": bp.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+            "family": bp.candidate.family or bp.candidate.title.split("variant")[0].replace("PV ", "").strip(),
         }
         report["robustness_profile"] = {
             k: v for k, v in bp.robustness_profile.items() if k != "sweep_data"
@@ -1167,7 +1169,7 @@ def run_pv_benchmark(
             "title": alt.candidate.title,
             "score": alt.evaluation.final_score,
             "stc_metrics": alt.experiment_metrics,
-            "family": alt.candidate.title.split("variant")[0].replace("PV ", "").strip(),
+            "family": alt.candidate.family or alt.candidate.title.split("variant")[0].replace("PV ", "").strip(),
         }
         report["promotion_decision"] = "alternate_only"
 

@@ -1,7 +1,7 @@
 """Domain-specific optimization loop contracts.
 
 Minimal reusable models for narrow-domain scientific optimization loops.
-First domain: PV I-V characterization. Future: battery, DC-DC.
+Current benchmark domains: PV I-V characterization, battery ECM + cycle.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .models import new_id
 
@@ -32,6 +32,19 @@ class MetricSpec(BaseModel):
     upper_bound: Optional[float] = None
     higher_is_better: bool = True
     is_primary: bool = False
+
+    @model_validator(mode="after")
+    def _check_bounds(self):
+        if (
+            self.lower_bound is not None
+            and self.upper_bound is not None
+            and self.lower_bound > self.upper_bound
+        ):
+            raise ValueError(
+                f"MetricSpec '{self.name}': lower_bound ({self.lower_bound}) "
+                f"> upper_bound ({self.upper_bound})"
+            )
+        return self
 
 
 class DomainSpec(BaseModel):
@@ -81,6 +94,7 @@ class CandidateSpec(BaseModel):
     run_id: str = ""
     title: str
     description: str = ""
+    family: str = ""  # grouping tag (e.g. "reduced_series_resistance")
     parameters: dict = Field(default_factory=dict)
     rationale: str = ""
     source: str = "generated"  # "generated", "literature", "perturbation"

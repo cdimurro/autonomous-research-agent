@@ -977,6 +977,13 @@ def init_db(db_path: Optional[str] = None, in_memory: bool = False) -> sqlite3.C
     except Exception:
         pass  # Column already exists — idempotent
 
+    # CC-BE-2421: add family column to bt_domain_candidates
+    try:
+        db.execute("ALTER TABLE bt_domain_candidates ADD COLUMN family TEXT NOT NULL DEFAULT ''")
+        db.commit()
+    except Exception:
+        pass  # Column already exists — idempotent
+
     return db
 
 
@@ -2117,11 +2124,11 @@ class Repository:
     def save_domain_candidate(self, c: CandidateSpec) -> None:
         self.db.execute(
             """INSERT OR REPLACE INTO bt_domain_candidates
-               (id, domain_name, run_id, title, description, parameters,
+               (id, domain_name, run_id, title, description, family, parameters,
                 rationale, source, parent_id, status, rejection_reason, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (c.id, c.domain_name, c.run_id, c.title, c.description,
-             json.dumps(c.parameters), c.rationale, c.source,
+             c.family, json.dumps(c.parameters), c.rationale, c.source,
              c.parent_id, c.status.value, c.rejection_reason,
              _iso(c.created_at)),
         )

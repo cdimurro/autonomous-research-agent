@@ -2123,7 +2123,7 @@ def _cmd_battery(repo: Repository, args):
         print()
         for i, c in enumerate(candidates):
             print(f"  {i+1}. {c.title}")
-            print(f"     Family: {c.title.split('variant')[0].replace('Battery ', '').strip()}")
+            print(f"     Family: {c.family or c.title.split('variant')[0].replace('Battery ', '').strip()}")
             print(f"     Rationale: {c.rationale}")
             changed = []
             from .battery_domain import DEFAULT_CELL_PARAMS as BAT_DEFAULTS
