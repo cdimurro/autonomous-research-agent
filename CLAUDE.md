@@ -108,7 +108,7 @@ The current direction of the repository is:
 | Domain | Module | Status |
 |--------|--------|--------|
 | PV I-V Characterization (`pv_iv`) | `pv_domain.py`, `pv_loop.py` | Complete — pvlib single-diode, 5 metrics, 4 templates, 6 families |
-| Battery ECM + Cycle (`battery_ecm`) | `battery_domain.py`, `battery_loop.py` | Complete (v2) — Thevenin 1RC, 9 metrics, 8 templates, 7 families, fast-charge and degradation-aware |
+| Battery ECM + Cycle (`battery_ecm`) | `battery_domain.py`, `battery_loop.py`, `battery_sidecar.py` | Complete (v2+sidecar+cathode) — Thevenin 1RC + PyBaMM DFN sidecar, 9 metrics, 9 templates, 11 families (7 ECM + 4 cathode), fast-charge/degradation/cathode-thermal-aware |
 
 ### Planned domain order
 1. PV (complete)

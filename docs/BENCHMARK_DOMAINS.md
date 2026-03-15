@@ -28,11 +28,14 @@ benchmark report.
   - *Primary:* discharge_capacity, coulombic_efficiency, internal_resistance,
     capacity_retention, fade_rate, fast_charge_retention
   - *Secondary:* energy_efficiency, rate_capability, resistance_growth_pct
-- **Templates (8):** baseline_cycle, cycle_aging, crate_sweep, pulse_resistance,
+- **Templates (9):** baseline_cycle, cycle_aging, crate_sweep, pulse_resistance,
   thermal_sensitivity, fast_charge_stress, thermal_stress_aging,
-  repeated_fast_charge_stress (3C/30-cycle with resistance tracking)
-- **Families (7):** reduced_resistance, improved_capacity, reduced_fade,
-  improved_efficiency, combined_moderate, rate_optimized, bounded_aggressive
+  repeated_fast_charge_stress (3C/30-cycle with resistance tracking),
+  cathode_thermal_stability (2C/55C/15-cycle, targets high-Ni thermal failure)
+- **Families (11):** reduced_resistance, improved_capacity, reduced_fade,
+  improved_efficiency, combined_moderate, rate_optimized, bounded_aggressive,
+  cathode_high_ni (NMC-811, literature-backed), cathode_lfp (LFP, literature-backed),
+  cathode_lmfp (LMFP, heuristic), cathode_nmc532 (NMC-532, literature-backed)
 - **Tradeoff penalties:** improved_capacity incurs fade penalty; reduced_fade incurs R1 penalty
 - **Cross-parameter plausibility:** 7 checks reject physically contradictory combinations
 - **Reference:** benchmark_nmc_21700_3200mah (held-out commercial NMC 21700);

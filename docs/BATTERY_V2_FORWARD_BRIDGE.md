@@ -8,15 +8,21 @@ The current battery benchmark (v2) is a hardened ECM-based loop with
 fast-charge and degradation awareness. The next stage of battery work
 could deepen the domain in several directions:
 
-### 1. Cathode-Focused Candidate Generation
+### 1. Cathode-Focused Candidate Generation — IMPLEMENTED
 
-Generate candidates that vary cathode chemistry parameters (Ni:Mn:Co ratio,
-grain size, coating thickness) rather than only circuit-model parameters.
-This would require a mapping from chemistry to ECM parameters, either via
-lookup tables from published data or via a lightweight surrogate model.
+Four cathode-focused candidate families with chemistry-anchored generation:
 
-**Why deferred:** Requires validated chemistry-to-ECM mappings. Current
-ECM is sufficient for benchmark discipline.
+- `cathode_high_ni` (NMC-811/NCA) — literature-backed (Chen2020)
+- `cathode_lfp` (LFP) — literature-backed (Prada2013)
+- `cathode_lmfp` (LMFP) — heuristic (CATL M3P data)
+- `cathode_nmc532` (NMC-532) — literature-backed (OKane2022)
+
+Each profile carries `profile_source`, `profile_confidence`, and
+`pybamm_parameter_set` metadata. Chemistry-specific base params are
+used instead of DEFAULT_CELL_PARAMS, with perturbations on top.
+
+New experiment template: `cathode_thermal_stability` (2C/55C, 15 cycles)
+targeting high-Ni thermal failure mode. Included in robustness profile.
 
 ### 2. Richer Solver Path
 
