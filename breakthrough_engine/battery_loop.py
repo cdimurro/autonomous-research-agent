@@ -238,9 +238,12 @@ CANDIDATE_FAMILIES = [
                      "but lower energy density and higher impedance. "
                      "Grounded in PyBaMM Prada2013 + A123 ANR26650 datasheet",
         "perturbations": {
-            "capacity_ah": (-0.5, -0.3),
+            # CC-BE-2471: explore both resistance improvement and degradation
+            # relative to LFP base (R0=42). Some candidates should demonstrate
+            # R&D-grade impedance reduction achievable with electrolyte/coating work.
+            "capacity_ah": (-0.3, 0.1),
             "fade_rate_per_cycle": (-0.0003, -0.0001),
-            "R0_mohm": (5.0, 15.0),
+            "R0_mohm": (-8.0, 6.0),
         },
         "tradeoff_risk": "LFP has inherently lower energy density; high impedance "
                          "limits fast-charge capability; poor rate capability at "
@@ -253,9 +256,10 @@ CANDIDATE_FAMILIES = [
                      "higher voltage from Mn redox without Ni instability. "
                      "Based on CATL M3P press data; limited peer-reviewed data",
         "perturbations": {
-            "capacity_ah": (-0.3, -0.1),
-            "fade_rate_per_cycle": (-0.0002, -0.0001),
-            "R0_mohm": (3.0, 8.0),
+            # CC-BE-2471: explore LMFP variants with improved impedance
+            "capacity_ah": (-0.2, 0.1),
+            "fade_rate_per_cycle": (-0.0002, -0.00005),
+            "R0_mohm": (-6.0, 4.0),
         },
         "tradeoff_risk": "LMFP is less proven than LFP or NMC; Mn dissolution "
                          "may cause long-term fade; limited published cycling data",
@@ -267,9 +271,10 @@ CANDIDATE_FAMILIES = [
                      "cycle life than NMC-622/811 at modest capacity tradeoff. "
                      "Grounded in OKane2022 (PyBaMM) adapted for 532 stoichiometry",
         "perturbations": {
-            "capacity_ah": (-0.2, 0.0),
+            # CC-BE-2471: explore NMC-532 variants including impedance improvements
+            "capacity_ah": (-0.1, 0.1),
             "fade_rate_per_cycle": (-0.00015, -0.00005),
-            "R0_mohm": (2.0, 5.0),
+            "R0_mohm": (-5.0, 3.0),
         },
         "tradeoff_risk": "Lower energy density than high-Ni alternatives; "
                          "may not meet aggressive capacity targets; "
@@ -684,6 +689,24 @@ def generate_battery_candidates(
         candidates.append(candidate)
 
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# Chemistry detection (CC-BE-2471)
+# ---------------------------------------------------------------------------
+
+# Map cathode family names to CATHODE_ECM_PROFILES keys
+_FAMILY_TO_CHEMISTRY = {
+    "cathode_high_ni": "NMC_811",
+    "cathode_lfp": "LFP",
+    "cathode_lmfp": "LMFP",
+    "cathode_nmc532": "NMC_532",
+}
+
+
+def _candidate_chemistry_key(candidate: CandidateSpec) -> Optional[str]:
+    """Return the CATHODE_ECM_PROFILES key for a cathode candidate, or None."""
+    return _FAMILY_TO_CHEMISTRY.get(candidate.family)
 
 
 # ---------------------------------------------------------------------------
@@ -1281,6 +1304,15 @@ class BatteryOptimizationLoop:
         baseline_result = run_experiment("baseline_cycle", self.base_params)
         baseline_metrics = baseline_result.metrics
 
+        # 1b. Pre-compute chemistry-specific baselines for cathode families
+        # (CC-BE-2471: cathode candidates are scored against their own chemistry
+        # baseline, not the generic NMC baseline, so resistance/capacity
+        # improvements are measured relative to the chemistry's starting point)
+        self._cathode_baselines: dict[str, dict] = {}
+        for chem_key, profile in CATHODE_ECM_PROFILES.items():
+            chem_baseline = run_experiment("baseline_cycle", profile["base_params"])
+            self._cathode_baselines[chem_key] = chem_baseline.metrics
+
         # 2. Generate candidates
         logger.info("Generating %d battery candidates...", self.n_candidates)
         candidates = generate_battery_candidates(
@@ -1488,12 +1520,19 @@ class BatteryOptimizationLoop:
                 decision=decision, experiment_metrics={},
             )
 
+        # Resolve scoring baseline: cathode families use chemistry-specific
+        # baselines (CC-BE-2471) so improvements are measured fairly
+        scoring_baseline = baseline_metrics
+        chem_key = _candidate_chemistry_key(candidate)
+        if chem_key and hasattr(self, "_cathode_baselines") and chem_key in self._cathode_baselines:
+            scoring_baseline = self._cathode_baselines[chem_key]
+
         # Run robustness profile (aging + C-rate + thermal)
-        robustness = compute_robustness_profile(candidate.parameters, baseline_metrics)
+        robustness = compute_robustness_profile(candidate.parameters, scoring_baseline)
 
         # Score
         eval_result = score_battery_candidate(
-            cycle_result.metrics, baseline_metrics,
+            cycle_result.metrics, scoring_baseline,
             robustness_profile=robustness,
         )
         eval_result.candidate_id = candidate.id
