@@ -1,0 +1,350 @@
+{
+  "generated_at": "2026-03-15T22:45:00Z",
+  "git_branch": "battery-loop-hardening",
+  "git_commit": "f8fd99c",
+  "battery_campaign": {
+    "total_runs": 46,
+    "successful_runs": 45,
+    "briefs_generated": 45,
+    "errors": 1,
+    "promotion_rate": 1.0,
+    "score_stats": {
+      "min": 0.7195,
+      "max": 0.8612,
+      "mean": 0.8258
+    },
+    "family_distribution": {
+      "bounded_aggressive": 16,
+      "rate_optimized": 15,
+      "reduced_resistance": 7,
+      "improved_efficiency": 3,
+      "combined_moderate": 4
+    },
+    "confidence_tiers": {
+      "standard": 17,
+      "high": 28
+    },
+    "sidecar_gate_distribution": {
+      "not_verified": 17,
+      "confirmed": 28
+    },
+    "headline_uniqueness_ratio": 0.933,
+    "why_promising_patterns": {
+      "Strongest scoring components: robustness (1.00), plausibility_penalty (1.00), rate_capability (1.00).": 29,
+      "Strongest scoring components: resistance_improvement (1.00), plausibility_penalty (1.00), rate_capability (1.00).": 8,
+      "Strongest scoring components: resistance_improvement (1.00), robustness (1.00), plausibility_penalty (1.00).": 5,
+      "Strongest scoring components: plausibility_penalty (1.00), rate_capability (1.00), resistance_improvement (0.97).": 1,
+      "Strongest scoring components: plausibility_penalty (1.00), rate_capability (1.00), stress_resilience (0.95).": 1,
+      "Strongest scoring components: plausibility_penalty (1.00), rate_capability (1.00), robustness (0.99).": 1
+    },
+    "top_caveats": {
+      "Gain concentrated in robustness (score=1.00)": 29,
+      "Weakness in fade_improvement (score=0.28)": 22,
+      "Tradeoff risk (bounded_aggressive): Simultaneously achieving all three is rare; likely requires advanced manufacturing (tab-less + high-Ni + premium electrolyte); fast-charge stress performance unverified": 16,
+      "Tradeoff risk (rate_optimized): Low-impedance design may sacrifice energy density; thermal management becomes critical at high rates; capacity tradeoff may not justify rate improvement": 15,
+      "Gain concentrated in resistance_improvement (score=1.00)": 13,
+      "Tradeoff risk (reduced_resistance): Lower R0 may indicate thinner separator \u2192 safety concern; fast-charge fade may worsen if heat dissipation changes": 7,
+      "Tradeoff risk (combined_moderate): Multi-lever changes harder to attribute; interaction effects possible; combined benefit may not survive fast-charge stress": 4,
+      "Weakness in resistance_improvement (score=0.17)": 3,
+      "Tradeoff risk (improved_efficiency): Marginal CE gains may not survive high-temperature operation; gains observed at 25C may vanish at elevated temperatures": 3,
+      "Gain concentrated in plausibility_penalty (score=1.00)": 3
+    },
+    "recommended_action_patterns": {
+      "Run PyBaMM sidecar verification to increase confidence before promotion.": 17,
+      "Candidate is ready for deeper experimental validation or engineering review.": 28
+    },
+    "mode_breakdown": {
+      "ecm_only": {
+        "runs": 17,
+        "promoted": 17,
+        "promotion_rate": 1.0,
+        "families": {
+          "bounded_aggressive": 6,
+          "rate_optimized": 4,
+          "reduced_resistance": 3,
+          "improved_efficiency": 2,
+          "combined_moderate": 2
+        },
+        "mean_score": 0.8171
+      },
+      "ecm_mock_sidecar": {
+        "runs": 18,
+        "promoted": 18,
+        "promotion_rate": 1.0,
+        "families": {
+          "reduced_resistance": 4,
+          "bounded_aggressive": 5,
+          "rate_optimized": 7,
+          "combined_moderate": 1,
+          "improved_efficiency": 1
+        },
+        "mean_score": 0.8298
+      },
+      "cathode_mock": {
+        "runs": 10,
+        "promoted": 10,
+        "promotion_rate": 1.0,
+        "families": {
+          "bounded_aggressive": 5,
+          "rate_optimized": 4,
+          "combined_moderate": 1
+        },
+        "mean_score": 0.8335
+      }
+    }
+  },
+  "sidecar_stability": {
+    "health": {
+      "available": true,
+      "python_version": "Python 3.11.15",
+      "pybamm_version": "25.12.2",
+      "parameter_set_ok": true,
+      "runner_ok": true,
+      "error": null
+    },
+    "total_candidates": 42,
+    "total_verified": 42,
+    "total_errors": 0,
+    "success_rate": 0.929,
+    "concordance_stats": {
+      "min": 0.5414,
+      "max": 0.7799,
+      "mean": 0.7327
+    },
+    "duration_stats": {
+      "min": 1.19,
+      "max": 1.92,
+      "mean": 1.49
+    },
+    "gate_distribution": {
+      "caveat": 7,
+      "confirmed": 32,
+      "not_verified": 3
+    },
+    "family_stats": {
+      "reduced_resistance": {
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "mean_concordance": 0.7754,
+        "min_concordance": 0.7754,
+        "max_concordance": 0.7754,
+        "gate_distribution": {
+          "confirmed": 2
+        }
+      },
+      "improved_efficiency": {
+        "total": 6,
+        "succeeded": 6,
+        "failed": 0,
+        "mean_concordance": 0.7753,
+        "min_concordance": 0.7753,
+        "max_concordance": 0.7753,
+        "gate_distribution": {
+          "confirmed": 6
+        }
+      },
+      "cathode_nmc532": {
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "mean_concordance": 0.7481,
+        "min_concordance": 0.7481,
+        "max_concordance": 0.7481,
+        "gate_distribution": {
+          "confirmed": 1
+        }
+      },
+      "rate_optimized": {
+        "total": 2,
+        "succeeded": 1,
+        "failed": 1,
+        "mean_concordance": 0.7751,
+        "min_concordance": 0.7751,
+        "max_concordance": 0.7751,
+        "gate_distribution": {
+          "not_verified": 1,
+          "confirmed": 1
+        }
+      },
+      "cathode_lmfp": {
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "mean_concordance": 0.7019,
+        "min_concordance": 0.6962,
+        "max_concordance": 0.7076,
+        "gate_distribution": {
+          "confirmed": 2
+        }
+      },
+      "combined_moderate": {
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "mean_concordance": 0.7754,
+        "min_concordance": 0.7754,
+        "max_concordance": 0.7754,
+        "gate_distribution": {
+          "confirmed": 2
+        }
+      },
+      "improved_capacity": {
+        "total": 5,
+        "succeeded": 5,
+        "failed": 0,
+        "mean_concordance": 0.7764,
+        "min_concordance": 0.776,
+        "max_concordance": 0.7774,
+        "gate_distribution": {
+          "confirmed": 5
+        }
+      },
+      "bounded_aggressive": {
+        "total": 3,
+        "succeeded": 3,
+        "failed": 0,
+        "mean_concordance": 0.7767,
+        "min_concordance": 0.7765,
+        "max_concordance": 0.777,
+        "gate_distribution": {
+          "confirmed": 3
+        }
+      },
+      "cathode_high_ni": {
+        "total": 6,
+        "succeeded": 6,
+        "failed": 0,
+        "mean_concordance": 0.7799,
+        "min_concordance": 0.7797,
+        "max_concordance": 0.7799,
+        "gate_distribution": {
+          "confirmed": 6
+        }
+      },
+      "reduced_fade": {
+        "total": 4,
+        "succeeded": 4,
+        "failed": 0,
+        "mean_concordance": 0.7753,
+        "min_concordance": 0.7753,
+        "max_concordance": 0.7753,
+        "gate_distribution": {
+          "confirmed": 4
+        }
+      },
+      "cathode_lfp": {
+        "total": 9,
+        "succeeded": 7,
+        "failed": 2,
+        "mean_concordance": 0.5575,
+        "min_concordance": 0.5414,
+        "max_concordance": 0.5729,
+        "gate_distribution": {
+          "caveat": 7,
+          "not_verified": 2
+        }
+      }
+    },
+    "error_families": [
+      "cathode_lfp",
+      "cathode_lfp",
+      "rate_optimized"
+    ],
+    "error_cause": "Sundials solver convergence failure in PyBaMM DFN"
+  },
+  "pv_baseline": {
+    "seeds_tested": [
+      42,
+      87,
+      137,
+      200,
+      300
+    ],
+    "results": [
+      {
+        "seed": 42,
+        "best_family": "bounded_aggressive",
+        "best_score": 0.7248,
+        "best_pmax": 296.0,
+        "reference_envelope": true,
+        "promotion_decision": "promoted"
+      },
+      {
+        "seed": 87,
+        "best_family": "bounded_aggressive",
+        "best_score": 0.6978,
+        "best_pmax": 291.9,
+        "reference_envelope": true,
+        "promotion_decision": "promoted"
+      },
+      {
+        "seed": 137,
+        "best_family": "bounded_aggressive",
+        "best_score": 0.7264,
+        "best_pmax": 296.5,
+        "reference_envelope": true,
+        "promotion_decision": "promoted"
+      },
+      {
+        "seed": 200,
+        "best_family": "bounded_aggressive",
+        "best_score": 0.7515,
+        "best_pmax": 299.1,
+        "reference_envelope": true,
+        "promotion_decision": "promoted"
+      },
+      {
+        "seed": 300,
+        "best_family": "bounded_aggressive",
+        "best_score": 0.7382,
+        "best_pmax": 296.6,
+        "reference_envelope": true,
+        "promotion_decision": "promoted"
+      }
+    ],
+    "all_promoted": true,
+    "all_reference_envelope_pass": true,
+    "dominant_family": "bounded_aggressive",
+    "score_range": [
+      0.6978,
+      0.7515
+    ],
+    "regression_detected": false
+  },
+  "findings": {
+    "battery_promotion_rate_too_high": "100% promotion rate across 45 runs indicates insufficient selectivity",
+    "family_concentration": "69% of promotions from 2 families (bounded_aggressive + rate_optimized)",
+    "cathode_families_never_promoted": "All 4 cathode families absent from promotions despite generation",
+    "brief_text_repetitive": "64% of briefs share identical why_promising text",
+    "sidecar_operationally_stable": "92.9% success, 0 timeouts, avg 1.49s runtime",
+    "lfp_systematic_weakness": "LFP caveat-only concordance (0.54-0.57) + 2/9 solver errors",
+    "pv_stable_no_regressions": "All 5 seeds pass, deterministic, no drift",
+    "pv_family_concentration_mirrors_battery": "bounded_aggressive wins 100% of PV runs too"
+  },
+  "recommended_next_focus": {
+    "phase": "battery-loop-hardening",
+    "rationale": "Infrastructure stable; bottleneck is candidate diversity and promotion selectivity",
+    "actions": [
+      "Analyze why cathode families never win (scoring disadvantage analysis)",
+      "Raise promotion threshold from 0.55 to 0.65-0.70",
+      "Diversify brief text generation (parameter-specific language)",
+      "Consider family-aware promotion diversity",
+      "Investigate shared family concentration issue in PV"
+    ],
+    "deferred": [
+      "DC-DC domain 3 (fix loop diversity first)",
+      "LFP sidecar tuning (cathode not promoted anyway)",
+      "UI/workspace improvements (infrastructure stable)"
+    ]
+  },
+  "known_limitations": [
+    "Mock sidecar used for campaign (28 confirmed briefs are mock-confirmed)",
+    "No live sidecar campaign (covered by separate stability sweep)",
+    "Seed 115 no-promotion not deeply analyzed",
+    "Chemistry field not propagated in sidecar sweep",
+    "PV only tested at 6 candidates per run",
+    "No live sidecar winner-change test",
+    "Eval scripts are one-off tools, not part of test suite"
+  ]
+}
