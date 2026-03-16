@@ -586,7 +586,17 @@ def _select_families_weighted(
     n: int,
     rng: random.Random,
 ) -> list[dict]:
-    """Select n families using weighted sampling."""
+    """Select n families using weighted sampling with diversity controls.
+
+    CC-BE-2472: Ensures no single family appears more than MAX_FAMILY_REPEAT
+    times per run, and at least MIN_DISTINCT families are represented.
+    This prevents runs dominated by one family while still respecting
+    memory-guided preferences.
+    """
+    # Scale repeat cap: for small n (6-8) cap at 2; for large n allow more
+    MAX_FAMILY_REPEAT = max(2, n // len(families) + 1) if families else 2
+    MIN_DISTINCT = min(3, n, len(families))
+
     available = list(families)
     w = [weights.get(f["family"], 1.0) for f in available]
     total_w = sum(w)
@@ -594,16 +604,60 @@ def _select_families_weighted(
         return [available[i % len(available)] for i in range(n)]
 
     selected = []
+    family_counts: dict[str, int] = {}
+
     for _ in range(n):
-        r = rng.random() * total_w
+        # Compute available weights (zero out maxed-out families)
+        adj_w = []
+        for idx, f in enumerate(available):
+            fam = f["family"]
+            if family_counts.get(fam, 0) >= MAX_FAMILY_REPEAT:
+                adj_w.append(0.0)
+            else:
+                adj_w.append(w[idx])
+
+        adj_total = sum(adj_w)
+        if adj_total <= 0:
+            # All families maxed — pick least-used
+            for f in available:
+                if f["family"] not in family_counts:
+                    selected.append(f)
+                    family_counts[f["family"]] = 1
+                    break
+            else:
+                selected.append(rng.choice(available))
+            continue
+
+        r = rng.random() * adj_total
         cumulative = 0.0
-        for idx, fw in enumerate(w):
+        for idx, fw in enumerate(adj_w):
             cumulative += fw
             if r <= cumulative:
-                selected.append(available[idx])
+                chosen = available[idx]
+                selected.append(chosen)
+                family_counts[chosen["family"]] = family_counts.get(chosen["family"], 0) + 1
                 break
         else:
             selected.append(available[-1])
+            family_counts[available[-1]["family"]] = family_counts.get(available[-1]["family"], 0) + 1
+
+    # Enforce MIN_DISTINCT: if too few families, swap last picks for under-represented ones
+    distinct = len(set(s["family"] for s in selected))
+    if distinct < MIN_DISTINCT and len(selected) >= MIN_DISTINCT:
+        present = {s["family"] for s in selected}
+        absent = [f for f in available if f["family"] not in present and w[available.index(f)] > 0]
+        rng.shuffle(absent)
+        # Replace duplicate entries from the end
+        for replacement in absent:
+            if distinct >= MIN_DISTINCT:
+                break
+            # Find last duplicate to replace
+            for i in range(len(selected) - 1, -1, -1):
+                fam = selected[i]["family"]
+                if sum(1 for s in selected if s["family"] == fam) > 1:
+                    selected[i] = replacement
+                    distinct += 1
+                    break
 
     return selected
 
