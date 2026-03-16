@@ -1,0 +1,154 @@
+{
+  "generated_at": "2026-03-15T23:30:00Z",
+  "git_branch": "battery-loop-hardening",
+  "batch": "battery-loop-hardening-v2",
+  "contracts": [
+    "CC-BE-2470",
+    "CC-BE-2471",
+    "CC-BE-2472",
+    "CC-BE-2473",
+    "CC-BE-2474"
+  ],
+  "before_after": {
+    "promotion_rate": {
+      "before": "97.8% (45/46)",
+      "after": "67.4% (31/46)"
+    },
+    "families_winning": {
+      "before": 5,
+      "after": 6
+    },
+    "cathode_promotions": {
+      "before": "0 (0%)",
+      "after": "10 (32%)"
+    },
+    "bounded_aggressive_share": {
+      "before": "35.6%",
+      "after": "38.7%"
+    },
+    "headline_uniqueness": {
+      "before": "93.3%",
+      "after": "100%"
+    },
+    "why_promising_uniqueness": {
+      "before": "36% (6 patterns)",
+      "after": "94% (29 unique)"
+    },
+    "score_mean": {
+      "before": 0.826,
+      "after": 0.849
+    },
+    "score_min": {
+      "before": 0.72,
+      "after": 0.841
+    }
+  },
+  "post_hardening_campaign": {
+    "total_runs": 46,
+    "successful_runs": 31,
+    "errors": 15,
+    "briefs_generated": 31,
+    "promotion_rate_actual": 0.674,
+    "family_distribution": {
+      "cathode_lfp": 5,
+      "bounded_aggressive": 12,
+      "cathode_nmc532": 4,
+      "rate_optimized": 6,
+      "reduced_resistance": 3,
+      "cathode_lmfp": 1
+    },
+    "score_stats": {
+      "min": 0.8406,
+      "max": 0.8652,
+      "mean": 0.849
+    },
+    "headline_uniqueness_ratio": 1.0,
+    "confidence_tiers": {
+      "standard": 13,
+      "high": 17,
+      "low": 1
+    },
+    "mode_breakdown": {
+      "ecm_only": {
+        "runs": 13,
+        "promoted": 13,
+        "promotion_rate": 1.0,
+        "families": {
+          "cathode_lfp": 3,
+          "bounded_aggressive": 1,
+          "cathode_nmc532": 2,
+          "rate_optimized": 5,
+          "reduced_resistance": 2
+        },
+        "mean_score": 0.8448
+      },
+      "ecm_mock_sidecar": {
+        "runs": 11,
+        "promoted": 11,
+        "promotion_rate": 1.0,
+        "families": {
+          "cathode_nmc532": 1,
+          "cathode_lfp": 1,
+          "bounded_aggressive": 6,
+          "reduced_resistance": 1,
+          "cathode_lmfp": 1,
+          "rate_optimized": 1
+        },
+        "mean_score": 0.8505
+      },
+      "cathode_mock": {
+        "runs": 7,
+        "promoted": 7,
+        "promotion_rate": 1.0,
+        "families": {
+          "bounded_aggressive": 5,
+          "cathode_nmc532": 1,
+          "cathode_lfp": 1
+        },
+        "mean_score": 0.8545
+      }
+    },
+    "top_caveats": {
+      "Gain concentrated in robustness (score=1.00)": 14,
+      "Tradeoff risk (bounded_aggressive): Simultaneously achieving all three is rare; likely requires advanced manufacturing (tab-less + high-Ni + premium electrolyte); fast-charge stress performance unverified": 12,
+      "Gain concentrated in fade_improvement (score=1.00)": 9,
+      "Weakness in fade_improvement (score=0.28)": 9,
+      "Gain concentrated in resistance_improvement (score=1.00)": 8
+    },
+    "why_promising_unique_count": 10
+  },
+  "changes_made": {
+    "CC-BE-2470": {
+      "threshold": "0.55 -> 0.84",
+      "stress_gate": "0.40 -> 0.60",
+      "regime_min_floor": "0.15 -> 0.20",
+      "baseline_margin": 0.08
+    },
+    "CC-BE-2471": {
+      "chemistry_specific_baselines": true,
+      "cathode_perturbation_bidirectional": true,
+      "families_fixed": [
+        "cathode_lfp",
+        "cathode_lmfp",
+        "cathode_nmc532"
+      ]
+    },
+    "CC-BE-2472": {
+      "max_family_repeat_per_run": 2,
+      "min_distinct_families": 3
+    },
+    "CC-BE-2473": {
+      "headline_includes_physics": true,
+      "why_promising_uses_values": true,
+      "score_summary_shows_dimensions": true
+    }
+  },
+  "recommended_next_focus": "DC-DC as domain 3",
+  "known_limitations": [
+    "Score compression: promoted scores in tight 0.84-0.87 band",
+    "bounded_aggressive still leads at 39%",
+    "combined_moderate and improved_efficiency eliminated by threshold",
+    "cathode_high_ni underperforms with chemistry-specific baseline",
+    "Campaign script errors on no-promotion runs"
+  ]
+}
