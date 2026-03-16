@@ -262,39 +262,105 @@ def _generate_headline(
     family: str, score: float, chemistry: Optional[str],
     metrics: dict, baseline: dict,
 ) -> str:
+    """CC-BE-2473: headline includes key physical change, not just score."""
     cap = metrics.get("discharge_capacity", 0)
     base_cap = baseline.get("discharge_capacity", 0)
     cap_delta = ((cap - base_cap) / base_cap * 100) if base_cap > 0 else 0
 
+    r_cand = metrics.get("internal_resistance", 0)
+    r_base = baseline.get("internal_resistance", 0)
+    r_delta = ((r_base - r_cand) / r_base * 100) if r_base > 0 else 0
+
     chem_label = f" ({chemistry})" if chemistry else ""
+
+    # Lead with the most notable physical change
+    changes = []
+    if abs(cap_delta) >= 1.0:
+        changes.append(f"{cap_delta:+.1f}% capacity")
+    if abs(r_delta) >= 3.0:
+        changes.append(f"{r_delta:+.0f}% resistance")
+
+    change_str = ", ".join(changes) if changes else "incremental changes"
     return (
-        f"{family}{chem_label} candidate scored {score:.3f} with "
-        f"{cap_delta:+.1f}% capacity change vs baseline."
+        f"{family}{chem_label}: {change_str} vs baseline (score {score:.3f})."
     )
 
 
 def _generate_why_promising(
     components: dict, metrics: dict, baseline: dict, stress: dict,
 ) -> str:
-    strengths = sorted(components.items(), key=lambda x: x[1], reverse=True)[:3]
+    """CC-BE-2473: explain why using physical facts, not just component names.
+
+    Instead of listing top-3 score components (which are often the same
+    near-1.0 values), describe what physically changed and what tradeoff
+    is being made.
+    """
     parts = []
-    for comp, val in strengths:
-        if val > 0.5:
-            parts.append(f"{comp} ({val:.2f})")
+
+    # Resistance change
+    r_cand = metrics.get("internal_resistance", 0)
+    r_base = baseline.get("internal_resistance", 0)
+    if r_base > 0 and r_cand > 0:
+        r_pct = (r_base - r_cand) / r_base * 100
+        if r_pct > 15:
+            parts.append(f"Major resistance reduction ({r_pct:.0f}%, {r_cand:.1f} vs {r_base:.1f} mOhm)")
+        elif r_pct > 5:
+            parts.append(f"Moderate resistance reduction ({r_pct:.0f}%)")
+        elif r_pct < -5:
+            parts.append(f"Resistance tradeoff ({r_pct:+.0f}%) accepted for other gains")
+
+    # Capacity change
+    cap = metrics.get("discharge_capacity", 0)
+    base_cap = baseline.get("discharge_capacity", 0)
+    if base_cap > 0 and cap > 0:
+        cap_pct = (cap - base_cap) / base_cap * 100
+        if cap_pct > 5:
+            parts.append(f"Capacity gain ({cap_pct:+.1f}%, {cap:.2f} vs {base_cap:.2f} Ah)")
+        elif cap_pct < -3:
+            parts.append(f"Capacity tradeoff ({cap_pct:+.1f}%) for improved durability or rate")
+
+    # Fade improvement (from components)
+    fade_score = components.get("fade_improvement", 0.5)
+    if fade_score > 0.7:
+        parts.append("Strong fade improvement — better long-term capacity retention")
+    elif fade_score < 0.2:
+        parts.append("Fade performance is a weakness for this candidate")
+
+    # Stress resilience
+    stress_score = components.get("stress_resilience", 0.5)
+    if stress_score > 0.9:
+        wsr = stress.get("worst_stress_retention", 0)
+        if wsr > 0:
+            parts.append(f"Excellent stress resilience (worst-case retention {wsr:.1f}%)")
+    elif stress_score < 0.5:
+        parts.append("Stress resilience is below average")
+
     if not parts:
-        return "No standout strengths identified."
-    return f"Strongest scoring components: {', '.join(parts)}."
+        return "Incremental improvement across multiple dimensions without a single standout gain."
+    return " ".join(f"{p}." for p in parts)
 
 
 def _generate_score_summary(score: float, components: dict) -> str:
-    if score >= 0.7:
+    """CC-BE-2473: include discriminating components, not just tier."""
+    if score >= 0.84:
         tier = "Strong"
-    elif score >= 0.55:
+    elif score >= 0.75:
         tier = "Above threshold"
+    elif score >= 0.65:
+        tier = "Moderate"
     else:
         tier = "Below threshold"
-    n_above_half = sum(1 for v in components.values() if v > 0.5)
-    return f"{tier} ({score:.3f}). {n_above_half}/{len(components)} components above 0.5."
+
+    # Identify the most discriminating components (farthest from mean)
+    mean_comp = sum(components.values()) / max(len(components), 1)
+    deviations = [(k, v - mean_comp) for k, v in components.items()]
+    strongest = max(deviations, key=lambda x: x[1])
+    weakest = min(deviations, key=lambda x: x[1])
+
+    return (
+        f"{tier} ({score:.3f}). Best dimension: {strongest[0]} ({components[strongest[0]]:.2f}). "
+        f"Weakest: {weakest[0]} ({components[weakest[0]]:.2f})."
+    )
 
 
 def _generate_fast_charge_summary(
