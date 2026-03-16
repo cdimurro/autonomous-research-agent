@@ -327,7 +327,7 @@ def main(argv: list[str] | None = None):
     bat_sub = bat_p.add_subparsers(dest="battery_command")
     bat_run_p = bat_sub.add_parser("run", help="Run one battery optimization loop iteration")
     bat_run_p.add_argument("--candidates", type=int, default=6, help="Number of candidates to generate")
-    bat_run_p.add_argument("--threshold", type=float, default=0.55, help="Promotion score threshold")
+    bat_run_p.add_argument("--threshold", type=float, default=0.84, help="Promotion score threshold")
     bat_run_p.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     bat_run_p.add_argument("--no-sidecar", action="store_true", help="Disable PyBaMM sidecar verification")
     bat_run_p.add_argument("--mock-sidecar", action="store_true", help="Use mock sidecar for deterministic testing")
@@ -338,7 +338,7 @@ def main(argv: list[str] | None = None):
     bat_dry_p.add_argument("--seed", type=int, default=None, help="Random seed")
     bat_bench_p = bat_sub.add_parser("benchmark", help="Run battery benchmark with held-out realism check")
     bat_bench_p.add_argument("--candidates", type=int, default=6, help="Number of candidates")
-    bat_bench_p.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold")
+    bat_bench_p.add_argument("--threshold", type=float, default=0.84, help="Promotion threshold")
     bat_bench_p.add_argument("--seed", type=int, default=42, help="Random seed (default: 42 for reproducibility)")
     bat_bench_p.add_argument("--no-sidecar", action="store_true", help="Disable PyBaMM sidecar verification")
     bat_bench_p.add_argument("--mock-sidecar", action="store_true", help="Use mock sidecar for deterministic testing")
@@ -2166,7 +2166,7 @@ def _cmd_battery(repo: Repository, args):
     if battery_command == "run":
         from .battery_loop import BatteryOptimizationLoop
         n = getattr(args, "candidates", 6)
-        threshold = getattr(args, "threshold", 0.55)
+        threshold = getattr(args, "threshold", 0.84)
         seed = getattr(args, "seed", None)
         run_id = f"battery_run_{seed or 'auto'}"
 
@@ -2244,7 +2244,7 @@ def _cmd_battery(repo: Repository, args):
         from .battery_loop import run_battery_benchmark
 
         n = getattr(args, "candidates", 6)
-        threshold = getattr(args, "threshold", 0.55)
+        threshold = getattr(args, "threshold", 0.84)
         seed = getattr(args, "seed", 42)
         sidecar = _resolve_battery_sidecar(args)
         sidecar_label = "mock" if getattr(args, "mock_sidecar", False) else ("off" if getattr(args, "no_sidecar", False) else "auto")
